@@ -1,10 +1,11 @@
-import { Button } from "@/components/ui/button"
+import DayView from "./Day_view/DayView"
+import TimeUpdater from "./components/TimeUpdater"
 
 function App() {
-
   return (
     <>
-        <Button>Hello</Button>
+      <TimeUpdater />
+      <DayView/>
     </>
   )
 }
