@@ -1,10 +1,10 @@
-import { Button } from "@/components/ui/button"
-
+import { CalenderPreview }  from "@/CalenderPreview/CalenderPreview"
 function App() {
 
   return (
     <>
-        <Button>Hello</Button>
+        
+        <CalenderPreview />
     </>
   )
 }
