@@ -1,9 +1,9 @@
 import { useTimeStore } from "@/store/timeStore"
 import TimeLine from "./TimeLine"
+import TimeView from "./TimeView" // your click-to-add-event component
 
 const DayView = () => {
   const dateInfo = useTimeStore((state) => state.dateInfo)
-
   const hourHeight = 86 // must match TimeLine
 
   return (
@@ -23,33 +23,37 @@ const DayView = () => {
 
         {/* SCROLL AREA */}
         <div className="flex-1 overflow-y-auto">
-  <div className="bg-neutral-900 px-4 pl-13 relative">
-    <TimeLine />
-    <div className="pb-12">
-      {/* Timeline hours */}
-      {Array.from({ length: 24 }, (_, i) => {
-        const hour = i
-        return (
-          <div
-            key={hour}
-            className="flex items-center gap-3"
-            style={{ height: `${hourHeight}px` }} // exact row height
-          >
-            {/* Hour label */}
-            <span className="text-white text-2xl font-space-mono w-16 text-right ">
-              {hour.toString().padStart(2, "0")}
-              <span className="text-gray-500 text-xl">:00</span>
-            </span>
+          <div className="bg-neutral-900 px-4 pl-13 relative">
+            {/* Timeline vertical lines */}
+            <TimeLine />
 
-            {/* Horizontal line */}
-            <div className="flex-1 h-[1px] bg-neutral-600"></div>
+            <div className="pb-12 relative">
+              {/* Timeline hours */}
+              {Array.from({ length: 24 }, (_, i) => {
+                const hour = i
+                return (
+                  <div
+                    key={hour}
+                    className="flex items-center gap-3"
+                    style={{ height: `${hourHeight}px` }} // exact row height
+                  >
+                    {/* Hour label */}
+                    <span className="text-white text-2xl font-space-mono w-16 text-right ">
+                      {hour.toString().padStart(2, "0")}
+                      <span className="text-gray-500 text-xl">:00</span>
+                    </span>
+
+                    {/* Horizontal line */}
+                    <div className="flex-1 h-[1px] bg-neutral-600"></div>
+                  </div>
+                )
+              })}
+
+              {/* 🟢 TimeView overlay */}
+              <TimeView />
+            </div>
           </div>
-        )
-      })}
-    </div>
-  </div>
-</div>
-
+        </div>
       </div>
     </div>
   )
