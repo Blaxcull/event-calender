@@ -20,14 +20,14 @@ export interface EventType {
 /* ===== Smart click-to-create ===== */
 export function addEventOnClick(
   clickY: number,
-  events: EventType[]
+  events: EventType[],
+  direction: "down" | "up" = "down"
 ): EventType | null {
-
   const duration = SLOT_HEIGHT
   const hourStart = Math.floor(clickY / SLOT_HEIGHT) * SLOT_HEIGHT
   const hourEnd = hourStart + SLOT_HEIGHT
 
-  // 1️⃣ Check if that 1-hour block is clean
+  // 1️⃣ Check if that 1-hour block has events
   const hourHasOverlap = events.some(ev => {
     const evTop = ev.slot
     const evBottom = ev.slot + ev.height
@@ -36,24 +36,33 @@ export function addEventOnClick(
 
   let startY = hourStart
 
-  // 2️⃣ If hour is dirty → use gap logic
+  // 2️⃣ If hour has events → use gap logic
   if (hourHasOverlap) {
     const snappedClick = Math.round(clickY / STEP_HEIGHT) * STEP_HEIGHT
-
     const sorted = [...events].sort((a, b) => a.slot - b.slot)
 
-    let previousEnd = 0
-    for (const ev of sorted) {
-      const evEnd = ev.slot + ev.height
-      if (evEnd <= snappedClick) previousEnd = Math.max(previousEnd, evEnd)
+    if (direction === "down") {
+      // Place **below the click**
+      let previousEnd = hourStart
+      for (const ev of sorted) {
+        const evEnd = ev.slot + ev.height
+        if (evEnd <= snappedClick) previousEnd = Math.max(previousEnd, evEnd)
+      }
+      startY = previousEnd
+    } else {
+      // Place **above the click**
+      let nextEventStart = 24 * SLOT_HEIGHT
+      for (const ev of sorted) {
+        if (ev.slot >= snappedClick) nextEventStart = Math.min(nextEventStart, ev.slot)
+      }
+      startY = Math.max(hourStart, nextEventStart - duration)
     }
-
-    startY = previousEnd
   }
 
   // 3️⃣ Bounds
-  if (startY + duration > 24 * SLOT_HEIGHT) return null
+  if (startY < 0 || startY + duration > 24 * SLOT_HEIGHT) return null
 
+  // 4️⃣ Convert slot to time
   const totalMinutes = (startY / STEP_HEIGHT) * 15
   const startHour = Math.floor(totalMinutes / 60) % 24
   const startMin = totalMinutes % 60
