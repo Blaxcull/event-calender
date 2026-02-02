@@ -1,10 +1,10 @@
-import { CalenderPreview }  from "@/CalenderPreview/CalenderPreview"
+import { CalendarPreview }  from "@/CalenderPreview/CalendarPreview"
 function App() {
 
   return (
     <>
         
-        <CalenderPreview />
+        <CalendarPreview />
     </>
   )
 }

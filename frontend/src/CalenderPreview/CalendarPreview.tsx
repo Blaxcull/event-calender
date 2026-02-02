@@ -26,26 +26,26 @@ const events = [
   },
 ]
 
-export function CalenderPreview() {
+export function CalendarPreview() {
   const [date, setDate] = React.useState<Date | undefined>(
     new Date(2025, 5, 12)
   )
-  console.log(date)
 
   return (
-    <Card className="w-fit py-4">
+    <Card className="h-screen w-fit flex flex-col py-4">
+      {/* Calendar (fixed height) */}
       <CardContent className="px-4">
         <Calendar
-        
           mode="single"
           selected={date}
-          
           onSelect={setDate}
           className="bg-slate-500 text-slate-100 rounded-md"
           required
         />
       </CardContent>
-      <CardFooter className="flex flex-col items-start gap-3 border-t px-4 pt-4">
+
+      {/* Footer fills remaining height */}
+      <CardFooter className="flex flex-1 flex-col items-start gap-3 border-t px-4 pt-4 overflow-y-auto">
         <div className="flex w-full items-center justify-between px-1">
           <div className="text-sm font-medium">
             {date?.toLocaleDateString("en-US", {
@@ -54,24 +54,20 @@ export function CalenderPreview() {
               year: "numeric",
             })}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            title="Add Event"
-          >
+          <Button variant="ghost" size="icon" className="size-6">
             <PlusIcon />
             <span className="sr-only">Add Event</span>
           </Button>
         </div>
+
         <div className="flex w-full flex-col gap-2">
           {events.map((event) => (
             <div
               key={event.title}
-              className="bg-muted after:bg-primary/70 relative rounded-md p-2 pl-6 text-sm after:absolute after:inset-y-2 after:left-2 after:w-1 after:rounded-full"
+              className="relative rounded-md bg-muted p-2 pl-6 text-sm after:absolute after:inset-y-2 after:left-2 after:w-1 after:rounded-full after:bg-primary/70"
             >
               <div className="font-medium">{event.title}</div>
-              <div className="text-muted-foreground text-xs">
+              <div className="text-xs text-muted-foreground">
                 {formatDateRange(new Date(event.from), new Date(event.to))}
               </div>
             </div>
