@@ -15,6 +15,7 @@ export interface EventType {
   endMin: number
   height: number
   title: string
+
 }
 
 /* ===== Smart click-to-create ===== */
@@ -23,6 +24,7 @@ export function addEventOnClick(
   events: EventType[],
   direction: "down" | "up" = "down"
 ): EventType | null {
+
   const duration = SLOT_HEIGHT
   const hourStart = Math.floor(clickY / SLOT_HEIGHT) * SLOT_HEIGHT
   const hourEnd = hourStart + SLOT_HEIGHT
@@ -83,20 +85,65 @@ export function addEventOnClick(
 }
 
 /* ===== Drag event ===== */
+
 export function dragEvent(
   event: EventType,
-  deltaY: number
+  deltaY: number,
+  events: EventType[]
 ): EventType {
-  const snappedY = Math.max(0, Math.round(deltaY / STEP_HEIGHT) * STEP_HEIGHT)
+  const snappedY = Math.max(0, Math.round(deltaY / STEP_HEIGHT) * STEP_HEIGHT);
+  const newTop = snappedY;
+  const newBottom = snappedY + event.height;
+
+  const SHRINK_PERCENT = 0.8;
+
+  // Find overlapping events
+  const overlappingEvents = events.filter(ev => {
+    if (ev.id === event.id) return false;
+    const evTop = ev.slot;
+    const evBottom = ev.slot + ev.height;
+    return !(newBottom <= evTop || newTop >= evBottom);
+  });
+
+  // ✅ Reset all events to original full width first
+  events.forEach(ev => {
+    const el = document.getElementById(ev.id) as HTMLDivElement | null;
+    if (!el) return;
+
+    el.style.transform = "none";   // remove scale
+    el.style.left = el.style.left || `${el.offsetLeft}px`; // preserve left
+  });
+
+  // ✅ Shrink later-starting events if overlapping
+  overlappingEvents.forEach(ev => {
+    const movingEl = document.getElementById(event.id) as HTMLDivElement | null;
+    const otherEl = document.getElementById(ev.id) as HTMLDivElement | null;
+    if (!movingEl || !otherEl) return;
+
+    const eventStart = event.startHour * 60 + event.startMin;
+    const evStart = ev.startHour * 60 + ev.startMin;
+
+    let elToShrink: HTMLDivElement | null = null;
+    if (eventStart > evStart) elToShrink = movingEl;
+    else if (eventStart < evStart) elToShrink = otherEl;
+
+    if (elToShrink) {
+      elToShrink.style.transformOrigin = "right"; // shrink toward left, right edge stays
+      elToShrink.style.transform = `scaleX(${SHRINK_PERCENT})`;
+    }
+  });
+
+  // Return updated event with new slot and times
   return {
     ...event,
     slot: snappedY,
     startHour: Math.floor(snappedY / STEP_HEIGHT / 4) % 24,
-    startMin: Math.round(snappedY / STEP_HEIGHT) * 15 % 60,
+    startMin: (Math.round(snappedY / STEP_HEIGHT) * 15) % 60,
     endHour: Math.floor((snappedY + event.height) / STEP_HEIGHT / 4) % 24,
-    endMin: Math.round((snappedY + event.height) / STEP_HEIGHT) * 15 % 60,
-  }
+    endMin: (Math.round((snappedY + event.height) / STEP_HEIGHT) * 15) % 60,
+  };
 }
+
 
 /* ===== Resize event ===== */
 export function resizeEvent(

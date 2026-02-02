@@ -16,6 +16,7 @@ const CalendarEvent = memo(
       <div
         onMouseDown={onMouseDown}
         className="absolute bg-pink-500/40 rounded-md left-19 right-0 text-white text-xs pl-2 pt-1 calendar-event cursor-grab active:cursor-grabbing select-none"
+        id={event.id}
         style={{
           top: event.slot + TOP_DEAD_ZONE,
           height: event.height,
@@ -66,7 +67,7 @@ const TimeView: React.FC = () => {
       if (draggingId) {
         setEvents(prev =>
           prev.map(ev =>
-            ev.id === draggingId ? dragEvent(ev, y - dragOffsetRef.current) : ev
+            ev.id === draggingId ? dragEvent(ev, y - dragOffsetRef.current, events) : ev
           )
         )
       }
@@ -96,6 +97,9 @@ const TimeView: React.FC = () => {
       window.removeEventListener("mouseup", handleMouseUp)
     }
   }, [draggingId, resizingId])
+
+
+
 
   const handleEventClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRef.current || isResizingRef.current) return
