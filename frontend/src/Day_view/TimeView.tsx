@@ -1,6 +1,6 @@
 import React, { useState, memo, useRef, useEffect } from "react"
 import type { EventType } from '../lib/eventUtils'
-import { addEventOnClick, dragEvent, resizeEvent, TOP_DEAD_ZONE} from '../lib/eventUtils'
+import { addEventOnClick, dragEvent, resizeEvent, TOP_DEAD_ZONE, restoreEventWidths } from '../lib/eventUtils'
 
 const CalendarEvent = memo(
   ({
@@ -15,16 +15,26 @@ const CalendarEvent = memo(
     return (
       <div
         onMouseDown={onMouseDown}
-        className="absolute bg-pink-500/40 rounded-md left-19 right-0 text-white text-xs pl-2 pt-1 calendar-event cursor-grab active:cursor-grabbing select-none"
+        className="absolute bg-pink-500/40 rounded-md left-19 right-0 calendar-event cursor-grab active:cursor-grabbing select-none"
         id={event.id}
         style={{
           top: event.slot + TOP_DEAD_ZONE,
           height: event.height,
-        }}
+          transformOrigin: 'right',
+          '--event-scale': '1',
+        } as React.CSSProperties}
       >
-        <div className="font-medium">{event.title}</div>
-        <div className="text-[10px] opacity-80">
-          {`${event.startHour.toString().padStart(2,"0")}:${event.startMin.toString().padStart(2,"0")} – ${event.endHour.toString().padStart(2,"0")}:${event.endMin.toString().padStart(2,"0")}`}
+        <div 
+          className="text-white text-xs pl-2 pt-1"
+          style={{
+            transform: 'scaleX(calc(1 / var(--event-scale, 1)))',
+            transformOrigin: 'left',
+          }}
+        >
+          <div className="font-medium">{event.title}</div>
+          <div className="text-[10px] opacity-80">
+            {`${event.startHour.toString().padStart(2,"0")}:${event.startMin.toString().padStart(2,"0")} – ${event.endHour.toString().padStart(2,"0")}:${event.endMin.toString().padStart(2,"0")}`}
+          </div>
         </div>
         <div
           onMouseDown={e => onResizeStart(e, event)}
@@ -42,6 +52,12 @@ const TimeView: React.FC = () => {
   const dragOffsetRef = useRef(0)
   const isDraggingRef = useRef(false)
   const isResizingRef = useRef(false)
+  const eventsRef = useRef(events)
+  
+  // Keep eventsRef updated
+  useEffect(() => {
+    eventsRef.current = events
+  }, [events])
 
   const handleDragStart = (e: React.MouseEvent, event: EventType) => {
     e.stopPropagation()
@@ -82,6 +98,10 @@ const TimeView: React.FC = () => {
     }
 
     const handleMouseUp = () => {
+      if (draggingId || resizingId) {
+        // Restore proper widths for all events after drag/resize
+        restoreEventWidths(eventsRef.current)
+      }
       setDraggingId(null)
       setResizingId(null)
       setTimeout(() => {

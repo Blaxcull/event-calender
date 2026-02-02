@@ -29,6 +29,18 @@ export function addEventOnClick(
   const hourStart = Math.floor(clickY / SLOT_HEIGHT) * SLOT_HEIGHT
   const hourEnd = hourStart + SLOT_HEIGHT
 
+  // 0️⃣ Check if click is directly on an existing event
+  const clickedEvent = events.find(ev => {
+    const evTop = ev.slot
+    const evBottom = ev.slot + ev.height
+    return clickY >= evTop && clickY < evBottom
+  })
+  
+  if (clickedEvent) {
+    console.log(`Event clicked with id: ${clickedEvent.id}`)
+    return null
+  }
+
   // 1️⃣ Check if that 1-hour block has events
   const hourHasOverlap = events.some(ev => {
     const evTop = ev.slot
@@ -86,22 +98,6 @@ export function addEventOnClick(
 
 /* ===== Drag event ===== */
 
-function isShrunk(el: HTMLDivElement) {
-  return el.style.transform.includes("scaleX");
-}
-
-function setFullWidth(el: HTMLDivElement) {
-  el.style.width = "100%";
-  el.style.left = "0%";
-}
-
-function setHalfWidthRight(el: HTMLDivElement) {
-  el.style.width = "50%";
-  el.style.left = "50%";
-}
-
-
-
 export function dragEvent(
   event: EventType,
   deltaY: number,
@@ -110,8 +106,6 @@ export function dragEvent(
   const snappedY = Math.max(0, Math.round(deltaY / STEP_HEIGHT) * STEP_HEIGHT);
   const newTop = snappedY;
   const newBottom = snappedY + event.height;
-
-  const SHRINK_PERCENT = 0.8;
 
   // 🔍 Find events overlapping with the NEW position of the moving event
   const overlappingEvents = events.filter(ev => {
@@ -123,34 +117,26 @@ export function dragEvent(
     return !(newBottom <= evTop || newTop >= evBottom);
   });
 
-  // 🎯 Only ever touch the moving element
+  // 🎯 Get the moving element
   const movingEl = document.getElementById(event.id) as HTMLDivElement | null;
   if (!movingEl) {
     return { ...event, slot: snappedY };
   }
 
-  // Always restore moving event first
+  // 1️⃣ Dragged event ALWAYS 100% width and on top
   movingEl.style.transform = "none";
   movingEl.style.transformOrigin = "center";
+  movingEl.style.setProperty("--event-scale", "1");
+  movingEl.style.zIndex = "9999";
 
-  // 🧠 Decide if the moving event SHOULD shrink
-  // It shrinks only if it overlaps at least one FULL-WIDTH event
-  let shouldShrink = false;
-
+  // 2️⃣ Handle OTHER overlapping events - maintain their current widths
   for (const ev of overlappingEvents) {
     const otherEl = document.getElementById(ev.id) as HTMLDivElement | null;
     if (!otherEl) continue;
 
-    // If the other event is NOT shrunk, then we must react
-    if (!isShrunk(otherEl)) {
-      shouldShrink = true;
-      break;
-    }
-  }
-
-  if (shouldShrink) {
-    movingEl.style.transformOrigin = "right"; // right edge fixed
-    movingEl.style.transform = `scaleX(${SHRINK_PERCENT})`;
+    // Keep other events' current transform (width)
+    // Only ensure they're below the dragged event
+    otherEl.style.zIndex = "1";
   }
 
   // 🕒 Recalculate time from vertical position
@@ -162,6 +148,138 @@ export function dragEvent(
     endHour: Math.floor((snappedY + event.height) / STEP_HEIGHT / 4) % 24,
     endMin: (Math.round((snappedY + event.height) / STEP_HEIGHT) * 15) % 60,
   };
+}
+
+/* ===== Restore event widths after drag ===== */
+export function restoreEventWidths(events: EventType[]): void {
+  // Reset all events to normal width and z-index
+  events.forEach(ev => {
+    const el = document.getElementById(ev.id) as HTMLDivElement | null;
+    if (!el) return;
+    
+    el.style.transform = "none";
+    el.style.transformOrigin = "center";
+    el.style.removeProperty("--event-scale");
+    el.style.zIndex = "auto";
+  });
+  
+  // Now calculate proper widths for overlapping events
+  const sortedEvents = [...events].sort((a, b) => a.slot - b.slot);
+  
+  // Group overlapping events
+  const overlappingGroups: EventType[][] = [];
+  let currentGroup: EventType[] = [];
+  let currentBottom = -1;
+  
+  for (const ev of sortedEvents) {
+    const evTop = ev.slot;
+    const evBottom = ev.slot + ev.height;
+    
+    if (evTop < currentBottom) {
+      // Overlaps with current group
+      currentGroup.push(ev);
+      currentBottom = Math.max(currentBottom, evBottom);
+    } else {
+      // Start new group
+      if (currentGroup.length > 0) {
+        overlappingGroups.push([...currentGroup]);
+      }
+      currentGroup = [ev];
+      currentBottom = evBottom;
+    }
+  }
+  
+  if (currentGroup.length > 0) {
+    overlappingGroups.push(currentGroup);
+  }
+  
+  // Apply width distribution for overlapping groups
+  overlappingGroups.forEach(group => {
+    // Sort by start time (slot) - earliest first
+    const sortedGroup = [...group].sort((a, b) => a.slot - b.slot);
+    
+    if (sortedGroup.length === 1) {
+      // Single event - full width
+      const el = document.getElementById(sortedGroup[0].id) as HTMLDivElement | null;
+      if (el) {
+        el.style.transform = "none";
+        el.style.transformOrigin = "center";
+        el.style.setProperty("--event-scale", "1");
+        el.style.zIndex = "1"; // Full width events behind
+      }
+    } else if (sortedGroup.length === 2) {
+      // 2 overlapping events: first = 100%, second = 50%
+      const [first, second] = sortedGroup;
+      const firstEl = document.getElementById(first.id) as HTMLDivElement | null;
+      const secondEl = document.getElementById(second.id) as HTMLDivElement | null;
+      
+      if (firstEl) {
+        firstEl.style.transform = "none";
+        firstEl.style.transformOrigin = "center";
+        firstEl.style.setProperty("--event-scale", "1");
+        firstEl.style.zIndex = "1"; // Behind
+      }
+      if (secondEl) {
+        secondEl.style.transformOrigin = "right";
+        secondEl.style.transform = "scaleX(0.5)";
+        secondEl.style.setProperty("--event-scale", "0.5");
+        secondEl.style.zIndex = "2"; // In front
+      }
+    } else {
+      // 3+ overlapping events
+      // Check if this is a case where middle event overlaps with first and last
+      // but first and last don't overlap each other
+      const firstEvent = sortedGroup[0];
+      const lastEvent = sortedGroup[sortedGroup.length - 1];
+      const firstEnd = firstEvent.slot + firstEvent.height;
+      const lastStart = lastEvent.slot;
+      
+      // If first and last events don't overlap, they should both be full width
+      if (firstEnd <= lastStart) {
+        // First and last don't overlap - they get full width
+        // Middle events get 50% width
+         sortedGroup.forEach((ev, index) => {
+          const el = document.getElementById(ev.id) as HTMLDivElement | null;
+          if (!el) return;
+          
+          if (index === 0 || index === sortedGroup.length - 1) {
+            // First and last events: 100% width
+            el.style.transform = "none";
+            el.style.transformOrigin = "center";
+            el.style.setProperty("--event-scale", "1");
+            el.style.zIndex = `${index + 1}`;
+          } else {
+            // Middle events: 50% width
+            el.style.transformOrigin = "right";
+            el.style.transform = "scaleX(0.5)";
+            el.style.setProperty("--event-scale", "0.5");
+            el.style.zIndex = `${index + 2}`;
+          }
+        });
+      } else {
+        // All events overlap with each other - use decreasing percentages
+         sortedGroup.forEach((ev, index) => {
+          const el = document.getElementById(ev.id) as HTMLDivElement | null;
+          if (!el) return;
+          
+          if (index === 0) {
+            // First event: 100% width
+            el.style.transform = "none";
+            el.style.transformOrigin = "center";
+            el.style.setProperty("--event-scale", "1");
+            el.style.zIndex = "1"; // Behind
+          } else {
+            // Calculate percentage: (100% / count) * (count - index)
+            const percent = (1.0 / sortedGroup.length) * (sortedGroup.length - index);
+            el.style.transformOrigin = "right";
+            el.style.transform = `scaleX(${percent})`;
+            el.style.setProperty("--event-scale", percent.toString());
+            el.style.zIndex = `${index + 2}`; // Higher index = more in front
+          }
+        });
+      }
+    }
+  });
 }
 
 /* ===== Resize event ===== */
