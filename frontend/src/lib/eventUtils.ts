@@ -86,6 +86,22 @@ export function addEventOnClick(
 
 /* ===== Drag event ===== */
 
+function isShrunk(el: HTMLDivElement) {
+  return el.style.transform.includes("scaleX");
+}
+
+function setFullWidth(el: HTMLDivElement) {
+  el.style.width = "100%";
+  el.style.left = "0%";
+}
+
+function setHalfWidthRight(el: HTMLDivElement) {
+  el.style.width = "50%";
+  el.style.left = "50%";
+}
+
+
+
 export function dragEvent(
   event: EventType,
   deltaY: number,
@@ -97,43 +113,47 @@ export function dragEvent(
 
   const SHRINK_PERCENT = 0.8;
 
-  // Find overlapping events
+  // 🔍 Find events overlapping with the NEW position of the moving event
   const overlappingEvents = events.filter(ev => {
     if (ev.id === event.id) return false;
+
     const evTop = ev.slot;
     const evBottom = ev.slot + ev.height;
+
     return !(newBottom <= evTop || newTop >= evBottom);
   });
 
-  // ✅ Reset all events to original full width first
-  events.forEach(ev => {
-    const el = document.getElementById(ev.id) as HTMLDivElement | null;
-    if (!el) return;
+  // 🎯 Only ever touch the moving element
+  const movingEl = document.getElementById(event.id) as HTMLDivElement | null;
+  if (!movingEl) {
+    return { ...event, slot: snappedY };
+  }
 
-    el.style.transform = "none";   // remove scale
-    el.style.left = el.style.left || `${el.offsetLeft}px`; // preserve left
-  });
+  // Always restore moving event first
+  movingEl.style.transform = "none";
+  movingEl.style.transformOrigin = "center";
 
-  // ✅ Shrink later-starting events if overlapping
-  overlappingEvents.forEach(ev => {
-    const movingEl = document.getElementById(event.id) as HTMLDivElement | null;
+  // 🧠 Decide if the moving event SHOULD shrink
+  // It shrinks only if it overlaps at least one FULL-WIDTH event
+  let shouldShrink = false;
+
+  for (const ev of overlappingEvents) {
     const otherEl = document.getElementById(ev.id) as HTMLDivElement | null;
-    if (!movingEl || !otherEl) return;
+    if (!otherEl) continue;
 
-    const eventStart = event.startHour * 60 + event.startMin;
-    const evStart = ev.startHour * 60 + ev.startMin;
-
-    let elToShrink: HTMLDivElement | null = null;
-    if (eventStart > evStart) elToShrink = movingEl;
-    else if (eventStart < evStart) elToShrink = otherEl;
-
-    if (elToShrink) {
-      elToShrink.style.transformOrigin = "right"; // shrink toward left, right edge stays
-      elToShrink.style.transform = `scaleX(${SHRINK_PERCENT})`;
+    // If the other event is NOT shrunk, then we must react
+    if (!isShrunk(otherEl)) {
+      shouldShrink = true;
+      break;
     }
-  });
+  }
 
-  // Return updated event with new slot and times
+  if (shouldShrink) {
+    movingEl.style.transformOrigin = "right"; // right edge fixed
+    movingEl.style.transform = `scaleX(${SHRINK_PERCENT})`;
+  }
+
+  // 🕒 Recalculate time from vertical position
   return {
     ...event,
     slot: snappedY,
@@ -143,7 +163,6 @@ export function dragEvent(
     endMin: (Math.round((snappedY + event.height) / STEP_HEIGHT) * 15) % 60,
   };
 }
-
 
 /* ===== Resize event ===== */
 export function resizeEvent(
