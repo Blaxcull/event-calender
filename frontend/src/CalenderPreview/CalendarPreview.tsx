@@ -1,12 +1,12 @@
 "use client"
-
-import * as React from "react"
 import { formatDateRange } from "little-date"
 import { PlusIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import { useTimeStore } from "@/store/timeStore"
+
 
 const events = [
   {
@@ -27,28 +27,82 @@ const events = [
 ]
 
 export function CalendarPreview() {
-  const [date, setDate] = React.useState<Date | undefined>(
-    new Date(2025, 5, 12)
-  )
+
+  const setDateInStore = useTimeStore((state) => state.setDate)
+  const selectedDate = useTimeStore((state) => state.selectedDate)
+    const goToToday = () => {
+    setDateInStore(new Date())
+  }
+
+  const goToPreviousDay = () => {
+    if (!selectedDate) return
+    const prev = new Date(selectedDate)
+    prev.setDate(prev.getDate() - 1)
+    setDateInStore(prev)
+  }
+
+  const goToNextDay = () => {
+    if (!selectedDate) return
+    const next = new Date(selectedDate)
+    next.setDate(next.getDate() + 1)
+    setDateInStore(next)
+  }
 
   return (
-    <Card className="h-screen w-fit flex flex-col py-4">
+    <Card className="h-screen w-125 flex flex-col bg-neutral-800 text-slate-100 border-slate-700 py-4">
       {/* Calendar (fixed height) */}
       <CardContent className="px-4">
-        <Calendar
-          mode="single"
-          selected={date}
-          onSelect={setDate}
-          className="bg-slate-500 text-slate-100 rounded-md"
-          required
-        />
-      </CardContent>
+  <div className="flex items-start gap-4">
+    {/* Calendar */}
+    <Calendar
+      mode="single"
+      selected={selectedDate || undefined}
+      onSelect={(date) => {
+        if (!date) return
+        setDateInStore(date)
+      }}
+      className="bg-neutral-800 text-white rounded-md"
+      required
+    />
+
+    {/* Right-side date controls */}
+    <div className="flex flex-col gap-2 pt-2">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={goToPreviousDay}
+        aria-label="Previous day"
+      >
+        ←
+      </Button>
+
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={goToToday}
+        className="text-xs"
+      >
+        Today
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={goToNextDay}
+        aria-label="Next day"
+      >
+        →
+      </Button>
+    </div>
+  </div>
+</CardContent>
+
 
       {/* Footer fills remaining height */}
       <CardFooter className="flex flex-1 flex-col items-start gap-3 border-t px-4 pt-4 overflow-y-auto">
         <div className="flex w-full items-center justify-between px-1">
           <div className="text-sm font-medium">
-            {date?.toLocaleDateString("en-US", {
+            {selectedDate?.toLocaleDateString("en-US", {
               day: "numeric",
               month: "long",
               year: "numeric",
