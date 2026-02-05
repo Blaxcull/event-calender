@@ -10,27 +10,29 @@ import {
   SLOT_HEIGHT, 
   STEP_HEIGHT,
   type EventType 
-} from '../eventUtils'
+} from '../src/lib/eventUtils'
 
 // Mock DOM elements for testing
 const mockElements = new Map<string, any>()
 
-beforeEach(() => {
-  mockElements.clear()
-  vi.spyOn(document, 'getElementById').mockImplementation((id: string) => {
-    if (!mockElements.has(id)) {
-      const mockEl = {
-        style: {
-          transform: '',
-          transformOrigin: '',
-          zIndex: '',
+  beforeEach(() => {
+    mockElements.clear()
+    vi.spyOn(document, 'getElementById').mockImplementation((id: string) => {
+      if (!mockElements.has(id)) {
+        const mockEl = {
+          style: {
+            transform: '',
+            transformOrigin: '',
+            zIndex: '',
+            left: '',
+            width: '',
+          }
         }
+        mockElements.set(id, mockEl)
       }
-      mockElements.set(id, mockEl)
-    }
-    return mockElements.get(id) as any
+      return mockElements.get(id) as any
+    })
   })
-})
 
 describe('Event Utilities', () => {
   describe('addEventOnClick', () => {
@@ -116,9 +118,9 @@ describe('Event Utilities', () => {
       
       const events = [draggedEvent, otherEvent]
       
-      // Mock elements
-      const draggedEl = { style: { transform: '', transformOrigin: '', zIndex: '' } }
-      const otherEl = { style: { transform: '', transformOrigin: '', zIndex: '' } }
+       // Mock elements
+      const draggedEl = { style: { transform: '', transformOrigin: '', zIndex: '', left: '', width: '' } }
+      const otherEl = { style: { transform: '', transformOrigin: '', zIndex: '', left: '', width: '' } }
       mockElements.set('dragged', draggedEl)
       mockElements.set('other', otherEl)
       
@@ -126,11 +128,11 @@ describe('Event Utilities', () => {
       const result = dragEvent(draggedEvent, SLOT_HEIGHT * 2, events)
       
       // Dragged event should be 100% width and on top
-      expect(draggedEl.style.transform).toBe('none')
+      expect(draggedEl.style.left).toBe('0%')
+      expect(draggedEl.style.width).toBe('100%')
       expect(draggedEl.style.zIndex).toBe('9999')
       
-      // Other event should be shrunk and below
-      expect(otherEl.style.transform).toBe('scaleX(0.5)')
+      // Other event should maintain its current position
       expect(otherEl.style.zIndex).toBe('1')
       
       // Event position should be updated
@@ -218,23 +220,23 @@ describe('Event Utilities', () => {
       
       const events = [eventA, eventB]
       
-      // Mock elements - simulate that events already have proper widths
+       // Mock elements - simulate that events already have proper widths
       // Event A: 100% width (after restoreEventWidths)
-      // Event B: 80% width (after restoreEventWidths)
-      const eventAEl = { style: { transform: 'none', transformOrigin: 'center', zIndex: '1' } }
-      const eventBEl = { style: { transform: 'scaleX(0.5)', transformOrigin: 'right', zIndex: '2' } }
+      // Event B: 50% width (after restoreEventWidths)
+      const eventAEl = { style: { transform: 'none', transformOrigin: 'center', zIndex: '1', left: '', width: '' } }
+      const eventBEl = { style: { transform: 'scaleX(0.5)', transformOrigin: 'right', zIndex: '2', left: '', width: '' } }
       mockElements.set('eventA', eventAEl)
       mockElements.set('eventB', eventBEl)
       
       // Drag eventB
       dragEvent(eventB, STEP_HEIGHT, events)
       
-      // Event B should be 100% width during drag and on top
-      expect(eventBEl.style.transform).toBe('none')
+       // Event B should be 100% width during drag and on top
+      expect(eventBEl.style.left).toBe('0%')
+      expect(eventBEl.style.width).toBe('100%')
       expect(eventBEl.style.zIndex).toBe('9999')
       
-      // Event A should maintain its current width (100%) during drag
-      expect(eventAEl.style.transform).toBe('none')
+      // Event A should maintain its current position during drag
       expect(eventAEl.style.zIndex).toBe('1') // Still behind
     })
   })

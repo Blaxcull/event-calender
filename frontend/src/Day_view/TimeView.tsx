@@ -7,29 +7,27 @@ const CalendarEvent = memo(
     event,
     onMouseDown,
     onResizeStart,
+    isDragging = false,
   }: {
     event: EventType
     onMouseDown: (e: React.MouseEvent) => void
     onResizeStart: (e: React.MouseEvent, event: EventType) => void
+    isDragging?: boolean
   }) => {
+    const bgColor = isDragging ? 'bg-green-700' : 'bg-green-500'
+    
     return (
       <div
         onMouseDown={onMouseDown}
-        className="absolute bg-pink-500/40 rounded-md left-19 right-0 calendar-event cursor-grab active:cursor-grabbing select-none"
+        className={`absolute ${bgColor} rounded-md left-19 right-0 calendar-event cursor-grab active:cursor-grabbing select-none ring-1 ring-white`}
         id={event.id}
         style={{
           top: event.slot + TOP_DEAD_ZONE,
           height: event.height,
-          transformOrigin: 'right',
-          '--event-scale': '1',
         } as React.CSSProperties}
       >
         <div 
           className="text-white text-xs pl-2 pt-1"
-          style={{
-            transform: 'scaleX(calc(1 / var(--event-scale, 1)))',
-            transformOrigin: 'left',
-          }}
         >
           <div className="font-medium">{event.title}</div>
           <div className="text-[10px] opacity-80">
@@ -83,7 +81,7 @@ const TimeView: React.FC = () => {
       if (draggingId) {
         setEvents(prev =>
           prev.map(ev =>
-            ev.id === draggingId ? dragEvent(ev, y - dragOffsetRef.current, events) : ev
+            ev.id === draggingId ? dragEvent(ev, y - dragOffsetRef.current) : ev
           )
         )
       }
@@ -116,10 +114,14 @@ const TimeView: React.FC = () => {
       window.removeEventListener("mousemove", handleMouseMove)
       window.removeEventListener("mouseup", handleMouseUp)
     }
-  }, [draggingId, resizingId])
+   }, [draggingId, resizingId])
 
-
-
+  // Call restoreEventWidths when events change (new events added, etc.)
+  // But skip during dragging/resizing
+  useEffect(() => {
+    if (isDraggingRef.current || isResizingRef.current) return
+    restoreEventWidths(events)
+  }, [events])
 
   const handleEventClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRef.current || isResizingRef.current) return
@@ -147,6 +149,7 @@ const TimeView: React.FC = () => {
           event={event}
           onMouseDown={e => handleDragStart(e, event)}
           onResizeStart={handleResizeStart}
+          isDragging={draggingId === event.id}
         />
       ))}
     </div>
