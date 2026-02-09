@@ -1,8 +1,13 @@
 import { useTimeStore } from "@/store/timeStore"
 import TimeLine from "./TimeLine"
 import TimeView from "./TimeView" // your click-to-add-event component
+import type { EventType } from "@/lib/eventUtils"
 
-const DayView = () => {
+interface DayViewProps {
+  initialEvents?: EventType[]
+}
+
+const DayView = ({ initialEvents = [] }: DayViewProps) => {
   const dateInfo = useTimeStore((state) => state.dateInfo)
   const hourHeight = 86 // must match TimeLine
 
@@ -22,7 +27,7 @@ const DayView = () => {
         </div>
 
         {/* SCROLL AREA */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto no-scrollbar">
           <div className="bg-neutral-900 px-4 pl-13 relative">
             {/* Timeline vertical lines */}
             <TimeLine />
@@ -50,7 +55,7 @@ const DayView = () => {
               })}
 
               {/* 🟢 TimeView overlay */}
-              <TimeView />
+              <TimeView initialEvents={initialEvents} />
             </div>
           </div>
         </div>

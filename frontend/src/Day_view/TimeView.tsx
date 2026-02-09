@@ -2,6 +2,10 @@ import React, { useState, memo, useRef, useEffect } from "react"
 import type { EventType } from '../lib/eventUtils'
 import { addEventOnClick, dragEvent, resizeEvent, TOP_DEAD_ZONE, restoreEventWidths } from '../lib/eventUtils'
 
+interface TimeViewProps {
+  initialEvents?: EventType[]
+}
+
 const CalendarEvent = memo(
   ({
     event,
@@ -14,12 +18,18 @@ const CalendarEvent = memo(
     onResizeStart: (e: React.MouseEvent, event: EventType) => void
     isDragging?: boolean
   }) => {
-    const bgColor = isDragging ? 'bg-green-700' : 'bg-green-500'
+const bgColor =isDragging ?
+     'bg-[#db7fa5]'
+    :'bg-[#f792bb] shadow-lg ring-2 ring-rose-300'
+
+
+  const widthClass = isDragging ? 'left-0 right-0' : 'left-19 right-0'
+  const zIndex = isDragging ? 'z-[9999]' : 'z-10'
     
     return (
       <div
         onMouseDown={onMouseDown}
-        className={`absolute ${bgColor} rounded-md left-19 right-0 calendar-event cursor-grab active:cursor-grabbing select-none ring-1 ring-white`}
+        className={`absolute ${bgColor} ${widthClass} ${zIndex} rounded-md calendar-event cursor-grab active:cursor-grabbing select-none ring-1 ring-white`}
         id={event.id}
         style={{
           top: event.slot + TOP_DEAD_ZONE,
@@ -27,24 +37,26 @@ const CalendarEvent = memo(
         } as React.CSSProperties}
       >
         <div 
-          className="text-white text-xs pl-2 pt-1"
+          className="text-white text-s pl-2 pt-1"
         >
           <div className="font-medium">{event.title}</div>
-          <div className="text-[10px] opacity-80">
+          <div className="text-s ">
             {`${event.startHour.toString().padStart(2,"0")}:${event.startMin.toString().padStart(2,"0")} – ${event.endHour.toString().padStart(2,"0")}:${event.endMin.toString().padStart(2,"0")}`}
           </div>
         </div>
         <div
           onMouseDown={e => onResizeStart(e, event)}
-          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize bg-white/30 rounded-b-md"
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize rounded-b-md"
         />
       </div>
     )
   }
 )
 
-const TimeView: React.FC = () => {
-  const [events, setEvents] = useState<EventType[]>([])
+const TimeView: React.FC<TimeViewProps> = ({ 
+  initialEvents = []
+}) => {
+  const [events, setEvents] = useState<EventType[]>(initialEvents)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [resizingId, setResizingId] = useState<string | null>(null)
   const dragOffsetRef = useRef(0)
@@ -98,7 +110,8 @@ const TimeView: React.FC = () => {
     const handleMouseUp = () => {
       if (draggingId || resizingId) {
         // Restore proper widths for all events after drag/resize
-        restoreEventWidths(eventsRef.current)
+        restoreEventWidths(eventsRef.current, draggingId)
+
       }
       setDraggingId(null)
       setResizingId(null)
@@ -120,8 +133,8 @@ const TimeView: React.FC = () => {
   // But skip during dragging/resizing
   useEffect(() => {
     if (isDraggingRef.current || isResizingRef.current) return
-    restoreEventWidths(events)
-  }, [events])
+    restoreEventWidths(events, draggingId)
+  }, [events, draggingId])
 
   const handleEventClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRef.current || isResizingRef.current) return

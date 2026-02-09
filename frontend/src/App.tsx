@@ -5,7 +5,7 @@ function App() {
   return (
     <>
       <TimeUpdater />
-      <DayView/>
+      <DayView />
     </>
   )
 }
