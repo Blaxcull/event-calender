@@ -22,7 +22,6 @@ function Calendar({
 }: CalendarProps) {
   const defaultClassNames = getDefaultClassNames()
 
-  // keep visible month in sync with selected date
   const [month, setMonth] = React.useState<Date | undefined>(
     selected instanceof Date ? selected : undefined
   )
@@ -40,6 +39,7 @@ function Calendar({
       selected={selected}
       month={month}
       onMonthChange={setMonth}
+      fixedWeeks
       showOutsideDays={showOutsideDays}
       captionLayout="label"
       className={cn(className)}
@@ -57,19 +57,23 @@ function Calendar({
         nav: "hidden",
 
         months: cn("flex flex-col", defaultClassNames.months),
-        month: cn("flex flex-col w-full gap-4", defaultClassNames.month),
+        month: cn("flex flex-col w-full gap-2", defaultClassNames.month),
 
         table: "w-full border-collapse",
-        weekdays: cn("flex", defaultClassNames.weekdays),
+        weekdays: cn("flex gap-x-6", defaultClassNames.weekdays),
         weekday: cn(
-          "text-xs text-slate-300 font-semibold tracking-wide flex-1 text-center select-none",
+          "text-s text-slate-300 font-bold tracking-wide flex-1 text-center select-none mb-4",
           defaultClassNames.weekday
         ),
-        week: cn("flex w-full mt-2", defaultClassNames.week),
+        week: cn("flex w-full mt-0 gap-x-6 px-0 py-0", defaultClassNames.week),
+
         day: cn(
           "relative w-full h-full p-0 aspect-square select-none",
           defaultClassNames.day
         ),
+
+        day_outside: "text-neutral-500 opacity-50",
+        day_selected: "bg-slate-600 text-white",
       }}
       components={{
         DayButton: CalendarDayButton,
@@ -95,6 +99,9 @@ function CalendarDayButton({
   const defaultClassNames = getDefaultClassNames()
   const ref = React.useRef<HTMLButtonElement>(null)
 
+  const isWeekend =
+    day.date.getDay() === 0 || day.date.getDay() === 6
+
   React.useEffect(() => {
     if (modifiers.focused) ref.current?.focus()
   }, [modifiers.focused])
@@ -103,7 +110,6 @@ function CalendarDayButton({
     <Button
       ref={ref}
       variant="ghost"
-      size="icon"
       data-day={day.date.toLocaleDateString()}
       data-selected-single={
         modifiers.selected &&
@@ -112,9 +118,18 @@ function CalendarDayButton({
         !modifiers.range_middle
       }
       className={cn(
-        "font-bold text-slate-200",
-        "hover:bg-neutral-700 transition-colors",
-        "data-[selected-single=true]:bg-slate-600 data-[selected-single=true]:text-white",
+        "h-10 w-10 rounded-full text-lg font-bold transition-colors",
+
+        modifiers.outside
+          ? "text-neutral-500 hover:bg-neutral-700/40"
+          : isWeekend
+          ? "text-rose-400 hover:bg-rose-500/20"
+          : "text-slate-200 hover:bg-neutral-700",
+
+        modifiers.selected && modifiers.outside
+          ? "bg-neutral-700 text-neutral-300"
+          : "data-[selected-single=true]:bg-slate-600 data-[selected-single=true]:text-white",
+
         defaultClassNames.day,
         className
       )}
