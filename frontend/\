@@ -32,7 +32,7 @@ return (
     className={`absolute ${bgColor} ${widthClass} ${zIndex}
       rounded-md calendar-event
       cursor-grab active:cursor-grabbing select-none
-      border-r-2 border-b-0 border-t-4 border-transparent bg-clip-padding`}
+      border-r-2 border-b-0 border-t-2 border-transparent bg-clip-padding`}
     id={event.id}
     style={{
       top: event.slot + TOP_DEAD_ZONE,
@@ -40,10 +40,10 @@ return (
     } as React.CSSProperties}
   >
     {/* Right vertical strip */}
-<div className="absolute top-1 bottom-1 left-[3px] w-[6px] bg-pink-600 rounded" />
+    <div className="absolute top-0 right-0 h-full w-2 bg-black rounded-r-md"></div>
 
     {/* Event content */}
-    <div className="text-white text-s pl-[18px] pt-1 relative z-10">
+    <div className="text-white text-s pl-2 pt-1 relative z-10">
       <div className="font-medium">{event.title}</div>
       <div className="text-s">
         {`${event.startHour.toString().padStart(2,"0")}:${event.startMin.toString().padStart(2,"0")} – ${event.endHour.toString().padStart(2,"0")}:${event.endMin.toString().padStart(2,"0")}`}
@@ -115,48 +115,30 @@ const TimeView: React.FC<TimeViewProps> = ({
     }
 
     const handleMouseUp = () => {
-      // Reset refs synchronously FIRST to prevent race conditions
-      isDraggingRef.current = false
-      isResizingRef.current = false
-      
+
       if (draggingId || resizingId) {
         // Restore proper widths for all events after drag/resize
-        restoreEventWidths(eventsRef.current)
-        
-        // Clean up placeholders and styles
-        if (draggingId) {
-          removePlaceholder(draggingId)
-          const el = document.getElementById(draggingId)
-          if (el) {
-            el.style.boxShadow = "none"
-            el.style.transition = ""
-          }
-        }
-        // Note: resize doesn't create placeholders, but we might need cleanup in future
+        restoreEventWidths(eventsRef.current, draggingId)
+
       }
-      
-      // Reset state AFTER cleanup
       setDraggingId(null)
       setResizingId(null)
+      setTimeout(() => {
+        isDraggingRef.current = false
+        isResizingRef.current = false
+      }, 0)
     }
 
     window.addEventListener("mousemove", handleMouseMove)
     window.addEventListener("mouseup", handleMouseUp)
     return () => {
-      // Cleanup event listeners
+        if (draggingId){
+        removePlaceholder(draggingId)
+         const el = document.getElementById(draggingId)
+         if (el) el.style.boxShadow = "none"
+        }
       window.removeEventListener("mousemove", handleMouseMove)
       window.removeEventListener("mouseup", handleMouseUp)
-      
-      // If component unmounts during drag/resize, clean up
-      if (draggingId) {
-        removePlaceholder(draggingId)
-        const el = document.getElementById(draggingId)
-        if (el) {
-          el.style.boxShadow = "none"
-          el.style.transition = ""
-        }
-      }
-      // Note: resize doesn't create placeholders
     }
    }, [draggingId, resizingId])
 
@@ -164,7 +146,7 @@ const TimeView: React.FC<TimeViewProps> = ({
   // But skip during dragging/resizing
   useEffect(() => {
     if (isDraggingRef.current || isResizingRef.current) return
-    restoreEventWidths(events)
+    restoreEventWidths(events, draggingId)
   }, [events, draggingId])
 
   const handleEventClick = (e: React.MouseEvent<HTMLDivElement>) => {

@@ -1,6 +1,6 @@
-export const SLOT_HEIGHT = 86
+export const SLOT_HEIGHT = 100
 export const STEP_HEIGHT = SLOT_HEIGHT / 4
-export const TOP_DEAD_ZONE = 43
+export const TOP_DEAD_ZONE = 48
 export const MIN_EVENT_HEIGHT = STEP_HEIGHT
 
 export interface EventType {
@@ -16,7 +16,7 @@ export interface EventType {
 
 /* ================= HELPERS ================= */
 
-const DAY_HEIGHT = 24 * SLOT_HEIGHT
+
 
 function snap(y: number) {
   return Math.round(y / STEP_HEIGHT) * STEP_HEIGHT
@@ -61,7 +61,7 @@ export function addEventOnClick(
       }
       startY = previousEnd
     } else {
-      let nextStart = DAY_HEIGHT
+      let nextStart = hourEnd
       for (const ev of hourEvents) {
         if (ev.slot >= snappedClick) nextStart = Math.min(nextStart, ev.slot)
       }
@@ -69,7 +69,9 @@ export function addEventOnClick(
     }
   }
 
-  if (startY < 0 || startY + duration > DAY_HEIGHT) return null
+  // Ensure event stays within the clicked hour
+const DAY_HEIGHT = 24 * SLOT_HEIGHT
+if (startY < 0 || startY + duration > DAY_HEIGHT) return null
 
   const start = yToTime(startY)
   const end = yToTime(startY + duration)
@@ -88,13 +90,18 @@ export function addEventOnClick(
 
 /* ================= DRAG ================= */
 export function dragEvent(event: EventType, deltaY: number): EventType {
+  createPlaceholder(event)
+  
   const snappedY = Math.max(0, snap(deltaY))
 
   const el = document.getElementById(event.id) as HTMLDivElement | null
   if (el) {
-    el.style.left = "4.75rem"
-    el.style.width = "calc(100% - 4.75rem)"
+    // During drag: full width, on top, with shadow
+    el.style.left = "0px"
+    el.style.width = "calc(100% )"
     el.style.zIndex = "9999"
+    el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
+    el.style.transition = "box-shadow 100ms ease"
   }
 
   const start = yToTime(snappedY)
@@ -134,7 +141,14 @@ interface PositionedEvent extends EventType {
 }
 
 function buildClusters(events: EventType[]): EventType[][] {
-  const sorted = [...events].sort((a, b) => a.slot - b.slot)
+    const sorted = [...events].sort((a, b) => {
+  if (a.slot !== b.slot) return a.slot - b.slot
+
+  // Same start → taller event first
+  return b.height - a.height
+})
+
+
   const clusters: EventType[][] = []
 
   let cluster: EventType[] = []
@@ -204,18 +218,19 @@ function expandSpans(events: PositionedEvent[]) {
   }
 }
 
-export function restoreEventWidths(events: EventType[], draggingId: string | null = null) {
+export function restoreEventWidths(events: EventType[]) {
   const elements: Record<string, HTMLDivElement> = {}
 
+  // First pass: clear all inline styles from ALL events
   events.forEach(ev => {
     const el = document.getElementById(ev.id) as HTMLDivElement | null
     if (el) {
-      // Skip applying styles to dragging event
-      if (ev.id !== draggingId) {
-        el.style.left = ""
-        el.style.width = ""
-        el.style.zIndex = "1"
-      }
+      // Clear inline styles that might interfere with CSS
+      el.style.left = ""
+      el.style.width = ""
+      el.style.zIndex = ""
+      el.style.boxShadow = ""
+      el.style.transition = ""
       elements[ev.id] = el
     }
   })
@@ -232,13 +247,47 @@ export function restoreEventWidths(events: EventType[], draggingId: string | nul
       const el = elements[ev.id]
       if (!el) continue
 
-      const leftPercent = (ev.col / maxCol) * 96
-      const widthPercent = (ev.colSpan / maxCol) * 96
+      const leftPercent = (ev.col / maxCol) * 100
+      const widthPercent = (ev.colSpan / maxCol) * 100
 
-      el.style.left = `calc(4.75rem + ${leftPercent}%)`
-      el.style.width = `calc(${widthPercent}% - 4px)`
+      el.style.left = `calc(${leftPercent}%)`
+      el.style.width = `calc(${widthPercent}%)`
       el.style.zIndex = "2"
     }
   }
+}
+function createPlaceholder(event: EventType) {
+  if (document.getElementById(`ph-${event.id}`)) return
+
+  const original = document.getElementById(event.id)
+  if (!original) return
+
+  const ph = document.createElement("div")
+  ph.id = `ph-${event.id}`
+
+  ph.style.position = "absolute"
+  ph.style.top = `${event.slot + TOP_DEAD_ZONE + 2}px`
+  ph.style.height = `${event.height-1 }px`
+  ph.style.left = original.style.left
+  ph.style.width = original.style.width
+
+  ph.innerHTML = original.innerHTML
+  ph.style.opacity = "0.5"
+
+  ph.style.borderRadius = "10px"
+  ph.style.background = "#db7fa5"
+
+  ph.style.border = "2px rgba(255,255,255,0.25)"
+  ph.style.pointerEvents = "none"
+  ph.style.zIndex = "1"
+
+  if (ph) ph.style.boxShadow = "none"
+
+  original.parentElement?.appendChild(ph)
+}
+
+export function removePlaceholder(eventId: string) {
+  const ph = document.getElementById(`ph-${eventId}`)
+  if (ph) ph.remove()
 }
 
