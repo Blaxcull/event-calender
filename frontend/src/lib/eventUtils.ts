@@ -122,7 +122,8 @@ export function dragEvent(event: EventType, deltaY: number): EventType {
 /* ================= RESIZE ================= */
 
 export function resizeEvent(event: EventType, deltaY: number): EventType {
-  const newHeight = snap(deltaY)
+  // Minimum 15 minutes
+  const newHeight = Math.max(STEP_HEIGHT, snap(deltaY))
 
   const el = document.getElementById(event.id) as HTMLDivElement | null
   if (el) {
