@@ -1,6 +1,6 @@
 import React, { useState, memo, useRef, useEffect } from "react"
 import type { EventType } from '../lib/eventUtils'
-import { removePlaceholder, addEventOnClick, dragEvent, resizeEvent, TOP_DEAD_ZONE, restoreEventWidths } from '../lib/eventUtils'
+import { removePlaceholder, addEventOnClick, dragEvent, resizeEvent, TOP_DEAD_ZONE, restoreEventWidths, calculateEventDuration, STEP_HEIGHT } from '../lib/eventUtils'
 
 interface TimeViewProps {
   initialEvents?: EventType[]
@@ -40,20 +40,65 @@ return (
     } as React.CSSProperties}
   >
     {/* Right vertical strip */}
-<div className="absolute top-1 bottom-1 left-[3px] w-[6px] bg-pink-600 rounded" />
+<div className="absolute top-1 bottom-1 left-[3px] w-[6px] bg-pink-500 rounded" />
 
-    {/* Event content */}
-    <div className="text-white text-s pl-[18px] pt-1 relative z-10">
-      <div className="font-medium">{event.title}</div>
-      <div className="text-s">
-        {`${event.startHour.toString().padStart(2,"0")}:${event.startMin.toString().padStart(2,"0")} – ${event.endHour.toString().padStart(2,"0")}:${event.endMin.toString().padStart(2,"0")}`}
-      </div>
+    {/* Event content - adjust based on event height */}
+<div
+  className={`text-white pl-[18px] pt-0 pb-1 relative z-10 `}
+>
+  {calculateEventDuration(event) <= 20 ? (
+    // 🔹 20 MIN OR LESS (super compact)
+    <div className="font-medium truncate flex items-center ">
+      <span className="truncate">{event.title}</span>
+      <span className="shrink-0 ml-1">
+        {`, ${event.startHour.toString().padStart(2, "0")}:${event.startMin
+          .toString()
+          .padStart(2, "0")}`}
+      </span>
     </div>
 
-    {/* Resize handle */}
+  ) : calculateEventDuration(event) <= 30 ? (
+    // 🔹 21–30 MIN (compact horizontal)
+    <div className=" flex pt-1 items-center truncate">
+      <span className="truncate  text-s">{event.title}</span>
+      <span className="shrink-0 ml-1">
+        {`, ${event.startHour.toString().padStart(2, "0")}:${event.startMin
+          .toString()
+          .padStart(2, "0")}`}
+      </span>
+    </div>
+
+  ) : (
+    // 🔹 MORE THAN 30 MIN (normal layout)
+    <>
+      <div className="font-medium pt-1 truncate">
+        {event.title}
+      </div>
+      <div
+        className={`${
+          event.height <= STEP_HEIGHT * 2 ? "text-xs" : "text-s"
+        } truncate`}
+      >
+        {`${event.startHour.toString().padStart(2, "0")}:${event.startMin
+          .toString()
+          .padStart(2, "0")} - ${event.endHour
+          .toString()
+          .padStart(2, "0")}:${event.endMin
+          .toString()
+          .padStart(2, "0")}`}
+      </div>
+    </>
+  )}
+</div>
+
+    {/* Resize handle - always visible and clickable */}
     <div
-      onMouseDown={e => onResizeStart(e, event)}
-      className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize rounded-b-md"
+      onMouseDown={e => {
+        console.log('Resize handle clicked for event:', event.id, 'height:', event.height)
+        onResizeStart(e, event)
+      }}
+      className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize rounded-b-md  z-30"
+      title="Drag to resize"
     />
   </div>
 )

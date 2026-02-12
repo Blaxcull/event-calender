@@ -23,10 +23,10 @@ function snap(y: number) {
 }
 
 function yToTime(y: number) {
-  const totalMinutes = (y / STEP_HEIGHT) * 15
+  const totalMinutes = (y / SLOT_HEIGHT) * 60 // 1 SLOT_HEIGHT = 60 minutes
   return {
     hour: Math.floor(totalMinutes / 60) % 24,
-    min: totalMinutes % 60,
+    min: Math.floor(totalMinutes % 60),
   }
 }
 
@@ -122,7 +122,15 @@ export function dragEvent(event: EventType, deltaY: number): EventType {
 /* ================= RESIZE ================= */
 
 export function resizeEvent(event: EventType, deltaY: number): EventType {
-  const newHeight = Math.max(MIN_EVENT_HEIGHT, snap(deltaY))
+  const newHeight = snap(deltaY)
+
+  const el = document.getElementById(event.id) as HTMLDivElement | null
+  if (el) {
+    el.style.zIndex = "9999"
+    el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
+    el.style.transition = "box-shadow 100ms ease"
+  }
+
   const end = yToTime(event.slot + newHeight)
 
   return {
@@ -289,5 +297,11 @@ function createPlaceholder(event: EventType) {
 export function removePlaceholder(eventId: string) {
   const ph = document.getElementById(`ph-${eventId}`)
   if (ph) ph.remove()
+}
+
+export function calculateEventDuration(event: EventType): number {
+  const startTotal = event.startHour * 60 + event.startMin
+  const endTotal = event.endHour * 60 + event.endMin
+  return endTotal - startTotal
 }
 
