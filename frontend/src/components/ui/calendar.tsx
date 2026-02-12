@@ -118,13 +118,13 @@ function CalendarDayButton({
         !modifiers.range_middle
       }
       className={cn(
-        "h-10 w-10 rounded-full text-lg font-bold transition-colors",
+        "h-10 w-10 rounded-full text-lg font-sf font-bold transition-colors",
 
         modifiers.outside
-          ? "text-neutral-500 hover:bg-neutral-700/40"
+          ? "text-neutral-500 hover:bg-neutral-600/80"
           : isWeekend
-          ? "text-rose-400 hover:bg-rose-500/20"
-          : "text-slate-200 hover:bg-neutral-700",
+          ? "text-rose-400 hover:bg-rose-500/80"
+          : "text-slate-200 hover:bg-neutral-300",
 
         modifiers.selected && modifiers.outside
           ? "bg-neutral-700 text-neutral-300"

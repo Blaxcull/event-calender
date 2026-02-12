@@ -46,13 +46,13 @@ export function CalendarPreview() {
   }
 
   return (
-    <Card className="h-screen w-140 flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
+    <Card className="h-screen w-[480px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
       {/* Calendar section */}
-      <CardContent className="px-24">
-        <div className="flex items-start gap-4">
-          {/* FIXED calendar size */}
-          <div className="w-[240px] h-[280px] flex items-start justify-center overflow-visible">
-            <div className="origin-top-left scale-[0.8]">
+      <CardContent className="px-16">
+        <div className="flex items-start gap-3">
+          {/* Calendar */}
+          <div className="w-[150px] h-[150px] flex items-start justify-center pt-4">
+            <div className="origin-top scale-[0.6]">
               <Calendar
                 mode="single"
                 selected={selectedDate || undefined}
@@ -66,13 +66,14 @@ export function CalendarPreview() {
           </div>
 
           {/* Date controls */}
-          <div className="flex flex-1 items-center justify-center">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-1 justify-start pl-16 pt-4">
+            <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={goToPreviousDay}
                 aria-label="Previous day"
+                className="rounded-full"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -81,7 +82,7 @@ export function CalendarPreview() {
                 variant="secondary"
                 size="sm"
                 onClick={goToToday}
-                className="text-xs px-8"
+                className="text-xs px-6"
               >
                 Today
               </Button>
@@ -91,6 +92,7 @@ export function CalendarPreview() {
                 size="icon"
                 onClick={goToNextDay}
                 aria-label="Next day"
+                className="rounded-full"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -100,7 +102,7 @@ export function CalendarPreview() {
       </CardContent>
 
       {/* Events */}
-      <CardFooter className="flex flex-1 flex-col items-start gap-3 border-t px-4 pt-4 overflow-y-auto">
+      <CardFooter className="flex flex-1 flex-col items-start gap-3 px-4 pt-4 overflow-y-auto">
         <div className="flex w-full items-center justify-between px-1">
           <div className="text-sm font-medium">
             {selectedDate?.toLocaleDateString("en-US", {
@@ -121,7 +123,9 @@ export function CalendarPreview() {
               key={event.title}
               className="relative rounded-md bg-slate-300 p-1 pl-6 text-sm after:absolute after:inset-y-2 after:left-2 after:w-1 after:rounded-full after:bg-primary/70"
             >
-              <div className="font-medium text-slate-900">{event.title}</div>
+              <div className="font-medium text-slate-900">
+                {event.title}
+              </div>
               <div className="text-xs text-slate-700">
                 {formatDateRange(new Date(event.from), new Date(event.to))}
               </div>
