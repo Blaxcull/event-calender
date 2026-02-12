@@ -1,12 +1,11 @@
 "use client"
 import { formatDateRange } from "little-date"
-import { PlusIcon } from "lucide-react"
+import { PlusIcon, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
-
 
 const events = [
   {
@@ -27,12 +26,10 @@ const events = [
 ]
 
 export function CalendarPreview() {
-
   const setDateInStore = useTimeStore((state) => state.setDate)
   const selectedDate = useTimeStore((state) => state.selectedDate)
-    const goToToday = () => {
-    setDateInStore(new Date())
-  }
+
+  const goToToday = () => setDateInStore(new Date())
 
   const goToPreviousDay = () => {
     if (!selectedDate) return
@@ -49,57 +46,63 @@ export function CalendarPreview() {
   }
 
   return (
-    <Card className="h-screen w-125 flex flex-col bg-neutral-800 text-slate-100 border-slate-700 py-4">
-      {/* Calendar (fixed height) */}
-      <CardContent className="px-4">
-  <div className="flex items-start gap-4">
-    {/* Calendar */}
-    <Calendar
-      mode="single"
-      selected={selectedDate || undefined}
-      onSelect={(date) => {
-        if (!date) return
-        setDateInStore(date)
-      }}
-      className="bg-neutral-800 text-white rounded-md"
-      required
-    />
+    <Card className="h-screen w-[480px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
+      {/* Calendar section */}
+      <CardContent className="px-16">
+        <div className="flex items-start gap-3">
+          {/* Calendar */}
+          <div className="w-[150px] h-[150px] flex items-start justify-center pt-4">
+            <div className="origin-top scale-[0.6]">
+              <Calendar
+                mode="single"
+                selected={selectedDate || undefined}
+                onSelect={(date: Date | undefined) => {
+                  if (!date) return
+                  setDateInStore(date)
+                }}
+                className="bg-neutral-800 text-white rounded-md"
+              />
+            </div>
+          </div>
 
-    {/* Right-side date controls */}
-    <div className="flex flex-col gap-2 pt-2">
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={goToPreviousDay}
-        aria-label="Previous day"
-      >
-        ←
-      </Button>
+          {/* Date controls */}
+          <div className="flex flex-1 justify-start pl-16 pt-4">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={goToPreviousDay}
+                aria-label="Previous day"
+                className="rounded-full"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
 
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={goToToday}
-        className="text-xs"
-      >
-        Today
-      </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={goToToday}
+                className="text-xs px-6"
+              >
+                Today
+              </Button>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={goToNextDay}
-        aria-label="Next day"
-      >
-        →
-      </Button>
-    </div>
-  </div>
-</CardContent>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={goToNextDay}
+                aria-label="Next day"
+                className="rounded-full"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
 
-
-      {/* Footer fills remaining height */}
-      <CardFooter className="flex flex-1 flex-col items-start gap-3 border-t px-4 pt-4 overflow-y-auto">
+      {/* Events */}
+      <CardFooter className="flex flex-1 flex-col items-start gap-3 px-4 pt-4 overflow-y-auto">
         <div className="flex w-full items-center justify-between px-1">
           <div className="text-sm font-medium">
             {selectedDate?.toLocaleDateString("en-US", {
@@ -114,14 +117,16 @@ export function CalendarPreview() {
           </Button>
         </div>
 
-        <div className="flex w-full flex-col gap-2">
+        <div className="flex w-full flex-col gap-1">
           {events.map((event) => (
             <div
               key={event.title}
-              className="relative rounded-md bg-muted p-2 pl-6 text-sm after:absolute after:inset-y-2 after:left-2 after:w-1 after:rounded-full after:bg-primary/70"
+              className="relative rounded-md bg-slate-300 p-1 pl-6 text-sm after:absolute after:inset-y-2 after:left-2 after:w-1 after:rounded-full after:bg-primary/70"
             >
-              <div className="font-medium">{event.title}</div>
-              <div className="text-xs text-muted-foreground">
+              <div className="font-medium text-slate-900">
+                {event.title}
+              </div>
+              <div className="text-xs text-slate-700">
                 {formatDateRange(new Date(event.from), new Date(event.to))}
               </div>
             </div>
