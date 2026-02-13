@@ -62,7 +62,7 @@ function Calendar({
         table: "w-full border-collapse",
         weekdays: cn("flex gap-x-6", defaultClassNames.weekdays),
         weekday: cn(
-          "text-s text-slate-300 font-bold tracking-wide flex-1 text-center select-none mb-4",
+          "text-2xl text-slate-300 font-normal tracking-wide flex-1 text-center select-none mb-2",
           defaultClassNames.weekday
         ),
         week: cn("flex w-full mt-0 gap-x-6 px-0 py-0", defaultClassNames.week),
@@ -118,7 +118,7 @@ function CalendarDayButton({
         !modifiers.range_middle
       }
       className={cn(
-        "h-10 w-10 rounded-full text-lg font-sf font-bold transition-colors",
+        "h-10 w-10 rounded-full text-2xl font-sf font-bold transition-colors",
 
         modifiers.outside
           ? "text-neutral-500 hover:bg-neutral-600/80"

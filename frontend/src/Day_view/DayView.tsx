@@ -13,11 +13,11 @@ const DayView = ({ initialEvents = [] }: DayViewProps) => {
 
   
   return (
-    <div className="h-screen w-full bg-white flex items-center justify-center overflow-hidden select-none ">
+    <div className="h-full w-full bg-white flex items-center justify-center overflow-hidden select-none ">
       {/* APP WINDOW */}
-      <div className="h-[95vh] w-[95%] rounded-2xl bg-neutral-800 shadow-xl flex flex-col">
+      <div className="h-[100%] w-[100%] rounded-l-2xl bg-neutral-800 shadow-xl flex flex-col">
         {/* HEADER */}
-        <div className="px-10 pt-20 pb-4 border-b border-white/20 ">
+        <div className="px-10 pt-30 pb-4 border-b border-white/20 ">
           <h1 className="text-6xl pb-8 font-semibold text-neutral-900 tracking-tight">
             <span className="font-bold text-white">
               {dateInfo?.monthName} {dateInfo?.day},

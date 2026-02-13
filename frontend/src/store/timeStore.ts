@@ -34,11 +34,16 @@ export const useTimeStore = create<TimeStore>((set) => ({
   selectedDate: new Date(),
   dateInfo: buildDateInfo(new Date()),
 
-  setDate: (date) =>
-    set({
-      selectedDate: date,
-      dateInfo: buildDateInfo(date),
-    }),
+  setDate: (date) => {
+    const now = new Date();
+    // Combine selected date with current time
+    const dateWithCurrentTime = new Date(date);
+    dateWithCurrentTime.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+    return set({
+      selectedDate: dateWithCurrentTime,
+      dateInfo: buildDateInfo(dateWithCurrentTime),
+    });
+  },
 
   setToday: () => {
     const now = new Date();
@@ -56,10 +61,22 @@ export const useTimeStore = create<TimeStore>((set) => ({
 
   updateTime: () => {
     const now = new Date();
-    set((state) => ({
-      dateInfo: buildDateInfo(now),
-      selectedDate: state.selectedDate ? now : null,
-    }));
+    set((state) => {
+      if (state.selectedDate) {
+        // Update selectedDate to current time (keeping the date part)
+        const updatedDate = new Date(state.selectedDate);
+        updatedDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+        return {
+          selectedDate: updatedDate,
+          dateInfo: buildDateInfo(updatedDate),
+        };
+      } else {
+        // No selected date, use current time
+        return {
+          dateInfo: buildDateInfo(now),
+        };
+      }
+    });
   },
 }));
 

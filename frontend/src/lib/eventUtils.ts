@@ -12,6 +12,7 @@ export interface EventType {
   endMin: number
   height: number
   title: string
+  date: Date
 }
 
 /* ================= HELPERS ================= */
@@ -85,6 +86,7 @@ if (startY < 0 || startY + duration > DAY_HEIGHT) return null
     endHour: end.hour,
     endMin: end.min,
     title: "New Event",
+    date: new Date(),
   }
 }
 

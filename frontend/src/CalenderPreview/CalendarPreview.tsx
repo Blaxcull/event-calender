@@ -1,29 +1,11 @@
 "use client"
-import { formatDateRange } from "little-date"
-import { PlusIcon, ChevronLeft, ChevronRight } from "lucide-react"
+import {  ChevronLeft, ChevronRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import { Card, CardContent} from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
 
-const events = [
-  {
-    title: "Team Sync Meeting",
-    from: "2025-06-12T09:00:00",
-    to: "2025-06-12T10:00:00",
-  },
-  {
-    title: "Design Review",
-    from: "2025-06-12T11:30:00",
-    to: "2025-06-12T12:30:00",
-  },
-  {
-    title: "Client Presentation",
-    from: "2025-06-12T14:00:00",
-    to: "2025-06-12T15:00:00",
-  },
-]
 
 export function CalendarPreview() {
   const setDateInStore = useTimeStore((state) => state.setDate)
@@ -46,13 +28,13 @@ export function CalendarPreview() {
   }
 
   return (
-    <Card className="h-screen w-[480px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
+    <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
       {/* Calendar section */}
-      <CardContent className="px-16">
+      <CardContent className="px-30 pt-20">
         <div className="flex items-start gap-3">
           {/* Calendar */}
           <div className="w-[150px] h-[150px] flex items-start justify-center pt-4">
-            <div className="origin-top scale-[0.6]">
+            <div className="origin-top scale-[0.8]">
               <Calendar
                 mode="single"
                 selected={selectedDate || undefined}
@@ -66,11 +48,11 @@ export function CalendarPreview() {
           </div>
 
           {/* Date controls */}
-          <div className="flex flex-1 justify-start pl-16 pt-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-1 justify-start pl-42 pt-4">
+            <div className="flex items-center gap-3">
               <Button
-                variant="ghost"
-                size="icon"
+                variant="secondary"
+                size="icon-xl"
                 onClick={goToPreviousDay}
                 aria-label="Previous day"
                 className="rounded-full"
@@ -80,16 +62,16 @@ export function CalendarPreview() {
 
               <Button
                 variant="secondary"
-                size="sm"
+                size="xl"
                 onClick={goToToday}
-                className="text-xs px-6"
+                className="text-2xl left-0"
               >
                 Today
               </Button>
 
               <Button
-                variant="ghost"
-                size="icon"
+                variant="secondary"
+                size="icon-xl"
                 onClick={goToNextDay}
                 aria-label="Next day"
                 className="rounded-full"
@@ -102,37 +84,7 @@ export function CalendarPreview() {
       </CardContent>
 
       {/* Events */}
-      <CardFooter className="flex flex-1 flex-col items-start gap-3 px-4 pt-4 overflow-y-auto">
-        <div className="flex w-full items-center justify-between px-1">
-          <div className="text-sm font-medium">
-            {selectedDate?.toLocaleDateString("en-US", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </div>
-          <Button variant="ghost" size="icon" className="size-6">
-            <PlusIcon />
-            <span className="sr-only">Add Event</span>
-          </Button>
-        </div>
 
-        <div className="flex w-full flex-col gap-1">
-          {events.map((event) => (
-            <div
-              key={event.title}
-              className="relative rounded-md bg-slate-300 p-1 pl-6 text-sm after:absolute after:inset-y-2 after:left-2 after:w-1 after:rounded-full after:bg-primary/70"
-            >
-              <div className="font-medium text-slate-900">
-                {event.title}
-              </div>
-              <div className="text-xs text-slate-700">
-                {formatDateRange(new Date(event.from), new Date(event.to))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </CardFooter>
     </Card>
   )
 }
