@@ -1,34 +1,114 @@
+import type { Event } from '@/store/eventsStore'
+
+/* ================= CONSTANTS ================= */
+
 export const SLOT_HEIGHT = 100
 export const STEP_HEIGHT = SLOT_HEIGHT / 4
 export const TOP_DEAD_ZONE = 48
 export const MIN_EVENT_HEIGHT = STEP_HEIGHT
 
+// Extended event type for UI
 export interface EventType {
   id: string
-  slot: number
+  slot: number  // Y position in pixels
   startHour: number
   startMin: number
   endHour: number
   endMin: number
-  height: number
+  height: number  // Height in pixels
   title: string
   date: Date
+  description?: string
+  color?: string
+  isAllDay?: boolean
+  location?: string
+}
+
+/* ================= INTERACTION LOCK ================= */
+
+let interactionLocked = false
+
+export function lockInteraction() {
+  interactionLocked = true
+}
+
+export function unlockInteraction() {
+  interactionLocked = false
+}
+
+export function isInteractionLocked(): boolean {
+  return interactionLocked
+}
+
+export function resetInteractionLock(): void {
+  interactionLocked = false
 }
 
 /* ================= HELPERS ================= */
 
-
-
-function snap(y: number) {
+export function snap(y: number) {
   return Math.round(y / STEP_HEIGHT) * STEP_HEIGHT
 }
 
-function yToTime(y: number) {
-  const totalMinutes = (y / SLOT_HEIGHT) * 60 // 1 SLOT_HEIGHT = 60 minutes
+export function yToTime(y: number) {
+  const totalMinutes = (y / SLOT_HEIGHT) * 60
   return {
     hour: Math.floor(totalMinutes / 60) % 24,
     min: Math.floor(totalMinutes % 60),
   }
+}
+
+// Convert minutes-since-midnight to Y position
+export function timeToY(minutes: number): number {
+  return (minutes / 60) * SLOT_HEIGHT
+}
+
+// Convert store event to UI event
+export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): EventType {
+  const startY = timeToY(storeEvent.start_time)
+  const endY = timeToY(storeEvent.end_time)
+  const startTime = yToTime(startY)
+  const endTime = yToTime(endY)
+  
+  return {
+    id: storeEvent.id,
+    slot: startY,
+    startHour: startTime.hour,
+    startMin: startTime.min,
+    endHour: endTime.hour,
+    endMin: endTime.min,
+    height: endY - startY,
+    title: storeEvent.title,
+    date: selectedDate,
+    description: storeEvent.description,
+    color: storeEvent.color,
+    isAllDay: storeEvent.is_all_day,
+    location: storeEvent.location,
+  }
+}
+
+// Convert UI event to store event format
+export function uiEventToStoreEvent(uiEvent: EventType, dateStr: string): Partial<Event> {
+  const startTotalMinutes = uiEvent.startHour * 60 + uiEvent.startMin
+  const endTotalMinutes = uiEvent.endHour * 60 + uiEvent.endMin
+  
+  const result: Partial<Event> = {
+    title: uiEvent.title,
+    description: uiEvent.description,
+    date: dateStr,
+    start_time: startTotalMinutes,
+    end_time: endTotalMinutes,
+    color: uiEvent.color,
+    is_all_day: uiEvent.isAllDay,
+    location: uiEvent.location,
+  }
+  
+  // Include the UI event ID for optimistic updates
+  if (uiEvent.id) {
+    result.id = uiEvent.id
+  }
+  
+  return result
 }
 
 function overlaps(aTop: number, aBottom: number, bTop: number, bBottom: number) {
@@ -40,8 +120,12 @@ function overlaps(aTop: number, aBottom: number, bTop: number, bBottom: number) 
 export function addEventOnClick(
   clickY: number,
   events: EventType[],
+  selectedDate: Date,
   direction: "down" | "up" = "down"
 ): EventType | null {
+
+  if (interactionLocked) return null
+
   const duration = SLOT_HEIGHT
   const hourStart = Math.floor(clickY / SLOT_HEIGHT) * SLOT_HEIGHT
   const hourEnd = hourStart + SLOT_HEIGHT
@@ -58,21 +142,23 @@ export function addEventOnClick(
       let previousEnd = hourStart
       for (const ev of hourEvents) {
         const evEnd = ev.slot + ev.height
-        if (evEnd <= snappedClick) previousEnd = Math.max(previousEnd, evEnd)
+        if (evEnd <= snappedClick)
+          previousEnd = Math.max(previousEnd, evEnd)
       }
       startY = previousEnd
     } else {
       let nextStart = hourEnd
       for (const ev of hourEvents) {
-        if (ev.slot >= snappedClick) nextStart = Math.min(nextStart, ev.slot)
+        if (ev.slot >= snappedClick)
+          nextStart = Math.min(nextStart, ev.slot)
       }
       startY = Math.max(hourStart, nextStart - duration)
     }
   }
 
-  // Ensure event stays within the clicked hour
-const DAY_HEIGHT = 24 * SLOT_HEIGHT
-if (startY < 0 || startY + duration > DAY_HEIGHT) return null
+  const DAY_HEIGHT = 24 * SLOT_HEIGHT
+  if (startY < 0 || startY + duration > DAY_HEIGHT)
+    return null
 
   const start = yToTime(startY)
   const end = yToTime(startY + duration)
@@ -86,21 +172,23 @@ if (startY < 0 || startY + duration > DAY_HEIGHT) return null
     endHour: end.hour,
     endMin: end.min,
     title: "New Event",
-    date: new Date(),
+    date: selectedDate,
   }
 }
 
 /* ================= DRAG ================= */
+
 export function dragEvent(event: EventType, deltaY: number): EventType {
+  lockInteraction()
+
   createPlaceholder(event)
-  
+
   const snappedY = Math.max(0, snap(deltaY))
 
   const el = document.getElementById(event.id) as HTMLDivElement | null
   if (el) {
-    // During drag: full width, on top, with shadow
     el.style.left = "0px"
-    el.style.width = "calc(100% )"
+    el.style.width = "calc(100%)"
     el.style.zIndex = "9999"
     el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
     el.style.transition = "box-shadow 100ms ease"
@@ -119,19 +207,19 @@ export function dragEvent(event: EventType, deltaY: number): EventType {
   }
 }
 
-
-
 /* ================= RESIZE ================= */
 
 export function resizeEvent(event: EventType, deltaY: number): EventType {
-  // Minimum 15 minutes
+  lockInteraction()
+
   const newHeight = Math.max(STEP_HEIGHT, snap(deltaY))
 
   const el = document.getElementById(event.id) as HTMLDivElement | null
   if (el) {
     el.style.zIndex = "9999"
+    el.style.width = "calc(100%)"
     el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
-    el.style.transition = "box-shadow 100ms ease"
+    el.style.transition = "box-shadow 10ms ease"
   }
 
   const end = yToTime(event.slot + newHeight)
@@ -152,13 +240,10 @@ interface PositionedEvent extends EventType {
 }
 
 function buildClusters(events: EventType[]): EventType[][] {
-    const sorted = [...events].sort((a, b) => {
-  if (a.slot !== b.slot) return a.slot - b.slot
-
-  // Same start → taller event first
-  return b.height - a.height
-})
-
+  const sorted = [...events].sort((a, b) => {
+    if (a.slot !== b.slot) return a.slot - b.slot
+    return b.height - a.height
+  })
 
   const clusters: EventType[][] = []
 
@@ -232,16 +317,13 @@ function expandSpans(events: PositionedEvent[]) {
 export function restoreEventWidths(events: EventType[]) {
   const elements: Record<string, HTMLDivElement> = {}
 
-  // First pass: clear all inline styles from ALL events
   events.forEach(ev => {
     const el = document.getElementById(ev.id) as HTMLDivElement | null
     if (el) {
-      // Clear inline styles that might interfere with CSS
       el.style.left = ""
       el.style.width = ""
       el.style.zIndex = ""
       el.style.boxShadow = ""
-      el.style.transition = ""
       elements[ev.id] = el
     }
   })
@@ -267,6 +349,9 @@ export function restoreEventWidths(events: EventType[]) {
     }
   }
 }
+
+/* ================= PLACEHOLDER ================= */
+
 function createPlaceholder(event: EventType) {
   if (document.getElementById(`ph-${event.id}`)) return
 
@@ -278,21 +363,15 @@ function createPlaceholder(event: EventType) {
 
   ph.style.position = "absolute"
   ph.style.top = `${event.slot + TOP_DEAD_ZONE + 2}px`
-  ph.style.height = `${event.height-1 }px`
+  ph.style.height = `${event.height - 1}px`
   ph.style.left = original.style.left
   ph.style.width = original.style.width
-
   ph.innerHTML = original.innerHTML
   ph.style.opacity = "0.5"
-
   ph.style.borderRadius = "10px"
   ph.style.background = "#db7fa5"
-
-  ph.style.border = "2px rgba(255,255,255,0.25)"
   ph.style.pointerEvents = "none"
   ph.style.zIndex = "1"
-
-  if (ph) ph.style.boxShadow = "none"
 
   original.parentElement?.appendChild(ph)
 }
@@ -305,6 +384,10 @@ export function removePlaceholder(eventId: string) {
 export function calculateEventDuration(event: EventType): number {
   const startTotal = event.startHour * 60 + event.startMin
   const endTotal = event.endHour * 60 + event.endMin
+  
+  if (endTotal < startTotal) {
+    return (endTotal + 24 * 60) - startTotal
+  }
+  
   return endTotal - startTotal
 }
-

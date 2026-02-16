@@ -1,34 +1,68 @@
 "use client"
-import {  ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, LogOut } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Card, CardContent} from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
+import { supabase } from "@/lib/supabase"
 
+function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date) {
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1 // 1-indexed for URL
+  const day = date.getDate()
+  navigate(`/day/${year}/${month}/${day}`)
+}
 
 export function CalendarPreview() {
-  const setDateInStore = useTimeStore((state) => state.setDate)
+  const navigate = useNavigate()
   const selectedDate = useTimeStore((state) => state.selectedDate)
 
-  const goToToday = () => setDateInStore(new Date())
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    navigate('/login')
+  }
+
+  const goToToday = () => {
+    const today = new Date()
+    navigateToDate(navigate, today)
+  }
 
   const goToPreviousDay = () => {
     if (!selectedDate) return
     const prev = new Date(selectedDate)
     prev.setDate(prev.getDate() - 1)
-    setDateInStore(prev)
+    navigateToDate(navigate, prev)
   }
 
   const goToNextDay = () => {
     if (!selectedDate) return
     const next = new Date(selectedDate)
     next.setDate(next.getDate() + 1)
-    setDateInStore(next)
+    navigateToDate(navigate, next)
+  }
+
+  const handleCalendarSelect = (date: Date | undefined) => {
+    if (!date) return
+    navigateToDate(navigate, date)
   }
 
   return (
     <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
+      {/* Sign out button - small, at top */}
+      <div className="flex justify-end px-4 pb-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleSignOut}
+          className="text-slate-400 hover:text-slate-100 hover:bg-slate-700"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Sign out
+        </Button>
+      </div>
+
       {/* Calendar section */}
       <CardContent className="px-30 pt-20">
         <div className="flex items-start gap-3">
@@ -38,10 +72,7 @@ export function CalendarPreview() {
               <Calendar
                 mode="single"
                 selected={selectedDate || undefined}
-                onSelect={(date: Date | undefined) => {
-                  if (!date) return
-                  setDateInStore(date)
-                }}
+                onSelect={handleCalendarSelect}
                 className="bg-neutral-800 text-white rounded-md"
               />
             </div>

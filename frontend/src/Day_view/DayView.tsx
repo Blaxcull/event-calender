@@ -1,13 +1,8 @@
 import { useTimeStore } from "@/store/timeStore"
 import TimeLine from "./TimeLine"
-import TimeView from "./TimeView" // your click-to-add-event component
-import type { EventType } from "@/lib/eventUtils"
+import TimeView from "./TimeView"
 
-interface DayViewProps {
-  initialEvents?: EventType[]
-}
-
-const DayView = ({ initialEvents = [] }: DayViewProps) => {
+const DayView = () => {
   const dateInfo = useTimeStore((state) => state.dateInfo)
   const hourHeight = 100// must match TimeLine
 
@@ -68,7 +63,7 @@ const DayView = ({ initialEvents = [] }: DayViewProps) => {
     />
   ))}
 
-  <TimeView initialEvents={initialEvents} />
+  <TimeView />
 
     <div className="h-[10px] w-full" />
 </div>
