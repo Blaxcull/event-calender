@@ -154,13 +154,27 @@ export const useEventsStore = create<EventsState>()(
               return
             }
 
-            // Organize events by date
             const newCache: EventsCache = {}
             data?.forEach((event: Event) => {
               if (!newCache[event.date]) {
                 newCache[event.date] = []
               }
               newCache[event.date].push(event)
+            })
+
+            const { eventsCache: oldCache, pendingSyncs } = get()
+
+            Object.keys(oldCache).forEach(date => {
+              const tempEvents = oldCache[date].filter(e => pendingSyncs.has(e.id))
+              if (tempEvents.length > 0) {
+                if (!newCache[date]) newCache[date] = []
+                tempEvents.forEach(tempEvent => {
+                  if (!newCache[date].some(e => e.id === tempEvent.id)) {
+                    newCache[date].push(tempEvent)
+                  }
+                })
+                newCache[date].sort((a, b) => a.start_time - b.start_time)
+              }
             })
 
             set({
@@ -253,22 +267,16 @@ export const useEventsStore = create<EventsState>()(
 
             console.log('Background: Event saved to database:', data)
 
-            // Replace local event with real event in cache
             const { eventsCache: currentCache } = get()
             const newCache = { ...currentCache }
-            
-            // Remove local event
+
             if (newCache[dateKey]) {
-              newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
+              newCache[dateKey] = newCache[dateKey].map(e =>
+                e.id === tempId ? data : e
+              )
+              newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
             }
-            
-            // Add real event
-            if (!newCache[dateKey]) {
-              newCache[dateKey] = []
-            }
-            newCache[dateKey].push(data)
-            newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
-            
+
             set({
               eventsCache: newCache,
             })

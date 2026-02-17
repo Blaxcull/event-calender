@@ -1,4 +1,4 @@
-import React, { useState, memo, useRef, useEffect } from "react"
+import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import type { EventType } from '../lib/eventUtils'
 import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, restoreEventWidths, calculateEventDuration, STEP_HEIGHT, snap, yToTime, storeEventToUIEvent, uiEventToStoreEvent } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
@@ -27,8 +27,8 @@ const bgColor =isDragging ?
     :'bg-[#f792bb] '
 
 
-  const widthClass = isDragging ? 'left-0 right-0' : 'left-19 right-0'
-const isActive = isDragging || isResizing
+  const widthClass = isDragging ? '' : ''
+ const isActive = isDragging || isResizing
 
 const zIndex = isActive ? 'z-[9999]' : 'z-10'
 const shadow = isActive ? 'shadow-2xl' : ''
@@ -36,7 +36,7 @@ const shadow = isActive ? 'shadow-2xl' : ''
 return (
   <div
     onMouseDown={onMouseDown}
-className={`absolute ${bgColor} ${widthClass} ${zIndex} ${shadow}
+    className={`absolute ${bgColor} ${widthClass} ${zIndex} ${shadow}
   rounded-md calendar-event
   cursor-grab active:cursor-grabbing select-none
   border-r-2 border-b-0 border-t-4 border-transparent bg-clip-padding`}
@@ -44,6 +44,8 @@ className={`absolute ${bgColor} ${widthClass} ${zIndex} ${shadow}
     style={{
       top: event.slot + TOP_DEAD_ZONE,
       height: event.height,
+      left: '0',
+      width: '100%',
     } as React.CSSProperties}
   >
     {/* Right vertical strip */}
@@ -139,8 +141,9 @@ const TimeView: React.FC<TimeViewProps> = () => {
     // Find IDs that disappeared (temp events)
     const removedIds = [...currentIds].filter(id => !newIds.has(id))
     
-    // For each removed temp ID, check if there's a new event at the same position
-    // This indicates an ID swap (temp → real)
+    // Find ID swaps before updating state
+    // When a temp event is replaced with a real one, we track the mapping
+    // and update the DOM element's ID so React doesn't destroy and recreate it
     removedIds.forEach(removedId => {
       if (pendingEventIds.current.has(removedId)) {
         // Find the removed event's position
@@ -155,39 +158,17 @@ const TimeView: React.FC<TimeViewProps> = () => {
             e.title === removedEvent.title
           )
           if (replacementEvent) {
-            // Mark the replacement event to skip layout animation
+            // Store the mapping from temp ID to real ID
+            idMapping.current.set(removedId, replacementEvent.id)
+            
+            // Update the DOM element's ID from temp to real
+            const tempEl = document.getElementById(removedId) as HTMLDivElement | null
+            if (tempEl) {
+              tempEl.id = replacementEvent.id
+            }
+            
+            // Mark this ID to skip layout animation
             lastAddedEventId.current = replacementEvent.id
-            
-            // Immediately calculate and apply the correct position to prevent any visible movement
-            // Calculate the layout for this event based on all events (including the replacement)
-            const allEvents = uiEvents.filter(e => e.id !== replacementEvent.id)
-            const eventsInSameSlot = allEvents.filter(ev =>
-              ev.slot < replacementEvent.slot + replacementEvent.height &&
-              replacementEvent.slot < ev.slot + ev.height
-            )
-            
-            // Position the replacement event immediately without animation
-            requestAnimationFrame(() => {
-              const newEl = document.getElementById(replacementEvent.id) as HTMLDivElement | null
-              if (newEl && eventsInSameSlot.length > 0) {
-                // If there are overlapping events, calculate the correct width
-                const totalOverlapping = eventsInSameSlot.length + 1
-                const widthPercent = 100 / totalOverlapping
-                const index = eventsInSameSlot.length
-                const leftPercent = index * widthPercent
-                
-                newEl.style.transition = "none"
-                newEl.style.left = `calc(${leftPercent}%)`
-                newEl.style.width = `calc(${widthPercent}%)`
-                newEl.style.zIndex = "2"
-              } else if (newEl) {
-                // No overlap, full width
-                newEl.style.transition = "none"
-                newEl.style.left = "0"
-                newEl.style.width = "100%"
-                newEl.style.zIndex = "2"
-              }
-            })
           }
         }
         pendingEventIds.current.delete(removedId)
@@ -195,6 +176,14 @@ const TimeView: React.FC<TimeViewProps> = () => {
     })
     
     setLocalEvents(uiEvents)
+    
+    // Clean up old ID mappings for events that no longer exist
+    const currentEventIds = new Set(uiEvents.map(e => e.id))
+    for (const [tempId, realId] of idMapping.current.entries()) {
+      if (!currentEventIds.has(realId)) {
+        idMapping.current.delete(tempId)
+      }
+    }
   }, [selectedDate, eventsCache])
   
   // UI state
@@ -343,13 +332,35 @@ const TimeView: React.FC<TimeViewProps> = () => {
   
   // Track temp event IDs that are pending database save
   const pendingEventIds = useRef<Set<string>>(new Set())
+  
+  // Track temp-to-real ID mappings for stable keys
+  const idMapping = useRef<Map<string, string>>(new Map())
+
+  // Clean up any orphaned placeholders and duplicate event elements when events change
+  useEffect(() => {
+    if (draggingId || resizingId) return
+    
+    // Remove orphaned placeholders
+    document.querySelectorAll('[id^="ph-"]').forEach(el => {
+      el.remove()
+    })
+    
+    // Remove any duplicate event elements (keep first occurrence)
+    const seenIds = new Set<string>()
+    document.querySelectorAll('.calendar-event').forEach(el => {
+      const id = el.id
+      if (seenIds.has(id)) {
+        el.remove()
+      } else {
+        seenIds.add(id)
+      }
+    })
+  }, [localEvents, draggingId, resizingId])
 
   // Apply layout widths whenever local events change
   // Skip during drag/resize - only update when drag ends
-  useEffect(() => {
-    // Don't resize other events during drag/resize - wait until released
+  useLayoutEffect(() => {
     if (isDraggingRef.current || isResizingRef.current || draggingId || resizingId) {
-      // Only ensure active event stays full width during drag
       const activeId = draggingId || resizingId
       if (activeId) {
         const activeEl = document.getElementById(activeId) as HTMLDivElement | null
@@ -361,31 +372,24 @@ const TimeView: React.FC<TimeViewProps> = () => {
       return
     }
     
-    // Use requestAnimationFrame to ensure DOM elements are created before applying layout
-    // This prevents jitter when new events are added
-    const rafId = requestAnimationFrame(() => {
-      // Only apply layout when NOT dragging/resizing
-      // Skip animation for the most recently added event
-      restoreEventWidths(localEvents, true, lastAddedEventId.current)
-      
-      // Clear the last added event ID after layout is applied
-      if (lastAddedEventId.current) {
-        lastAddedEventId.current = null
-      }
-      
-      // Clear transitions after animation completes
-      setTimeout(() => {
-        localEvents.forEach(ev => {
-          const el = document.getElementById(ev.id) as HTMLDivElement | null
-          if (el) {
-            el.style.transition = ""
-            el.style.opacity = ""
-          }
-        })
-      }, 200)
-    })
+    const skipEventId = lastAddedEventId.current || 
+      (pendingEventIds.current.size > 0 ? Array.from(pendingEventIds.current)[0] : null)
     
-    return () => cancelAnimationFrame(rafId)
+    restoreEventWidths(localEvents, true, skipEventId)
+    
+    if (lastAddedEventId.current) {
+      lastAddedEventId.current = null
+    }
+    
+    setTimeout(() => {
+      localEvents.forEach(ev => {
+        const el = document.getElementById(ev.id) as HTMLDivElement | null
+        if (el) {
+          el.style.transition = ""
+          el.style.opacity = ""
+        }
+      })
+    }, 200)
   }, [localEvents, draggingId, resizingId])
 
   const handleEventClick = async (e: React.MouseEvent<HTMLDivElement>) => {
@@ -410,37 +414,66 @@ const TimeView: React.FC<TimeViewProps> = () => {
     const newUIEvent = addEventOnClick(clickY, localEvents, selectedDate)
     if (!newUIEvent) return
     
+    // Calculate correct width for the new event immediately
+    // Count how many events will overlap with the new one
+    const overlappingEvents = localEvents.filter(ev =>
+      ev.slot < newUIEvent.slot + newUIEvent.height &&
+      newUIEvent.slot < ev.slot + ev.height
+    )
+    
+    // Calculate position for the new event (it will be the rightmost)
+    const totalEvents = overlappingEvents.length + 1
+    const widthPercent = 100 / totalEvents
+    const positionIndex = overlappingEvents.length
+    const leftPercent = positionIndex * widthPercent
+    
     // Track the new event ID to skip its layout animation
     lastAddedEventId.current = newUIEvent.id
     
     // Add to pending set to track ID swaps when saved to DB
     pendingEventIds.current.add(newUIEvent.id)
     
+    // Pre-position existing overlapping events with transitions before state update
+    overlappingEvents.forEach((ev, index) => {
+      const el = document.getElementById(ev.id) as HTMLDivElement | null
+      if (el) {
+        // Set transition for smooth resize
+        el.style.transition = "left 200ms ease, width 200ms ease"
+        // Calculate new position (distribute evenly)
+        const newLeftPercent = index * widthPercent
+        el.style.left = `calc(${newLeftPercent}%)`
+        el.style.width = `calc(${widthPercent}%)`
+      }
+    })
+    
     // Add to local state immediately for instant feedback
     setLocalEvents(prev => [...prev, newUIEvent])
     
-    // Apply fade-in animation to the new event
-    // We use a small delay to ensure the element is rendered
-    setTimeout(() => {
+    // Apply correct position and fade-in animation in the same frame
+    requestAnimationFrame(() => {
       const newEl = document.getElementById(newUIEvent.id) as HTMLDivElement | null
       if (newEl) {
-        // Start invisible and fade in - no transform to avoid jitter
+        // Set the correct position immediately (no transition for position)
+        newEl.style.left = `calc(${leftPercent}%)`
+        newEl.style.width = `calc(${widthPercent}%)`
+        newEl.style.zIndex = "2"
+        
+        // Start invisible for fade-in
         newEl.style.opacity = "0"
-        // Only animate opacity for the new event, not position
-        newEl.style.transition = "opacity 150ms ease-out"
         
-        // Trigger fade in
+        // Trigger fade in on next frame
         requestAnimationFrame(() => {
+          newEl.style.transition = "opacity 150ms ease-out"
           newEl.style.opacity = "1"
+          
+          // Clear transition after animation
+          setTimeout(() => {
+            newEl.style.transition = ""
+            newEl.style.opacity = ""
+          }, 150)
         })
-        
-        // Clear transition after animation
-        setTimeout(() => {
-          newEl.style.transition = ""
-          newEl.style.opacity = ""
-        }, 150)
       }
-    }, 10)
+    })
     
     // Convert to store format and save optimistically
     const dateStr = selectedDate.toISOString().split('T')[0]
@@ -548,16 +581,28 @@ const TimeView: React.FC<TimeViewProps> = () => {
       className="absolute inset-0 calendar-container"
       style={{ zIndex: 10 }}
     >
-       {localEvents.map(event => (
-        <CalendarEvent
-          key={event.id}
-          event={event}
-          onMouseDown={e => handleDragStart(e, event)}
-          onResizeStart={handleResizeStart}
-          isDragging={draggingId === event.id}
-          isResizing={resizingId === event.id}
-        />
-      ))}
+        {localEvents.map(event => {
+          // Get stable key - use temp ID if available in mapping, otherwise use real ID
+          // This prevents React from remounting when temp ID is swapped to real ID
+          let stableKey = event.id
+          for (const [tempId, realId] of idMapping.current.entries()) {
+            if (realId === event.id) {
+              stableKey = tempId
+              break
+            }
+          }
+          
+          return (
+            <CalendarEvent
+              key={stableKey}
+              event={event}
+              onMouseDown={e => handleDragStart(e, event)}
+              onResizeStart={handleResizeStart}
+              isDragging={draggingId === event.id}
+              isResizing={resizingId === event.id}
+            />
+          )
+        })}
     </div>
   )
 }
