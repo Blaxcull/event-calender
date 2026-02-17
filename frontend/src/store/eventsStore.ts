@@ -41,15 +41,21 @@ interface EventsCache {
 interface EventsState {
   // Cache storage
   eventsCache: EventsCache
-  
+
   // Current cached window (ISO date strings)
   cacheStartDate: string | null
   cacheEndDate: string | null
-  
+
+  // Track which user's data is cached
+  cachedUserId: string | null
+
   // Loading states
   isLoading: boolean
   error: string | null
-  
+
+  // Sync state - tracks pending operations
+  pendingSyncs: Set<string>
+
   // Actions
   fetchEventsWindow: (centerDate: Date) => void
   addEvent: (event: NewEvent) => Event
@@ -58,6 +64,8 @@ interface EventsState {
   deleteEvent: (id: string) => boolean
   getEventsForDate: (date: Date) => Event[]
   clearCache: () => void
+  isEventSyncing: (eventId: string) => boolean
+  isAnyEventSyncing: () => boolean
 }
 
 const CACHE_WINDOW_DAYS = 17 // Days before and after
@@ -82,26 +90,45 @@ export const useEventsStore = create<EventsState>()(
       eventsCache: {},
       cacheStartDate: null,
       cacheEndDate: null,
+      cachedUserId: null,
       isLoading: false,
       error: null,
+      pendingSyncs: new Set<string>(),
 
-      fetchEventsWindow: (centerDate: Date) => {
+      fetchEventsWindow: async (centerDate: Date) => {
         const startDate = addDays(centerDate, -CACHE_WINDOW_DAYS)
         const endDate = addDays(centerDate, CACHE_WINDOW_DAYS)
         
         const startStr = formatDate(startDate)
         const endStr = formatDate(endDate)
+
+        // Get current user before fetching
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          console.warn('User not authenticated, cannot fetch events')
+          set({ isLoading: false, error: 'User not authenticated', cachedUserId: null })
+          return
+        }
+
+        // Check if we need to clear cache (user changed or no cache)
+        const { cacheStartDate, cacheEndDate, cachedUserId } = get()
         
-        // Check if we already have this window cached
-        const { cacheStartDate, cacheEndDate } = get()
-        
-        if (
+        if (cachedUserId !== user.id) {
+          // User changed, clear cache
+          console.log('User changed, clearing cache. Old user:', cachedUserId, 'New user:', user.id)
+          set({
+            eventsCache: {},
+            cacheStartDate: null,
+            cacheEndDate: null,
+            cachedUserId: user.id,
+          })
+        } else if (
           cacheStartDate &&
           cacheEndDate &&
           startStr >= cacheStartDate &&
           endStr <= cacheEndDate
         ) {
-          // Already have this range cached
+          // Already have this range cached for this user
           return
         }
 
@@ -113,6 +140,7 @@ export const useEventsStore = create<EventsState>()(
             const { data, error } = await supabase
               .from('events')
               .select('*')
+              .eq('user_id', user.id)  // Filter by current user
               .gte('date', startStr)
               .lte('date', endStr)
               .order('start_time', { ascending: true })
@@ -139,6 +167,7 @@ export const useEventsStore = create<EventsState>()(
               eventsCache: newCache,
               cacheStartDate: startStr,
               cacheEndDate: endStr,
+              cachedUserId: user.id,
               isLoading: false,
             })
             
@@ -277,29 +306,35 @@ export const useEventsStore = create<EventsState>()(
         // Add to cache immediately
         const { eventsCache } = get()
         const dateKey = event.date
-        
+
+        // Track this event as syncing
+        const currentPendingSyncs = new Set(get().pendingSyncs)
+        currentPendingSyncs.add(tempId)
         set({
           eventsCache: {
             ...eventsCache,
             [dateKey]: [...(eventsCache[dateKey] || []), tempEvent],
           },
+          pendingSyncs: currentPendingSyncs,
         })
-        
+
         // Start background database save (non-blocking)
         setTimeout(async () => {
           try {
             // Get current user for database insert
             const { data: { user } } = await supabase.auth.getUser()
-            
+
             if (!user) {
               console.error('User not authenticated for database save')
               // Remove temp event since we can't save it
-              const { eventsCache: currentCache } = get()
+              const { eventsCache: currentCache, pendingSyncs } = get()
               const newCache = { ...currentCache }
+              const newPendingSyncs = new Set(pendingSyncs)
+              newPendingSyncs.delete(tempId)
               if (newCache[dateKey]) {
                 newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
               }
-              set({ eventsCache: newCache })
+              set({ eventsCache: newCache, pendingSyncs: newPendingSyncs })
               return
             }
 
@@ -311,7 +346,7 @@ export const useEventsStore = create<EventsState>()(
               end_time: event.end_time,
               user_id: user.id,
             }
-            
+
             // Add optional fields if defined
             if (event.description !== undefined) eventForDb.description = event.description
             if (event.color !== undefined) eventForDb.color = event.color
@@ -329,46 +364,51 @@ export const useEventsStore = create<EventsState>()(
             if (error) {
               console.error('Background: Database save failed:', error)
               // Remove temp event on failure
-              const { eventsCache: currentCache } = get()
+              const { eventsCache: currentCache, pendingSyncs } = get()
               const newCache = { ...currentCache }
+              const newPendingSyncs = new Set(pendingSyncs)
+              newPendingSyncs.delete(tempId)
               if (newCache[dateKey]) {
                 newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
               }
-              set({ eventsCache: newCache })
+              set({ eventsCache: newCache, pendingSyncs: newPendingSyncs })
               return
             }
 
             console.log('Background: Event saved to database:', data)
 
-            // Replace temp event with real event in cache
-            const { eventsCache: currentCache } = get()
+            // Update temp event in place with real data (no remove/add = no jitter!)
+            const { eventsCache: currentCache, pendingSyncs } = get()
             const newCache = { ...currentCache }
-            
-            // Remove temp event
+            const newPendingSyncs = new Set(pendingSyncs)
+            newPendingSyncs.delete(tempId)
+
             if (newCache[dateKey]) {
-              newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
+              // Find and update the temp event in place
+              newCache[dateKey] = newCache[dateKey].map(e =>
+                e.id === tempId
+                  ? { ...data, isTemp: false } // Update with real data, mark as not temp
+                  : e
+              )
+              newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
             }
-            
-            // Add real event
-            if (!newCache[dateKey]) {
-              newCache[dateKey] = []
-            }
-            newCache[dateKey].push(data)
-            newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
-            
+
             set({
               eventsCache: newCache,
+              pendingSyncs: newPendingSyncs,
             })
 
           } catch (err) {
             console.error('Background: Unexpected error during database save:', err)
             // Remove temp event on unexpected error
-            const { eventsCache: currentCache } = get()
+            const { eventsCache: currentCache, pendingSyncs } = get()
             const newCache = { ...currentCache }
+            const newPendingSyncs = new Set(pendingSyncs)
+            newPendingSyncs.delete(tempId)
             if (newCache[dateKey]) {
               newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
             }
-            set({ eventsCache: newCache })
+            set({ eventsCache: newCache, pendingSyncs: newPendingSyncs })
           }
         }, 0) // Start immediately but asynchronously
         
@@ -490,11 +530,20 @@ export const useEventsStore = create<EventsState>()(
         return get().eventsCache[dateKey] || []
       },
 
+      isEventSyncing: (eventId: string): boolean => {
+        return get().pendingSyncs.has(eventId)
+      },
+
+      isAnyEventSyncing: (): boolean => {
+        return get().pendingSyncs.size > 0
+      },
+
       clearCache: () => {
         set({
           eventsCache: {},
           cacheStartDate: null,
           cacheEndDate: null,
+          cachedUserId: null,
         })
       },
     }),
@@ -504,6 +553,7 @@ export const useEventsStore = create<EventsState>()(
         eventsCache: state.eventsCache,
         cacheStartDate: state.cacheStartDate,
         cacheEndDate: state.cacheEndDate,
+        cachedUserId: state.cachedUserId,
       }),
     }
   )

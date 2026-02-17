@@ -314,16 +314,25 @@ function expandSpans(events: PositionedEvent[]) {
   }
 }
 
-export function restoreEventWidths(events: EventType[]) {
+export function restoreEventWidths(events: EventType[], animate: boolean = true, skipEventId: string | null = null) {
   const elements: Record<string, HTMLDivElement> = {}
 
+  // First pass: collect elements and set transitions
   events.forEach(ev => {
     const el = document.getElementById(ev.id) as HTMLDivElement | null
     if (el) {
+      // Clear existing styles first
       el.style.left = ""
       el.style.width = ""
       el.style.zIndex = ""
       el.style.boxShadow = ""
+      
+      // Add transition for smooth layout changes, but skip the new event
+      // to prevent it from animating from wrong position
+      if (animate && ev.id !== skipEventId) {
+        el.style.transition = "left 200ms ease, width 200ms ease"
+      }
+      
       elements[ev.id] = el
     }
   })

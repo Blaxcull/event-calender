@@ -1,11 +1,12 @@
 "use client"
-import { ChevronLeft, ChevronRight, LogOut } from "lucide-react"
+import { ChevronLeft, ChevronRight, LogOut, Loader2, CheckCircle2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
+import { useEventsStore } from "@/store/eventsStore"
 import { supabase } from "@/lib/supabase"
 
 function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date) {
@@ -18,6 +19,7 @@ function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date) {
 export function CalendarPreview() {
   const navigate = useNavigate()
   const selectedDate = useTimeStore((state) => state.selectedDate)
+  const isAnyEventSyncing = useEventsStore((state) => state.isAnyEventSyncing)
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -50,8 +52,23 @@ export function CalendarPreview() {
 
   return (
     <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
-      {/* Sign out button - small, at top */}
-      <div className="flex justify-end px-4 pb-2">
+      {/* Top bar - Sign out and Sync Status */}
+      <div className="flex justify-between items-center px-4 pb-2">
+        {/* Sync Status - Now on the left, more visible */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-700/50">
+          {isAnyEventSyncing() ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+              <span className="text-sm text-slate-300">Syncing...</span>
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="h-4 w-4 text-green-400" />
+              <span className="text-sm text-slate-300">Saved</span>
+            </>
+          )}
+        </div>
+
         <Button
           variant="ghost"
           size="sm"

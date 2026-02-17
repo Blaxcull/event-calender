@@ -1,12 +1,21 @@
 import { useTimeStore } from "@/store/timeStore"
 import TimeLine from "./TimeLine"
 import TimeView from "./TimeView"
+import { useMemo } from "react"
 
 const DayView = () => {
   const dateInfo = useTimeStore((state) => state.dateInfo)
   const hourHeight = 100// must match TimeLine
 
-  
+  // Memoize hour grid arrays to prevent recreation on every render
+  const hourSlots = useMemo(() => 
+    Array.from({ length: 24 }, (_, i) => i),
+  [])
+
+  const gridLines = useMemo(() => 
+    Array.from({ length: 23 }, (_, i) => i),
+  [])
+
   return (
     <div className="h-full w-full bg-white flex items-center justify-center overflow-hidden select-none ">
       {/* APP WINDOW */}
@@ -32,21 +41,18 @@ const DayView = () => {
       
       {/* ⏰ LEFT COLUMN — TIME */}
       <div className="w-20 shrink-0">
-        {Array.from({ length: 24 }, (_, i) => {
-          const hour = i
-          return (
-            <div
-              key={hour}
-              className="flex items-center justify-end pr-3 "
-              style={{ height: `${hourHeight}px` }}
-            >
-              <span className="text-white text-2xl font-space-mono">
-                {hour.toString().padStart(2, "0")}
-                <span className="text-gray-500 text-xl">:00</span>
-              </span>
-            </div>
-          )
-        })}
+        {hourSlots.map((hour) => (
+          <div
+            key={hour}
+            className="flex items-center justify-end pr-3 "
+            style={{ height: `${hourHeight}px` }}
+          >
+            <span className="text-white text-2xl font-space-mono">
+              {hour.toString().padStart(2, "0")}
+              <span className="text-gray-500 text-xl">:00</span>
+            </span>
+          </div>
+        ))}
       </div>
 
       {/* 📅 RIGHT COLUMN — GRID + EVENTS */}
@@ -55,7 +61,7 @@ const DayView = () => {
   <div className="h-[1px] bg-neutral-600 mt-12" />
 
   {/* Remaining hour lines */}
-  {Array.from({ length: 23 }, (_, i) => (
+  {gridLines.map((i) => (
     <div
       key={i}
       className="h-[1px] bg-neutral-600"
