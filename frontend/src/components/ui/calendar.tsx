@@ -101,6 +101,8 @@ function CalendarDayButton({
 
   const isWeekend =
     day.date.getDay() === 0 || day.date.getDay() === 6
+const isToday =
+  day.date.toDateString() === new Date().toDateString()
 
   React.useEffect(() => {
     if (modifiers.focused) ref.current?.focus()
@@ -118,21 +120,27 @@ function CalendarDayButton({
         !modifiers.range_middle
       }
       className={cn(
-        "h-10 w-10 rounded-full text-2xl font-sf font-bold transition-colors",
+  "h-10 w-10 rounded-full text-2xl font-sf font-bold transition-colors",
 
-        modifiers.outside
-          ? "text-neutral-500 hover:bg-neutral-600/80"
-          : isWeekend
-          ? "text-rose-400 hover:bg-rose-500/80"
-          : "text-slate-200 hover:bg-neutral-300",
+  modifiers.outside
+    ? "text-neutral-500 hover:bg-neutral-600/80"
+    : isWeekend
+    ? "text-rose-400/70 hover:bg-rose-500"
+    : "text-slate-200 hover:bg-neutral-300",
 
-        modifiers.selected && modifiers.outside
-          ? "bg-neutral-700 text-neutral-300"
-          : "data-[selected-single=true]:bg-slate-600 data-[selected-single=true]:text-white",
+  // Selected styling
+  modifiers.selected &&
+    "bg-slate-600 text-white",
 
-        defaultClassNames.day,
-        className
-      )}
+  // 🔥 TODAY styling (always visible)
+  isToday &&
+    !modifiers.selected &&
+    "bg-red-500 text-white hover:bg-red-700 shadow-[8_0_0px_rgba(99,102,241,0.8)]",
+
+  defaultClassNames.day,
+  className
+)}
+
       {...props}
     />
   )

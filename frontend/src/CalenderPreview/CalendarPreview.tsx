@@ -1,11 +1,12 @@
 "use client"
-import {  ChevronLeft, ChevronRight } from "lucide-react"
+
+import ChevronLeft from "@/assets/chevron-left.svg"
+import ReminderForm from "@/components/eventDummy"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Card, CardContent} from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
-
 
 export function CalendarPreview() {
   const setDateInStore = useTimeStore((state) => state.setDate)
@@ -28,12 +29,14 @@ export function CalendarPreview() {
   }
 
   return (
-    <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
-      {/* Calendar section */}
-      <CardContent className="px-30 pt-20">
-        <div className="flex items-start gap-3">
+    <Card className="h-full w-175 flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
+      <CardContent className="px-0 pt-20">
+        
+        {/* Top row: Calendar + controls */}
+        <div className="flex items-start gap-6">
+          
           {/* Calendar */}
-          <div className="w-[150px] h-[150px] flex items-start justify-center pt-4">
+          <div className="flex flex-col items-center pt-4">
             <div className="origin-top scale-[0.8]">
               <Calendar
                 mode="single"
@@ -48,8 +51,9 @@ export function CalendarPreview() {
           </div>
 
           {/* Date controls */}
-          <div className="flex flex-1 justify-start pl-42 pt-4">
+          <div className="flex flex-1 justify-start pt-4">
             <div className="flex items-center gap-3">
+              
               <Button
                 variant="secondary"
                 size="icon-xl"
@@ -57,14 +61,14 @@ export function CalendarPreview() {
                 aria-label="Previous day"
                 className="rounded-full"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <img src={ChevronLeft} alt="Previous" className="h-5 w-5" />
               </Button>
 
               <Button
                 variant="secondary"
                 size="xl"
                 onClick={goToToday}
-                className="text-2xl left-0"
+                className="text-2xl"
               >
                 Today
               </Button>
@@ -76,15 +80,25 @@ export function CalendarPreview() {
                 aria-label="Next day"
                 className="rounded-full"
               >
-                <ChevronRight className="h-4 w-4" />
+                <img
+                  src={ChevronLeft}
+                  alt="Next"
+                  className="h-5 w-5 rotate-180"
+                />
               </Button>
+
             </div>
           </div>
         </div>
+
+        {/* Reminder form centered */}
+        <div className="mt-12 flex justify-center">
+          <div className="w-full max-w-3xl">
+            <ReminderForm />
+          </div>
+        </div>
+
       </CardContent>
-
-      {/* Events */}
-
     </Card>
   )
 }

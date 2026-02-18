@@ -9,7 +9,7 @@ export default function TimeLine() {
   const totalMinutes = 
 dateInfo.hours * 60 + dateInfo.minutes + dateInfo.seconds / 60
 
-  const hourHeight = 86 // each hour row height in px
+  const hourHeight = 100 // each hour row height in px
   const correctTop = TOP_DEAD_ZONE + totalMinutes * (hourHeight / 60)
 
   const formatTime = () => {
@@ -23,7 +23,7 @@ dateInfo.hours * 60 + dateInfo.minutes + dateInfo.seconds / 60
   return (
 <div className="relative z-50 w-full h-full">
   <div
-    className="absolute -left-2 right-0 h-[2px] bg-red-500 z-10"
+    className="absolute -left-2 right-0 h-0.5 bg-red-500 z-10"
     style={{ top: `${correctTop}px` }}
   >
 
