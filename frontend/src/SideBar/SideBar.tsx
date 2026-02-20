@@ -84,11 +84,11 @@ export function SideBar() {
       </div>
 
       {/* Calendar section */}
-     <CardContent className="px-30 pt-12 shrink-0">
+     <CardContent className="px-30 pb-10 pt-12 shrink-0">
         <div className="flex items-start gap-3">
           {/* Calendar */}
          <div className="w-[150px]  flex items-start justify-center pt-4">
-            <div className="origin-top scale-[0.8]">
+            <div className="origin-top ">
               <Calendar
                 mode="single"
                 selected={selectedDate || undefined}

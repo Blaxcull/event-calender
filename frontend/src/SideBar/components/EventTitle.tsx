@@ -1,5 +1,5 @@
 import React from 'react'
-import { useEventsStore } from '@/store/eventsStore'
+import { useEventsStore, formatDate } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import EventEditor from './EventEditor'
 
@@ -12,7 +12,7 @@ const EventTitle: React.FC = () => {
   // Get events for selected date
   const todaysEvents = React.useMemo(() => {
     if (!selectedDate) return []
-    const dateKey = selectedDate.toISOString().split('T')[0]
+    const dateKey = formatDate(selectedDate)
     return eventsCache[dateKey] || []
   }, [selectedDate, eventsCache])
 

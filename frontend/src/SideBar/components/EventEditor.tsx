@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Trash2 } from 'lucide-react'
-import { useEventsStore } from '@/store/eventsStore'
+import { useEventsStore, formatDate } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,7 +29,7 @@ const EventEditor: React.FC = () => {
   // Get the selected event
   const selectedEvent = React.useMemo(() => {
     if (!selectedEventId || !selectedDate) return null
-    const dateKey = selectedDate.toISOString().split('T')[0]
+    const dateKey = formatDate(selectedDate)
     const events = eventsCache[dateKey] || []
     return events.find(e => e.id === selectedEventId)
   }, [selectedEventId, eventsCache, selectedDate])
@@ -182,7 +182,7 @@ const EventEditor: React.FC = () => {
       {/* Card */}
       <div className="
 shadow-lg border border-neutral-800
-      w-full bg-neutral-700 rounded-[34px] p-5 border-20 space-y-4 shadow-sm">
+      w-full bg-neutral-700 rounded-[34px] p-5 border-20  space-y-4 shadow-none">
 
 
 

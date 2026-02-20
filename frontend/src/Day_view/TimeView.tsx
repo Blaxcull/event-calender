@@ -2,7 +2,7 @@ import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react
 import type { EventType } from '../lib/eventUtils'
 import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, restoreEventWidths, calculateEventDuration, STEP_HEIGHT, snap, yToTime, storeEventToUIEvent, uiEventToStoreEvent } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
-import { useEventsStore } from "@/store/eventsStore"
+import { useEventsStore, formatDate } from "@/store/eventsStore"
 
 interface TimeViewProps {
   initialEvents?: EventType[]
@@ -137,7 +137,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       setLocalEvents([])
       return
     }
-    const dateKey = selectedDate.toISOString().split('T')[0]
+    const dateKey = formatDate(selectedDate)
     const storeEvents = eventsCache[dateKey] || []
     const uiEvents = storeEvents.map(event => storeEventToUIEvent(event, selectedDate))
     
@@ -310,7 +310,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     })
     
     // Save to store
-    const dateStr = selectedDate.toISOString().split('T')[0]
+    const dateStr = formatDate(selectedDate)
     const storeEvent = uiEventToStoreEvent(newUIEvent, dateStr)
     console.log('Creating event with data:', storeEvent)
     try {
@@ -587,7 +587,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         
         if (draggedEvent && selectedDate) {
           const end = yToTime(snappedY + draggedEvent.height)
-          const dateStr = selectedDate.toISOString().split('T')[0]
+          const dateStr = formatDate(selectedDate)
           
           // Update in store - this will trigger a re-sync via useEffect
           updateEvent(wasDraggingId, {
@@ -613,7 +613,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         
         if (resizedEvent && selectedDate) {
           const end = yToTime(resizedEvent.slot + snappedHeight)
-          const dateStr = selectedDate.toISOString().split('T')[0]
+          const dateStr = formatDate(selectedDate)
           
           // Update in store - this will trigger a re-sync via useEffect
           updateEvent(wasResizingId, {

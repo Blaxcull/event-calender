@@ -60,12 +60,12 @@ function Calendar({
         month: cn("flex flex-col w-full gap-2", defaultClassNames.month),
 
         table: "w-full border-collapse",
-        weekdays: cn("flex gap-x-6", defaultClassNames.weekdays),
+        weekdays: cn("flex gap-x-5", defaultClassNames.weekdays),
         weekday: cn(
-          "text-2xl text-slate-300 font-normal tracking-wide flex-1 text-center select-none mb-2",
+          "text-xl text-slate-300 font-normal tracking-wide flex-1 text-center select-none mb-1",
           defaultClassNames.weekday
         ),
-        week: cn("flex w-full mt-0 gap-x-6 px-0 py-0", defaultClassNames.week),
+        week: cn("flex w-full mt-0 gap-x-5 px-0 py-0", defaultClassNames.week),
 
         day: cn(
           "relative w-full h-full p-0 aspect-square select-none",
@@ -118,7 +118,7 @@ function CalendarDayButton({
         !modifiers.range_middle
       }
       className={cn(
-        "h-10 w-10 rounded-full text-2xl font-sf font-bold transition-colors",
+        "h-8 w-8 rounded-full text-xl font-sf font-bold transition-colors",
 
         modifiers.outside
           ? "text-neutral-500 hover:bg-neutral-600/80"
