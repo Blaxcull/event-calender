@@ -1,6 +1,6 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
 import TimeUpdater from "./components/TimeUpdater"
-import { CalendarPreview }  from "@/CalenderPreview/CalendarPreview"
+import {SideBar} from "./SideBar/SideBar.tsx"
 import { DayViewRoute, TodayRedirect } from "./components/DayViewRoute"
 import { Login } from "./pages/Login"
 import { Signup } from "./pages/Signup"
@@ -12,9 +12,9 @@ function App() {
   return (
     <>
       <TimeUpdater />
-      <div className={`flex h-screen relative ${isAuthPage ? '' : ''}`}>
+      <div className={`flex h-screen overflow-hidden relative ${isAuthPage ? '' : ''}`}>
         {/* Main content - Routes */}
-        <div className={`${isAuthPage ? 'w-full' : 'flex-1'}`}>
+        <div className={`flex-1 overflow-hidden ${isAuthPage ? 'w-full' : ''}`}>
           <Routes>
             <Route path="/" element={<TodayRedirect />} />
             <Route path="/day/:year/:month/:day" element={<DayViewRoute />} />
@@ -25,9 +25,9 @@ function App() {
         
         {/* Sidebar - Only show on non-auth pages */}
         {!isAuthPage && (
-          <div className="h-full flex flex-col">
-            <div className="flex-1">
-              <CalendarPreview />
+          <div className="h-full flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+                <SideBar />
             </div>
           </div>
         )}

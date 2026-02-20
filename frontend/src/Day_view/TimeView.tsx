@@ -15,41 +15,45 @@ const CalendarEvent = memo(
     onResizeStart,
     isDragging = false,
     isResizing = false,
+    isSelected = false,
   }: {
     event: EventType
     onMouseDown: (e: React.MouseEvent) => void
     onResizeStart: (e: React.MouseEvent, event: EventType) => void
     isDragging?: boolean
     isResizing?: boolean
+    isSelected?: boolean
   }) => {
-const bgColor =isDragging ?
-     'bg-[#db7fa5]'
-    :'bg-[#f792bb] '
+const bgColor = isDragging
+  ? 'bg-[#db7fa5]'
+  : 'bg-[#f792bb]'
 
-
-  const widthClass = isDragging ? '' : ''
- const isActive = isDragging || isResizing
+ const isActive = isDragging || isResizing || isSelected
 
 const zIndex = isActive ? 'z-[9999]' : 'z-10'
 const shadow = isActive ? 'shadow-2xl' : ''
-    
+
+const eventStyle: React.CSSProperties = {
+      top: event.slot + TOP_DEAD_ZONE,
+      height: event.height,
+    }
+
+const leftStrip = isSelected
+  ? 'bg-black'
+  : 'bg-pink-500'
+
 return (
   <div
     onMouseDown={onMouseDown}
-    className={`absolute ${bgColor} ${widthClass} ${zIndex} ${shadow}
+    className={`absolute ${bgColor} ${zIndex} ${shadow}
   rounded-md calendar-event
   cursor-grab active:cursor-grabbing select-none
-  border-r-2 border-b-0 border-t-4 border-transparent bg-clip-padding`}
+  ${isSelected ? 'border-2 border-black' : 'border-r-2 border-b-0 border-t-4 border-transparent'}
+  bg-clip-padding`}
     id={event.id}
-    style={{
-      top: event.slot + TOP_DEAD_ZONE,
-      height: event.height,
-      left: '0',
-      width: '100%',
-    } as React.CSSProperties}
+    style={eventStyle}
   >
-    {/* Right vertical strip */}
-<div className="absolute top-1 bottom-1 left-[3px] w-[6px] bg-pink-500 rounded" />
+    <div className={`absolute top-1 bottom-1 left-[3px] w-[6px] ${leftStrip} rounded`} />
 
     {/* Event content - adjust based on event height */}
 <div
@@ -118,8 +122,11 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const addEventOptimistic = useEventsStore((state) => state.addEventOptimistic)
   const updateEvent = useEventsStore((state) => state.updateEvent)
+  const deleteEvent = useEventsStore((state) => state.deleteEvent)
   const eventsCache = useEventsStore((state) => state.eventsCache)
-  
+  const selectedEventId = useEventsStore((state) => state.selectedEventId)
+  const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
+
   // Local state for events - this is the key to performance!
   // We work with local events during drag/resize for instant feedback
   const [localEvents, setLocalEvents] = useState<EventType[]>([])
@@ -193,46 +200,182 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const isDraggingRef = useRef(false)
   const isResizingRef = useRef(false)
   const recentlyInteractedRef = useRef(false)
+  const mouseDownPosRef = useRef<{ x: number; y: number; eventId: string } | null>(null)
+  const justCreatedEventRef = useRef<string | null>(null)
+  const DRAG_THRESHOLD = 5
 
   // Reset interaction lock on mount to ensure clean state
   useEffect(() => {
     resetInteractionLock()
   }, [])
 
-  const handleDragStart = (e: React.MouseEvent, event: EventType) => {
+  // Handle ESC key to delete selected event
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedEventId) {
+        // Confirm before deleting
+        if (confirm('Delete this event?')) {
+          deleteEvent(selectedEventId)
+          setSelectedEvent(null)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedEventId, deleteEvent, setSelectedEvent])
+
+  // Handle click on calendar to create events
+  const handleContainerClick = async (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current || isResizingRef.current || recentlyInteractedRef.current) return
+    
+    const target = e.target as HTMLElement
+    
+    if (target.closest(".calendar-event")) {
+      return
+    }
+    
+    if (selectedEventId) {
+      // Don't deselect if we just created this event
+      if (justCreatedEventRef.current === selectedEventId) {
+        justCreatedEventRef.current = null
+        return
+      }
+      setSelectedEvent(null)
+      return
+    }
+    
+    // Create new event at click position
+    const rect = e.currentTarget.getBoundingClientRect()
+    let clickY = e.clientY - rect.top
+    const clickX = e.clientX - rect.left
+    
+    if (clickY < TOP_DEAD_ZONE) return
+    
+    if (clickX < 76) {
+      return
+    }
+    
+    clickY -= TOP_DEAD_ZONE
+    if (!selectedDate) return
+    
+    const newUIEvent = addEventOnClick(clickY, localEvents, selectedDate)
+    if (!newUIEvent) return
+    
+    // Calculate correct width for the new event immediately
+    const overlappingEvents = localEvents.filter(ev =>
+      ev.slot < newUIEvent.slot + newUIEvent.height &&
+      newUIEvent.slot < ev.slot + ev.height
+    )
+    
+    const totalEvents = overlappingEvents.length + 1
+    const widthPercent = 100 / totalEvents
+    
+    lastAddedEventId.current = newUIEvent.id
+    pendingEventIds.current.add(newUIEvent.id)
+    
+    // Pre-position existing overlapping events
+    overlappingEvents.forEach((ev, index) => {
+      const el = document.getElementById(ev.id) as HTMLDivElement | null
+      if (el) {
+        el.style.transition = "left 200ms ease, width 200ms ease"
+        const newLeftPercent = index * widthPercent
+        el.style.left = `calc(${newLeftPercent}%)`
+        el.style.width = `calc(${widthPercent}%)`
+      }
+    })
+    
+    // Add to local state immediately
+    setLocalEvents(prev => [...prev, newUIEvent])
+    
+    // Apply correct position and fade-in (full width since selected)
+    requestAnimationFrame(() => {
+      const newEl = document.getElementById(newUIEvent.id) as HTMLDivElement | null
+      if (newEl) {
+        newEl.style.left = '0'
+        newEl.style.width = '100%'
+        newEl.style.zIndex = "20"
+        newEl.style.opacity = "0"
+        
+        requestAnimationFrame(() => {
+          newEl.style.transition = "opacity 150ms ease-out"
+          newEl.style.opacity = "1"
+          
+          setTimeout(() => {
+            newEl.style.transition = ""
+            newEl.style.opacity = ""
+          }, 150)
+        })
+      }
+    })
+    
+    // Save to store
+    const dateStr = selectedDate.toISOString().split('T')[0]
+    const storeEvent = uiEventToStoreEvent(newUIEvent, dateStr)
+    console.log('Creating event with data:', storeEvent)
+    try {
+      addEventOptimistic({
+        title: storeEvent.title!,
+        date: storeEvent.date!,
+        start_time: storeEvent.start_time!,
+        end_time: storeEvent.end_time!,
+        description: storeEvent.description,
+        notes: storeEvent.notes,
+        urls: storeEvent.urls,
+        color: storeEvent.color,
+        is_all_day: storeEvent.is_all_day,
+        location: storeEvent.location,
+        id: storeEvent.id,
+      })
+      justCreatedEventRef.current = newUIEvent.id
+      setSelectedEvent(newUIEvent.id)
+    } catch (error) {
+      console.error('Failed to create event:', error)
+    }
+  }
+
+  const handleMouseDown = (e: React.MouseEvent, event: EventType) => {
     e.stopPropagation()
     e.preventDefault()
+    
+    mouseDownPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      eventId: event.id,
+    }
+    
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    dragOffsetRef.current = e.clientY - rect.top
+  }
+
+  const startDrag = (event: EventType) => {
     setDraggingId(event.id)
     isDraggingRef.current = true
     recentlyInteractedRef.current = true
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    dragOffsetRef.current = e.clientY - rect.top
     
-    // Create placeholder for visual feedback
+    const el = document.getElementById(event.id) as HTMLDivElement | null
+    if (!el) return
+    
     const ph = document.createElement("div")
     ph.id = `ph-${event.id}`
     ph.style.position = "absolute"
     ph.style.top = `${event.slot + TOP_DEAD_ZONE + 2}px`
     ph.style.height = `${event.height - 1}px`
-    ph.style.left = (e.currentTarget as HTMLElement).style.left
-    ph.style.width = (e.currentTarget as HTMLElement).style.width
-    ph.innerHTML = (e.currentTarget as HTMLElement).innerHTML
+    ph.style.left = el.style.left
+    ph.style.width = el.style.width
+    ph.innerHTML = el.innerHTML
     ph.style.opacity = "0.5"
     ph.style.borderRadius = "10px"
     ph.style.background = "#db7fa5"
     ph.style.pointerEvents = "none"
     ph.style.zIndex = "1"
-    ;(e.currentTarget as HTMLElement).parentElement?.appendChild(ph)
+    el.parentElement?.appendChild(ph)
     
-    // Style the element immediately for drag
-    const el = document.getElementById(event.id) as HTMLDivElement | null
-    if (el) {
-      el.style.left = "0px"
-      el.style.width = "calc(100%)"
-      el.style.zIndex = "9999"
-      el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
-      el.style.transition = "box-shadow 100ms ease, width 200ms ease, left 200ms ease"
-    }
+    el.style.left = "0px"
+    el.style.width = "calc(100%)"
+    el.style.zIndex = "9999"
+    el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
+    el.style.transition = "box-shadow 100ms ease, width 200ms ease, left 200ms ease"
   }
 
   const handleResizeStart = (e: React.MouseEvent, event: EventType) => {
@@ -266,6 +409,20 @@ const TimeView: React.FC<TimeViewProps> = () => {
       
       if (!isNearContainer) {
         return
+      }
+      
+      // Check for drag threshold to start dragging
+      if (mouseDownPosRef.current && !isDraggingRef.current && !isResizingRef.current) {
+        const dx = e.clientX - mouseDownPosRef.current.x
+        const dy = e.clientY - mouseDownPosRef.current.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        
+        if (distance > DRAG_THRESHOLD) {
+          const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
+          if (event) {
+            startDrag(event)
+          }
+        }
       }
       
       let y = e.clientY - rect.top - TOP_DEAD_ZONE
@@ -372,153 +529,68 @@ const TimeView: React.FC<TimeViewProps> = () => {
       return
     }
     
-    const skipEventId = lastAddedEventId.current || 
-      (pendingEventIds.current.size > 0 ? Array.from(pendingEventIds.current)[0] : null)
-    
-    restoreEventWidths(localEvents, true, skipEventId)
-    
-    if (lastAddedEventId.current) {
-      lastAddedEventId.current = null
-    }
-    
-    setTimeout(() => {
-      localEvents.forEach(ev => {
-        const el = document.getElementById(ev.id) as HTMLDivElement | null
-        if (el) {
-          el.style.transition = ""
-          el.style.opacity = ""
-        }
-      })
-    }, 200)
-  }, [localEvents, draggingId, resizingId])
-
-  const handleEventClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDraggingRef.current || isResizingRef.current || recentlyInteractedRef.current) return
-    
-    const rect = e.currentTarget.getBoundingClientRect()
-    let clickY = e.clientY - rect.top
-    const clickX = e.clientX - rect.left
-    
-    if (clickY < TOP_DEAD_ZONE) return
-    const target = e.target as HTMLElement
-    
-    if (clickX < 76) {
-      return
-    }
-    
-    if (target.closest(".calendar-event")) return
-
-    clickY -= TOP_DEAD_ZONE
-    if (!selectedDate) return
-    
-    const newUIEvent = addEventOnClick(clickY, localEvents, selectedDate)
-    if (!newUIEvent) return
-    
-    // Calculate correct width for the new event immediately
-    // Count how many events will overlap with the new one
-    const overlappingEvents = localEvents.filter(ev =>
-      ev.slot < newUIEvent.slot + newUIEvent.height &&
-      newUIEvent.slot < ev.slot + ev.height
-    )
-    
-    // Calculate position for the new event (it will be the rightmost)
-    const totalEvents = overlappingEvents.length + 1
-    const widthPercent = 100 / totalEvents
-    const positionIndex = overlappingEvents.length
-    const leftPercent = positionIndex * widthPercent
-    
-    // Track the new event ID to skip its layout animation
-    lastAddedEventId.current = newUIEvent.id
-    
-    // Add to pending set to track ID swaps when saved to DB
-    pendingEventIds.current.add(newUIEvent.id)
-    
-    // Pre-position existing overlapping events with transitions before state update
-    overlappingEvents.forEach((ev, index) => {
-      const el = document.getElementById(ev.id) as HTMLDivElement | null
-      if (el) {
-        // Set transition for smooth resize
-        el.style.transition = "left 200ms ease, width 200ms ease"
-        // Calculate new position (distribute evenly)
-        const newLeftPercent = index * widthPercent
-        el.style.left = `calc(${newLeftPercent}%)`
-        el.style.width = `calc(${widthPercent}%)`
+    // Small delay to ensure React has updated the DOM
+    const timer = setTimeout(() => {
+      const skipEventId = lastAddedEventId.current || 
+        (pendingEventIds.current.size > 0 ? Array.from(pendingEventIds.current)[0] : null)
+      
+      restoreEventWidths(localEvents, true, skipEventId, selectedEventId)
+      
+      if (lastAddedEventId.current) {
+        lastAddedEventId.current = null
       }
-    })
-    
-    // Add to local state immediately for instant feedback
-    setLocalEvents(prev => [...prev, newUIEvent])
-    
-    // Apply correct position and fade-in animation in the same frame
-    requestAnimationFrame(() => {
-      const newEl = document.getElementById(newUIEvent.id) as HTMLDivElement | null
-      if (newEl) {
-        // Set the correct position immediately (no transition for position)
-        newEl.style.left = `calc(${leftPercent}%)`
-        newEl.style.width = `calc(${widthPercent}%)`
-        newEl.style.zIndex = "2"
-        
-        // Start invisible for fade-in
-        newEl.style.opacity = "0"
-        
-        // Trigger fade in on next frame
-        requestAnimationFrame(() => {
-          newEl.style.transition = "opacity 150ms ease-out"
-          newEl.style.opacity = "1"
-          
-          // Clear transition after animation
-          setTimeout(() => {
-            newEl.style.transition = ""
-            newEl.style.opacity = ""
-          }, 150)
+      
+      setTimeout(() => {
+        localEvents.forEach(ev => {
+          const el = document.getElementById(ev.id) as HTMLDivElement | null
+          if (el) {
+            el.style.transition = ""
+            el.style.opacity = ""
+          }
         })
-      }
-    })
+      }, 300) // Increased from 200ms to match transition duration
+    }, 10)
     
-    // Convert to store format and save optimistically
-    const dateStr = selectedDate.toISOString().split('T')[0]
-    const storeEvent = uiEventToStoreEvent(newUIEvent, dateStr)
-    console.log('Creating event with data:', storeEvent)
-    try {
-      // Use optimistic update - event appears immediately
-      addEventOptimistic({
-        title: storeEvent.title!,
-        date: storeEvent.date!,
-        start_time: storeEvent.start_time!,
-        end_time: storeEvent.end_time!,
-        description: storeEvent.description,
-        color: storeEvent.color,
-        is_all_day: storeEvent.is_all_day,
-        location: storeEvent.location,
-        id: storeEvent.id,
-      })
-    } catch (error) {
-      console.error('Failed to create event:', error)
-    }
-  }
+    return () => clearTimeout(timer)
+  }, [localEvents, draggingId, resizingId, selectedEventId])
 
   // Handle drag/resize end - update state with final positions
   const handleMouseUp = () => {
+    const wasDragging = isDraggingRef.current
+    const wasResizing = isResizingRef.current
+    
+    // Handle click (no drag/resize happened)
+    if (mouseDownPosRef.current && !wasDragging && !wasResizing) {
+      const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
+      if (event) {
+        setSelectedEvent(event.id)
+      }
+      mouseDownPosRef.current = null
+      return
+    }
+    
+    mouseDownPosRef.current = null
+    
     if (!draggingId && !resizingId) return
     
-    const wasDragging = draggingId
-    const wasResizing = resizingId
+    const wasDraggingId = draggingId
+    const wasResizingId = resizingId
     
     // Get final DOM values and sync to store
-    if (wasDragging && isDraggingRef.current) {
-      const el = document.getElementById(wasDragging) as HTMLDivElement | null
+    if (wasDraggingId && isDraggingRef.current) {
+      const el = document.getElementById(wasDraggingId) as HTMLDivElement | null
       if (el) {
         const finalTop = parseInt(el.style.top || '0') - TOP_DEAD_ZONE
         const snappedY = snap(finalTop)
         const start = yToTime(snappedY)
-        const draggedEvent = localEvents.find(e => e.id === wasDragging)
+        const draggedEvent = localEvents.find(e => e.id === wasDraggingId)
         
         if (draggedEvent && selectedDate) {
           const end = yToTime(snappedY + draggedEvent.height)
           const dateStr = selectedDate.toISOString().split('T')[0]
           
           // Update in store - this will trigger a re-sync via useEffect
-          updateEvent(wasDragging, {
+          updateEvent(wasDraggingId, {
             title: draggedEvent.title,
             date: dateStr,
             start_time: start.hour * 60 + start.min,
@@ -528,23 +600,23 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
         // Cleanup styles
         el.style.boxShadow = "none"
-        removePlaceholder(wasDragging)
+        removePlaceholder(wasDraggingId)
       }
     }
     
-    if (wasResizing && isResizingRef.current) {
-      const el = document.getElementById(wasResizing) as HTMLDivElement | null
+    if (wasResizingId && isResizingRef.current) {
+      const el = document.getElementById(wasResizingId) as HTMLDivElement | null
       if (el) {
         const finalHeight = parseInt(el.style.height || '100')
         const snappedHeight = Math.max(STEP_HEIGHT, snap(finalHeight))
-        const resizedEvent = localEvents.find(e => e.id === wasResizing)
+        const resizedEvent = localEvents.find(e => e.id === wasResizingId)
         
         if (resizedEvent && selectedDate) {
           const end = yToTime(resizedEvent.slot + snappedHeight)
           const dateStr = selectedDate.toISOString().split('T')[0]
           
           // Update in store - this will trigger a re-sync via useEffect
-          updateEvent(wasResizing, {
+          updateEvent(wasResizingId, {
             title: resizedEvent.title,
             date: dateStr,
             start_time: resizedEvent.startHour * 60 + resizedEvent.startMin,
@@ -562,6 +634,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     setDraggingId(null)
     setResizingId(null)
     unlockInteraction()
+    setSelectedEvent(null)
     
     setTimeout(() => {
       recentlyInteractedRef.current = false
@@ -577,7 +650,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
   return (
     <div
-      onClick={handleEventClick}
+      onClick={handleContainerClick}
       className="absolute inset-0 calendar-container"
       style={{ zIndex: 10 }}
     >
@@ -591,15 +664,16 @@ const TimeView: React.FC<TimeViewProps> = () => {
               break
             }
           }
-          
+
           return (
             <CalendarEvent
               key={stableKey}
               event={event}
-              onMouseDown={e => handleDragStart(e, event)}
+              onMouseDown={e => handleMouseDown(e, event)}
               onResizeStart={handleResizeStart}
               isDragging={draggingId === event.id}
               isResizing={resizingId === event.id}
+              isSelected={selectedEventId === event.id}
             />
           )
         })}

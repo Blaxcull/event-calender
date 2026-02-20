@@ -19,6 +19,8 @@ export interface EventType {
   title: string
   date: Date
   description?: string
+  notes?: string
+  urls?: string[]
   color?: string
   isAllDay?: boolean
   location?: string
@@ -69,7 +71,7 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
   const endY = timeToY(storeEvent.end_time)
   const startTime = yToTime(startY)
   const endTime = yToTime(endY)
-  
+
   return {
     id: storeEvent.id,
     slot: startY,
@@ -81,6 +83,8 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
     title: storeEvent.title,
     date: selectedDate,
     description: storeEvent.description,
+    notes: storeEvent.notes,
+    urls: storeEvent.urls || [],
     color: storeEvent.color,
     isAllDay: storeEvent.is_all_day,
     location: storeEvent.location,
@@ -91,10 +95,12 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
 export function uiEventToStoreEvent(uiEvent: EventType, dateStr: string): Partial<Event> {
   const startTotalMinutes = uiEvent.startHour * 60 + uiEvent.startMin
   const endTotalMinutes = uiEvent.endHour * 60 + uiEvent.endMin
-  
+
   const result: Partial<Event> = {
     title: uiEvent.title,
     description: uiEvent.description,
+    notes: uiEvent.notes,
+    urls: uiEvent.urls,
     date: dateStr,
     start_time: startTotalMinutes,
     end_time: endTotalMinutes,
@@ -102,12 +108,12 @@ export function uiEventToStoreEvent(uiEvent: EventType, dateStr: string): Partia
     is_all_day: uiEvent.isAllDay,
     location: uiEvent.location,
   }
-  
+
   // Include the UI event ID for optimistic updates
   if (uiEvent.id) {
     result.id = uiEvent.id
   }
-  
+
   return result
 }
 
@@ -173,6 +179,8 @@ export function addEventOnClick(
     endMin: end.min,
     title: "New Event",
     date: selectedDate,
+    notes: "",
+    urls: [],
   }
 }
 
@@ -314,7 +322,7 @@ function expandSpans(events: PositionedEvent[]) {
   }
 }
 
-export function restoreEventWidths(events: EventType[], animate: boolean = true, skipEventId: string | null = null) {
+export function restoreEventWidths(events: EventType[], animate: boolean = true, skipEventId: string | null = null, selectedEventId: string | null = null) {
   const clusters = buildClusters(events)
 
   for (const cluster of clusters) {
@@ -330,16 +338,38 @@ export function restoreEventWidths(events: EventType[], animate: boolean = true,
       el.style.zIndex = ""
       el.style.boxShadow = ""
       
-      if (animate && ev.id !== skipEventId) {
-        el.style.transition = "left 200ms ease, width 200ms ease"
+      const isSelected = ev.id === selectedEventId
+      
+      if (isSelected) {
+        // Force reflow to ensure transition works
+        if (animate) {
+          el.style.transition = "none"
+          void el.offsetHeight // Trigger reflow
+        }
+        
+        el.style.left = "0"
+        el.style.width = "100%"
+        el.style.zIndex = "20"
+        
+        if (animate) {
+          el.style.transition = "left 200ms ease, width 200ms ease"
+        }
+      } else {
+        if (animate && ev.id !== skipEventId) {
+          el.style.transition = "left 200ms ease, width 200ms ease"
+        }
+
+        const leftPercent = (ev.col / maxCol) * 100
+        const widthPercent = (ev.colSpan / maxCol) * 100
+
+        // Use same format as selected state for consistency
+        const newLeft = leftPercent === 0 ? "0" : `calc(${leftPercent}%)`
+        const newWidth = widthPercent === 100 ? "100%" : `calc(${widthPercent}%)`
+        
+        el.style.left = newLeft
+        el.style.width = newWidth
+        el.style.zIndex = "2"
       }
-
-      const leftPercent = (ev.col / maxCol) * 100
-      const widthPercent = (ev.colSpan / maxCol) * 100
-
-      el.style.left = `calc(${leftPercent}%)`
-      el.style.width = `calc(${widthPercent}%)`
-      el.style.zIndex = "2"
     }
   }
 }

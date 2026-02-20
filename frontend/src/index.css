@@ -16,11 +16,77 @@
 
 @theme {
   --font-space-mono: "SpaceMono", monospace;
+  --font-sf-pro: "SF Pro Display Regular", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 @font-face {
   font-family: "SpaceMono";
   src: url("/fonts/SpaceMono-Regular.ttf");
+}
+
+@font-face {
+  font-family: "SF";
+  src: url("/fonts/SF.ttf");
+}
+
+@font-face {
+  font-family: "SF Pro Display Regular";
+  src: url("/fonts/SFPRODISPLAYREGULAR.OTF");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "SF Pro Display Medium";
+  src: url("/fonts/SFPRODISPLAYMEDIUM.OTF");
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: "SF Pro Display Bold";
+  src: url("/fonts/SFPRODISPLAYBOLD.OTF");
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "SF Pro Display Black Italic";
+  src: url("/fonts/SFPRODISPLAYBLACKITALIC.OTF");
+  font-weight: 900;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "SF Pro Display Heavy Italic";
+  src: url("/fonts/SFPRODISPLAYHEAVYITALIC.OTF");
+  font-weight: 800;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "SF Pro Display Light Italic";
+  src: url("/fonts/SFPRODISPLAYLIGHTITALIC.OTF");
+  font-weight: 300;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "SF Pro Display Semibold Italic";
+  src: url("/fonts/SFPRODISPLAYSEMIBOLDITALIC.OTF");
+  font-weight: 600;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "SF Pro Display Thin Italic";
+  src: url("/fonts/SFPRODISPLAYTHINITALIC.OTF");
+  font-weight: 100;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "SF Pro Display Ultralight Italic";
+  src: url("/fonts/SFPRODISPLAYULTRALIGHTITALIC.OTF");
+  font-weight: 200;
+  font-style: italic;
 }
 
 @theme inline {
@@ -143,5 +209,6 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "SF", -apple-system, BlinkMacSystemFont, sans-serif;
   }
 }

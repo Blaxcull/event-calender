@@ -1,6 +1,7 @@
 "use client"
-import { ChevronLeft, ChevronRight, LogOut, Loader2, CheckCircle2 } from "lucide-react"
+import { LogOut, Loader2, CheckCircle2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import ChevronLeft from "@/assets/chevron-left.svg"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -8,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore } from "@/store/eventsStore"
 import { supabase } from "@/lib/supabase"
+import EventTitle from "./components/EventTitle"
 
 function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date) {
   const year = date.getFullYear()
@@ -16,7 +18,7 @@ function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date) {
   navigate(`/day/${year}/${month}/${day}`)
 }
 
-export function CalendarPreview() {
+export function SideBar() {
   const navigate = useNavigate()
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const isAnyEventSyncing = useEventsStore((state) => state.isAnyEventSyncing)
@@ -51,11 +53,22 @@ export function CalendarPreview() {
   }
 
   return (
-    <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4">
-      {/* Top bar - Sign out and Sync Status */}
-      <div className="flex justify-between items-center px-4 pb-2">
-        {/* Sync Status - Now on the left, more visible */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-700/50">
+      <>
+    <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4 relative overflow-hidden">
+      {/* Sign out button - positioned absolutely to hover over content */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleSignOut}
+        className="absolute top-4 right-4 z-10 text-slate-400 hover:text-slate-100 hover:bg-slate-700"
+      >
+        <LogOut className="h-4 w-4 mr-2" />
+        Sign out
+      </Button>
+
+      {/* Sync Status */}
+      <div className="px-4 pb-2 shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-700/50 w-fit">
           {isAnyEventSyncing() ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
@@ -68,23 +81,13 @@ export function CalendarPreview() {
             </>
           )}
         </div>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleSignOut}
-          className="text-slate-400 hover:text-slate-100 hover:bg-slate-700"
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          Sign out
-        </Button>
       </div>
 
       {/* Calendar section */}
-      <CardContent className="px-30 pt-20">
+     <CardContent className="px-30 pt-12 shrink-0">
         <div className="flex items-start gap-3">
           {/* Calendar */}
-          <div className="w-[150px] h-[150px] flex items-start justify-center pt-4">
+         <div className="w-[150px]  flex items-start justify-center pt-4">
             <div className="origin-top scale-[0.8]">
               <Calendar
                 mode="single"
@@ -96,7 +99,7 @@ export function CalendarPreview() {
           </div>
 
           {/* Date controls */}
-          <div className="flex flex-1 justify-start pl-42 pt-4">
+          <div className="flex flex-1 justify-start pl-42 pt-5">
             <div className="flex items-center gap-3">
               <Button
                 variant="secondary"
@@ -105,14 +108,14 @@ export function CalendarPreview() {
                 aria-label="Previous day"
                 className="rounded-full"
               >
-                <ChevronLeft className="h-4 w-4" />
+<img src={ChevronLeft} alt="Previous" className="h-5 w-5" />
               </Button>
 
               <Button
                 variant="secondary"
                 size="xl"
                 onClick={goToToday}
-                className="text-2xl left-0"
+                className="text-xl text-neutral-600 font-semibold left-0"
               >
                 Today
               </Button>
@@ -124,15 +127,23 @@ export function CalendarPreview() {
                 aria-label="Next day"
                 className="rounded-full"
               >
-                <ChevronRight className="h-4 w-4" />
+               <img
+                  src={ChevronLeft}
+                  alt="Next"
+                  className="h-5 w-5 rotate-180"
+                />
               </Button>
             </div>
           </div>
         </div>
       </CardContent>
 
-      {/* Events */}
+
+      {/* Event title */}
+      <EventTitle />
+
 
     </Card>
+    </>
   )
 }

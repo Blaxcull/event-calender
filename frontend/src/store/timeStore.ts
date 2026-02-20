@@ -31,8 +31,8 @@ const buildDateInfo = (d: Date): DateInfo => ({
 });
 
 export const useTimeStore = create<TimeStore>((set) => ({
-  selectedDate: new Date(),
-  dateInfo: buildDateInfo(new Date()),
+  selectedDate: null,
+  dateInfo: null,
 
   setDate: (date) => {
     const now = new Date();

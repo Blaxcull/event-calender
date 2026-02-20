@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS events (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   title TEXT NOT NULL,
   description TEXT,                    -- Event details/notes
+  notes TEXT,                          -- Additional notes for event editor
+  urls TEXT[],                         -- Array of URLs for event
   date DATE NOT NULL,                  -- Calendar date (YYYY-MM-DD)
   start_time INTEGER NOT NULL,         -- Minutes since midnight (0-1439)
   end_time INTEGER NOT NULL,           -- Minutes since midnight
@@ -24,7 +26,7 @@ CREATE TABLE IF NOT EXISTS events (
   
   -- Validation constraints
   CHECK (start_time >= 0 AND start_time < 1440),
-  CHECK (end_time > start_time AND end_time <= 1440),
+  CHECK ((end_time > start_time AND end_time <= 1440) OR (end_time >= 0 AND end_time < start_time)),
   CHECK (date >= '2020-01-01' AND date <= '2100-12-31')
 );
 

@@ -7,6 +7,8 @@ export interface Event {
   user_id: string
   title: string
   description?: string
+  notes?: string
+  urls?: string[]
   date: string // ISO date string YYYY-MM-DD
   start_time: number // Minutes since midnight
   end_time: number // Minutes since midnight
@@ -22,6 +24,8 @@ export interface Event {
 export interface NewEvent {
   title: string
   description?: string
+  notes?: string
+  urls?: string[]
   date: string
   start_time: number
   end_time: number
@@ -56,6 +60,12 @@ interface EventsState {
   // Sync state - tracks pending operations
   pendingSyncs: Set<string>
 
+  // Queue updates for temp events until they get real IDs
+  pendingUpdates: Map<string, Partial<NewEvent>[]>
+
+  // Currently selected event ID for editing
+  selectedEventId: string | null
+
   // Actions
   fetchEventsWindow: (centerDate: Date) => void
   addEvent: (event: NewEvent) => Event
@@ -66,6 +76,8 @@ interface EventsState {
   clearCache: () => void
   isEventSyncing: (eventId: string) => boolean
   isAnyEventSyncing: () => boolean
+  setSelectedEvent: (id: string | null) => void
+  updateEventField: (id: string, field: keyof NewEvent, value: any) => void
 }
 
 const CACHE_WINDOW_DAYS = 17 // Days before and after
@@ -94,6 +106,8 @@ export const useEventsStore = create<EventsState>()(
       isLoading: false,
       error: null,
       pendingSyncs: new Set<string>(),
+      pendingUpdates: new Map<string, Partial<NewEvent>[]>(),
+      selectedEventId: null,
 
       fetchEventsWindow: async (centerDate: Date) => {
         const startDate = addDays(centerDate, -CACHE_WINDOW_DAYS)
@@ -208,6 +222,8 @@ export const useEventsStore = create<EventsState>()(
           start_time: event.start_time,
           end_time: event.end_time,
           description: event.description,
+          notes: event.notes,
+          urls: event.urls,
           color: event.color,
           is_all_day: event.is_all_day,
           location: event.location,
@@ -248,6 +264,8 @@ export const useEventsStore = create<EventsState>()(
             
             // Add optional fields if defined
             if (event.description !== undefined) eventForDb.description = event.description
+            if (event.notes !== undefined) eventForDb.notes = event.notes
+            if (event.urls !== undefined) eventForDb.urls = event.urls
             if (event.color !== undefined) eventForDb.color = event.color
             if (event.is_all_day !== undefined) eventForDb.is_all_day = event.is_all_day
             if (event.location !== undefined) eventForDb.location = event.location
@@ -303,6 +321,8 @@ export const useEventsStore = create<EventsState>()(
           start_time: event.start_time,
           end_time: event.end_time,
           description: event.description,
+          notes: event.notes,
+          urls: event.urls,
           color: event.color,
           is_all_day: event.is_all_day,
           location: event.location,
@@ -335,14 +355,16 @@ export const useEventsStore = create<EventsState>()(
             if (!user) {
               console.error('User not authenticated for database save')
               // Remove temp event since we can't save it
-              const { eventsCache: currentCache, pendingSyncs } = get()
+              const { eventsCache: currentCache, pendingSyncs, pendingUpdates } = get()
               const newCache = { ...currentCache }
               const newPendingSyncs = new Set(pendingSyncs)
+              const newPendingUpdates = new Map(pendingUpdates)
               newPendingSyncs.delete(tempId)
+              newPendingUpdates.delete(tempId)
               if (newCache[dateKey]) {
                 newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
               }
-              set({ eventsCache: newCache, pendingSyncs: newPendingSyncs })
+              set({ eventsCache: newCache, pendingSyncs: newPendingSyncs, pendingUpdates: newPendingUpdates })
               return
             }
 
@@ -357,6 +379,8 @@ export const useEventsStore = create<EventsState>()(
 
             // Add optional fields if defined
             if (event.description !== undefined) eventForDb.description = event.description
+            if (event.notes !== undefined) eventForDb.notes = event.notes
+            if (event.urls !== undefined) eventForDb.urls = event.urls
             if (event.color !== undefined) eventForDb.color = event.color
             if (event.is_all_day !== undefined) eventForDb.is_all_day = event.is_all_day
             if (event.location !== undefined) eventForDb.location = event.location
@@ -372,51 +396,100 @@ export const useEventsStore = create<EventsState>()(
             if (error) {
               console.error('Background: Database save failed:', error)
               // Remove temp event on failure
-              const { eventsCache: currentCache, pendingSyncs } = get()
+              const { eventsCache: currentCache, pendingSyncs, pendingUpdates } = get()
               const newCache = { ...currentCache }
               const newPendingSyncs = new Set(pendingSyncs)
+              const newPendingUpdates = new Map(pendingUpdates)
               newPendingSyncs.delete(tempId)
+              newPendingUpdates.delete(tempId)
               if (newCache[dateKey]) {
                 newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
               }
-              set({ eventsCache: newCache, pendingSyncs: newPendingSyncs })
+              set({ eventsCache: newCache, pendingSyncs: newPendingSyncs, pendingUpdates: newPendingUpdates })
               return
             }
 
             console.log('Background: Event saved to database:', data)
 
             // Update temp event in place with real data (no remove/add = no jitter!)
-            const { eventsCache: currentCache, pendingSyncs } = get()
+            const { eventsCache: currentCache, pendingSyncs, pendingUpdates } = get()
             const newCache = { ...currentCache }
             const newPendingSyncs = new Set(pendingSyncs)
             newPendingSyncs.delete(tempId)
+            
+            // Check if the saved event is currently selected - update selection to new ID
+            const currentSelectedId = get().selectedEventId
+            
+            // Check for and apply any pending updates for this temp event
+            const queuedUpdates = pendingUpdates.get(tempId)
+            const newPendingUpdates = new Map(pendingUpdates)
+            newPendingUpdates.delete(tempId)
 
+            let newSelectedId = currentSelectedId
+            let finalEvent = { ...data, isTemp: false }
+            
             if (newCache[dateKey]) {
-              // Find and update the temp event in place
+              if (queuedUpdates && queuedUpdates.length > 0) {
+                console.log('Background: Applying queued updates to event:', queuedUpdates)
+                queuedUpdates.forEach(update => {
+                  finalEvent = { ...finalEvent, ...update, updated_at: new Date().toISOString() }
+                })
+              }
+              
               newCache[dateKey] = newCache[dateKey].map(e =>
-                e.id === tempId
-                  ? { ...data, isTemp: false } // Update with real data, mark as not temp
-                  : e
+                e.id === tempId ? finalEvent : e
               )
               newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
+            }
+            
+            // Update selectedEventId if we replaced the selected event
+            if (currentSelectedId === tempId) {
+              newSelectedId = finalEvent.id
             }
 
             set({
               eventsCache: newCache,
               pendingSyncs: newPendingSyncs,
+              pendingUpdates: newPendingUpdates,
+              selectedEventId: newSelectedId,
             })
+            
+            // Now sync the final event state to the database if there were queued updates
+            if (queuedUpdates && queuedUpdates.length > 0) {
+              const lastUpdate = queuedUpdates[queuedUpdates.length - 1]
+              const filteredUpdates: Record<string, any> = {}
+              Object.entries(lastUpdate).forEach(([key, value]) => {
+                if (value !== undefined && (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time')) {
+                  filteredUpdates[key] = value
+                }
+              })
+              
+              if (Object.keys(filteredUpdates).length > 0) {
+                console.log('Background: Syncing queued updates to database:', data.id, filteredUpdates)
+                supabase
+                  .from('events')
+                  .update(filteredUpdates)
+                  .eq('id', data.id)
+                  .then(({ error }) => {
+                    if (error) console.error('Background: Failed to sync queued updates:', error)
+                    else console.log('Background: Queued updates synced to database:', data.id)
+                  })
+              }
+            }
 
           } catch (err) {
             console.error('Background: Unexpected error during database save:', err)
             // Remove temp event on unexpected error
-            const { eventsCache: currentCache, pendingSyncs } = get()
+            const { eventsCache: currentCache, pendingSyncs, pendingUpdates } = get()
             const newCache = { ...currentCache }
             const newPendingSyncs = new Set(pendingSyncs)
+            const newPendingUpdates = new Map(pendingUpdates)
             newPendingSyncs.delete(tempId)
+            newPendingUpdates.delete(tempId)
             if (newCache[dateKey]) {
               newCache[dateKey] = newCache[dateKey].filter(e => e.id !== tempId)
             }
-            set({ eventsCache: newCache, pendingSyncs: newPendingSyncs })
+            set({ eventsCache: newCache, pendingSyncs: newPendingSyncs, pendingUpdates: newPendingUpdates })
           }
         }, 0) // Start immediately but asynchronously
         
@@ -424,78 +497,88 @@ export const useEventsStore = create<EventsState>()(
       },
 
        updateEvent: (id: string, updates: Partial<NewEvent>) => {
-        // Update cache immediately
-        const { eventsCache } = get()
-        const oldDate = Object.keys(eventsCache).find(date =>
-          eventsCache[date].some(e => e.id === id)
-        )
+         const { eventsCache, pendingSyncs, pendingUpdates } = get()
+         const oldDate = Object.keys(eventsCache).find(date =>
+           eventsCache[date].some(e => e.id === id)
+         )
 
-        if (oldDate) {
-          const newCache = { ...eventsCache }
-          
-          // Find and update the event
-          const eventIndex = newCache[oldDate].findIndex(e => e.id === id)
-          if (eventIndex !== -1) {
-            const updatedEvent = {
-              ...newCache[oldDate][eventIndex],
-              ...updates,
-              updated_at: new Date().toISOString(),
-            }
-            
-            // Remove from old date
-            newCache[oldDate].splice(eventIndex, 1)
-            
-            // Add to new date (if date changed) or same date
-            const newDate = updates.date || oldDate
-            if (!newCache[newDate]) {
-              newCache[newDate] = []
-            }
-            newCache[newDate].push(updatedEvent)
-            newCache[newDate].sort((a, b) => a.start_time - b.start_time)
+         if (oldDate) {
+           const newCache = { ...eventsCache }
+           
+           // Find and update the event
+           const eventIndex = newCache[oldDate].findIndex(e => e.id === id)
+           if (eventIndex !== -1) {
+             const updatedEvent = {
+               ...newCache[oldDate][eventIndex],
+               ...updates,
+               updated_at: new Date().toISOString(),
+             }
+             
+             // Remove from old date
+             newCache[oldDate].splice(eventIndex, 1)
+             
+             // Add to new date (if date changed) or same date
+             const newDate = updates.date || oldDate
+             if (!newCache[newDate]) {
+               newCache[newDate] = []
+             }
+             newCache[newDate].push(updatedEvent)
+             newCache[newDate].sort((a, b) => a.start_time - b.start_time)
 
-            set({ eventsCache: newCache })
-            
-            // Start background database update (non-blocking)
-            setTimeout(async () => {
-              try {
-                // Filter out undefined values and fields that don't exist in current schema
-                const filteredUpdates: Record<string, any> = {}
-                Object.entries(updates).forEach(([key, value]) => {
-                  if (value !== undefined) {
-                    // Only include fields that exist in current schema
-                    if (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time') {
-                      filteredUpdates[key] = value
-                    }
-                    // Note: description, color, is_all_day, location are only available in new schema
-                    // Uncomment after running updated database_schema.sql
-                  }
-                })
+             set({ eventsCache: newCache })
+             
+             // Check if this is a temp event still syncing
+             if (pendingSyncs.has(id)) {
+               // Queue the update to be applied after sync completes
+               const newPendingUpdates = new Map(pendingUpdates)
+               const existing = newPendingUpdates.get(id) || []
+               newPendingUpdates.set(id, [...existing, updates])
+               set({ pendingUpdates: newPendingUpdates })
+               console.log('Background: Queued update for temp event:', id, updates)
+               return updatedEvent
+             }
+             
+             // Start background database update (non-blocking)
+             setTimeout(async () => {
+               try {
+                 // Filter out undefined values and fields that don't exist in current schema
+                 const filteredUpdates: Record<string, any> = {}
+                 Object.entries(updates).forEach(([key, value]) => {
+                   if (value !== undefined) {
+                     // Only include fields that exist in current schema
+                     if (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time') {
+                       filteredUpdates[key] = value
+                     }
+                     // Note: description, color, is_all_day, location are only available in new schema
+                     // Uncomment after running updated database_schema.sql
+                   }
+                 })
 
-                console.log('Background: Updating event in database:', id, 'with:', filteredUpdates)
+                 console.log('Background: Updating event in database:', id, 'with:', filteredUpdates)
 
-                const { error } = await supabase
-                  .from('events')
-                  .update(filteredUpdates)
-                  .eq('id', id)
+                 const { error } = await supabase
+                   .from('events')
+                   .update(filteredUpdates)
+                   .eq('id', id)
 
-                if (error) {
-                  console.error('Background: Database update failed:', error)
-                  // Note: We don't rollback UI update - user sees their change
-                  // In a production app, you might want to show an error notification
-                } else {
-                  console.log('Background: Event updated in database:', id)
-                }
-              } catch (err) {
-                console.error('Background: Unexpected error during database update:', err)
-              }
-            }, 0)
-            
-            return updatedEvent
-          }
-        }
-        
-        return null
-      },
+                 if (error) {
+                   console.error('Background: Database update failed:', error)
+                   // Note: We don't rollback UI update - user sees their change
+                   // In a production app, you might want to show an error notification
+                 } else {
+                   console.log('Background: Event updated in database:', id)
+                 }
+               } catch (err) {
+                 console.error('Background: Unexpected error during database update:', err)
+               }
+             }, 0)
+             
+             return updatedEvent
+           }
+         }
+         
+         return null
+       },
 
       deleteEvent: (id: string) => {
         // Update cache immediately
@@ -544,6 +627,61 @@ export const useEventsStore = create<EventsState>()(
 
       isAnyEventSyncing: (): boolean => {
         return get().pendingSyncs.size > 0
+      },
+
+      setSelectedEvent: (id: string | null) => {
+        set({ selectedEventId: id })
+      },
+
+      updateEventField: (id: string, field: keyof NewEvent, value: any) => {
+        const { eventsCache, pendingSyncs, pendingUpdates } = get()
+        const dateKey = Object.keys(eventsCache).find(date =>
+          eventsCache[date].some(e => e.id === id)
+        )
+
+        if (!dateKey) return
+
+        const eventIndex = eventsCache[dateKey].findIndex(e => e.id === id)
+        if (eventIndex === -1) return
+
+        const updatedEvent = {
+          ...eventsCache[dateKey][eventIndex],
+          [field]: value,
+          updated_at: new Date().toISOString(),
+        }
+
+        const newCache = { ...eventsCache }
+        newCache[dateKey] = [...newCache[dateKey]]
+        newCache[dateKey][eventIndex] = updatedEvent
+
+        set({ eventsCache: newCache })
+
+        // Check if this is a temp event still syncing
+        if (pendingSyncs.has(id)) {
+          const newPendingUpdates = new Map(pendingUpdates)
+          const existing = newPendingUpdates.get(id) || []
+          newPendingUpdates.set(id, [...existing, { [field]: value }])
+          set({ pendingUpdates: newPendingUpdates })
+          return
+        }
+
+        // Background database update
+        setTimeout(async () => {
+          try {
+            const { error } = await supabase
+              .from('events')
+              .update({ [field]: value })
+              .eq('id', id)
+
+            if (error) {
+              console.error('Background: Database field update failed:', error)
+            } else {
+              console.log('Background: Event field updated:', id, field)
+            }
+          } catch (err) {
+            console.error('Background: Unexpected error during field update:', err)
+          }
+        }, 0)
       },
 
       clearCache: () => {

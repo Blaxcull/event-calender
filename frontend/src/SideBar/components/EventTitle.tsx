@@ -1,0 +1,85 @@
+import React from 'react'
+import { useEventsStore } from '@/store/eventsStore'
+import { useTimeStore } from '@/store/timeStore'
+import EventEditor from './EventEditor'
+
+const EventTitle: React.FC = () => {
+  const selectedEventId = useEventsStore((state) => state.selectedEventId)
+  const eventsCache = useEventsStore((state) => state.eventsCache)
+  const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
+  const selectedDate = useTimeStore((state) => state.selectedDate)
+
+  // Get events for selected date
+  const todaysEvents = React.useMemo(() => {
+    if (!selectedDate) return []
+    const dateKey = selectedDate.toISOString().split('T')[0]
+    return eventsCache[dateKey] || []
+  }, [selectedDate, eventsCache])
+
+  // Sort events by start time
+  const sortedEvents = React.useMemo(() => {
+    return [...todaysEvents].sort((a, b) => a.start_time - b.start_time)
+  }, [todaysEvents])
+
+  const formatTime = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    const period = hours >= 12 ? 'PM' : 'AM'
+    const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+    return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`
+  }
+
+  const handleEventClick = (eventId: string) => {
+    setSelectedEvent(eventId)
+  }
+
+  // If an event is selected, show the editor
+  if (selectedEventId) {
+    return <EventEditor />
+  }
+
+  // Otherwise, show list of today's events
+  return (
+    <div className="px-4 flex-1 flex flex-col min-h-0">
+      <h3 className="text-lg font-semibold text-slate-100 mb-4 shrink-0">
+        {selectedDate ? (
+          <>
+            Events for{' '}
+            {selectedDate.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            })}
+          </>
+        ) : (
+          'Events'
+        )}
+      </h3>
+
+      {sortedEvents.length === 0 ? (
+        <p className="text-slate-400 text-sm">No events for this day</p>
+      ) : (
+        <div className="overflow-y-auto no-scrollbar flex-1">
+          <div className="space-y-2 pb-4">
+            {sortedEvents.map((event) => (
+              <div
+                key={event.id}
+                onClick={() => handleEventClick(event.id)}
+                className="p-3 bg-slate-700/50 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"
+              >
+                <div className="font-medium text-slate-100 text-sm">{event.title}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {formatTime(event.start_time)} - {formatTime(event.end_time)}
+                </div>
+                {event.notes && (
+                  <div className="text-xs text-slate-500 mt-1 truncate">{event.notes}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default EventTitle
