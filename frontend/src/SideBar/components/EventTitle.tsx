@@ -2,6 +2,7 @@ import React from 'react'
 import { useEventsStore, formatDate } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import EventEditor from './EventEditor'
+import DateTimeEditor from './DateTimeEditor'
 
 const EventTitle: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -35,13 +36,23 @@ const EventTitle: React.FC = () => {
 
   // If an event is selected, show the editor
   if (selectedEventId) {
-    return <EventEditor />
+    return (
+
+        <>
+
+
+        <EventEditor />
+        <DateTimeEditor />
+
+        </>
+
+    )
   }
 
   // Otherwise, show list of today's events
   return (
     <div className="px-4 flex-1 flex flex-col min-h-0">
-      <h3 className="text-lg font-semibold text-slate-100 mb-4 shrink-0">
+      <h3 className="text-lg font-semibold text-slate-100 mb-3 shrink-0">
         {selectedDate ? (
           <>
             Events for{' '}
@@ -59,12 +70,12 @@ const EventTitle: React.FC = () => {
         <p className="text-slate-400 text-sm">No events for this day</p>
       ) : (
         <div className="overflow-y-auto no-scrollbar flex-1">
-          <div className="space-y-2 pb-4">
+          <div className="space-y-2 pb-3">
             {sortedEvents.map((event) => (
               <div
                 key={event.id}
                 onClick={() => handleEventClick(event.id)}
-                className="p-3 bg-slate-700/50 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"
+                className="p-2.5 bg-slate-700/50 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"
               >
                 <div className="font-medium text-slate-100 text-sm">{event.title}</div>
                 <div className="text-xs text-slate-400 mt-1">

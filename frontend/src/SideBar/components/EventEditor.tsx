@@ -1,20 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Trash2 } from 'lucide-react'
 import { useEventsStore, formatDate } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 interface URLChip {
   url: string
   id: string
 }
-
 const EventEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const eventsCache = useEventsStore((state) => state.eventsCache)
   const updateEventField = useEventsStore((state) => state.updateEventField)
-  const deleteEvent = useEventsStore((state) => state.deleteEvent)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedDate = useTimeStore((state) => state.selectedDate)
 
@@ -142,13 +138,6 @@ const EventEditor: React.FC = () => {
     setHasUnsavedChanges(true)
   }
 
-  const handleDelete = () => {
-    if (selectedEventId && confirm('Are you sure you want to delete this event?')) {
-      deleteEvent(selectedEventId)
-      setSelectedEvent(null)
-    }
-  }
-
   if (!selectedEvent) {
     return (
       <div className="px-4 py-4 text-slate-400">
@@ -182,7 +171,7 @@ const EventEditor: React.FC = () => {
       {/* Card */}
       <div className="
 shadow-lg border border-neutral-800
-      w-full bg-neutral-700 rounded-[34px] p-5 border-20  space-y-4 shadow-none">
+      w-full bg-neutral-700 rounded-[34px] p-4 border-20  space-y-3 shadow-none">
 
 
 
@@ -194,9 +183,9 @@ shadow-lg border border-neutral-800
           onChange={handleTitleChange}
           onKeyDown={handleTitleKeyDown}
 
-          className="text-5xl  bg-transparent border-none
+          className="text-4xl  bg-transparent border-none
                      focus-visible:ring-0 focus-visible:ring-offset-0
-                     px-0 h-14 placeholder:text-neutral-300 text-neutral-100"
+                     px-0 h-12 placeholder:text-neutral-300 text-neutral-100"
         />
 
         {/* Notes */}
@@ -206,9 +195,9 @@ shadow-lg border border-neutral-800
           value={notes}
           onChange={handleNotesChange}
           onKeyDown={handleNotesKeyDown}
-          className="text-2xl bg-transparent border-none
+          className="text-xl bg-transparent border-none
                      focus-visible:ring-0 focus-visible:ring-offset-0
-                     px-0 h-7 placeholder:text-neutral-400 text-neutral-300"
+                     px-0 h-6 placeholder:text-neutral-400 text-neutral-300"
         />
 
         {/* Divider */}
@@ -219,15 +208,15 @@ shadow-lg border border-neutral-800
           className="flex flex-wrap items-center gap-2 min-h-[36px] cursor-text"
           onClick={() => urlInputRef.current?.focus()}
         >
-          {urlChips.map((chip) => (
+{urlChips.map((chip) => (
             <span
               key={chip.id}
               className="inline-flex items-center gap-1 px-2 
              bg-neutral-700  
              border-neutral-600 border-2 border-solid
-              text-neutral-500 text-2xl
-              font-semibold
-                         rounded-full"
+             text-neutral-500 text-xl
+             font-semibold
+                        rounded-full"
             >
               <span className="truncate max-w-[150px]">
                 {chip.url}
@@ -252,10 +241,10 @@ shadow-lg border border-neutral-800
             onChange={handleUrlInputChange}
             onKeyDown={handleUrlInputKeyDown}
             className="flex-1 min-w-[80px] bg-transparent
-                       text-2xl text-neutral-400
+                       text-xl text-neutral-400
                        placeholder:text-neutral-500
-         
-              font-semibold
+          
+                font-semibold
                        focus:outline-none"
           />
         </div>

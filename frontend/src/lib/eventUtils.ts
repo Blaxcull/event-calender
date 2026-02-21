@@ -18,6 +18,7 @@ export interface EventType {
   height: number  // Height in pixels
   title: string
   date: Date
+  endDate: Date
   description?: string
   notes?: string
   urls?: string[]
@@ -72,6 +73,26 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
   const startTime = yToTime(startY)
   const endTime = yToTime(endY)
 
+  // Determine if event should display as all-day sticky
+  const storeEndDate = storeEvent.end_date || storeEvent.date
+  const isMultiDay = storeEndDate > storeEvent.date
+  
+  // Calculate duration in hours (handles overnight events)
+  let durationMinutes: number
+  if (storeEvent.end_time >= storeEvent.start_time) {
+    durationMinutes = storeEvent.end_time - storeEvent.start_time
+  } else {
+    // Overnight event (e.g., 23:00 to 02:00)
+    durationMinutes = (1440 - storeEvent.start_time) + storeEvent.end_time
+  }
+  const durationHours = durationMinutes / 60
+  const isFullDay = durationHours >= 24
+
+  const isAllDay = storeEvent.is_all_day || isMultiDay || isFullDay
+
+  // Parse end_date for the UI event
+  const endDate = storeEndDate ? new Date(storeEndDate + 'T00:00:00') : selectedDate
+
   return {
     id: storeEvent.id,
     slot: startY,
@@ -82,11 +103,12 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
     height: endY - startY,
     title: storeEvent.title,
     date: selectedDate,
+    endDate: endDate,
     description: storeEvent.description,
     notes: storeEvent.notes,
     urls: storeEvent.urls || [],
     color: storeEvent.color,
-    isAllDay: storeEvent.is_all_day,
+    isAllDay,
     location: storeEvent.location,
   }
 }
@@ -96,22 +118,25 @@ export function uiEventToStoreEvent(uiEvent: EventType, dateStr: string): Partia
   const startTotalMinutes = uiEvent.startHour * 60 + uiEvent.startMin
   const endTotalMinutes = uiEvent.endHour * 60 + uiEvent.endMin
 
+  // Format end_date as YYYY-MM-DD
+  const endDateStr = uiEvent.endDate 
+    ? `${uiEvent.endDate.getFullYear()}-${String(uiEvent.endDate.getMonth() + 1).padStart(2, '0')}-${String(uiEvent.endDate.getDate()).padStart(2, '0')}`
+    : dateStr
+
   const result: Partial<Event> = {
     title: uiEvent.title,
     description: uiEvent.description,
     notes: uiEvent.notes,
     urls: uiEvent.urls,
     date: dateStr,
+    end_date: endDateStr,
     start_time: startTotalMinutes,
     end_time: endTotalMinutes,
     color: uiEvent.color,
     is_all_day: uiEvent.isAllDay,
     location: uiEvent.location,
-  }
-
-  // Include the UI event ID for optimistic updates
-  if (uiEvent.id) {
-    result.id = uiEvent.id
+    // Include the UI event ID for optimistic updates
+    ...(uiEvent.id && { id: uiEvent.id }),
   }
 
   return result
@@ -179,6 +204,7 @@ export function addEventOnClick(
     endMin: end.min,
     title: "New Event",
     date: selectedDate,
+    endDate: selectedDate,
     notes: "",
     urls: [],
   }

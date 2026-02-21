@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom"
 import ChevronLeft from "@/assets/chevron-left.svg"
 
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
+import { Calendar } from "@/components/ui/sidebarCalendar"
 import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore } from "@/store/eventsStore"
@@ -54,7 +54,7 @@ export function SideBar() {
 
   return (
       <>
-    <Card className="h-full w-[700px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-4 relative overflow-hidden">
+    <Card className="h-full w-[630px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-3 relative overflow-hidden">
       {/* Sign out button - positioned absolutely to hover over content */}
       <Button
         variant="ghost"
@@ -68,7 +68,7 @@ export function SideBar() {
 
       {/* Sync Status */}
       <div className="px-4 pb-2 shrink-0">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-700/50 w-fit">
+        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700/50 w-fit">
           {isAnyEventSyncing() ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
@@ -84,10 +84,10 @@ export function SideBar() {
       </div>
 
       {/* Calendar section */}
-     <CardContent className="px-30 pb-10 pt-12 shrink-0">
+     <CardContent className="px-30 pb-9 pt-11 shrink-0">
         <div className="flex items-start gap-3">
           {/* Calendar */}
-         <div className="w-[150px]  flex items-start justify-center pt-4">
+         <div className="w-[135px]  flex items-start justify-center pt-3">
             <div className="origin-top ">
               <Calendar
                 mode="single"
@@ -99,7 +99,7 @@ export function SideBar() {
           </div>
 
           {/* Date controls */}
-          <div className="flex flex-1 justify-start pl-42 pt-5">
+          <div className="flex flex-1 justify-start pl-35 pt-5">
             <div className="flex items-center gap-3">
               <Button
                 variant="secondary"

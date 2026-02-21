@@ -10,6 +10,7 @@ export interface Event {
   notes?: string
   urls?: string[]
   date: string // ISO date string YYYY-MM-DD
+  end_date: string // ISO date string YYYY-MM-DD for multi-day events
   start_time: number // Minutes since midnight
   end_time: number // Minutes since midnight
   color?: string
@@ -27,6 +28,7 @@ export interface NewEvent {
   notes?: string
   urls?: string[]
   date: string
+  end_date: string
   start_time: number
   end_time: number
   color?: string
@@ -217,11 +219,13 @@ export const useEventsStore = create<EventsState>()(
         // Create local event
         const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
         const now = new Date().toISOString()
+        const endDate = event.end_date || event.date
         const localEvent: Event = {
           id: tempId,
           user_id: 'temp-user', // Will be replaced with real user ID from DB
           title: event.title,
           date: event.date,
+          end_date: endDate,
           start_time: event.start_time,
           end_time: event.end_time,
           description: event.description,
@@ -260,6 +264,7 @@ export const useEventsStore = create<EventsState>()(
             const eventForDb: Record<string, any> = {
               title: event.title,
               date: event.date,
+              end_date: event.end_date || event.date,
               start_time: event.start_time,
               end_time: event.end_time,
               user_id: user.id,
@@ -316,11 +321,13 @@ export const useEventsStore = create<EventsState>()(
         
         // Create temp event with placeholder user ID
         const now = new Date().toISOString()
+        const endDate = event.end_date || event.date
         const tempEvent: Event = {
           id: tempId,
           user_id: 'temp-user', // Will be replaced with real user ID from DB
           title: event.title,
           date: event.date,
+          end_date: endDate,
           start_time: event.start_time,
           end_time: event.end_time,
           description: event.description,
@@ -375,6 +382,7 @@ export const useEventsStore = create<EventsState>()(
             const eventForDb: Record<string, any> = {
               title: event.title,
               date: event.date,
+              end_date: event.end_date || event.date,
               start_time: event.start_time,
               end_time: event.end_time,
               user_id: user.id,
@@ -462,7 +470,7 @@ export const useEventsStore = create<EventsState>()(
               const lastUpdate = queuedUpdates[queuedUpdates.length - 1]
               const filteredUpdates: Record<string, any> = {}
               Object.entries(lastUpdate).forEach(([key, value]) => {
-                if (value !== undefined && (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time')) {
+                if (value !== undefined && (key === 'title' || key === 'date' || key === 'end_date' || key === 'start_time' || key === 'end_time')) {
                   filteredUpdates[key] = value
                 }
               })
@@ -541,34 +549,37 @@ export const useEventsStore = create<EventsState>()(
                return updatedEvent
              }
              
-             // Start background database update (non-blocking)
-             setTimeout(async () => {
-               try {
-                 // Filter out undefined values and fields that don't exist in current schema
-                 const filteredUpdates: Record<string, any> = {}
-                 Object.entries(updates).forEach(([key, value]) => {
-                   if (value !== undefined) {
-                     // Only include fields that exist in current schema
-                     if (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time') {
-                       filteredUpdates[key] = value
+              // Start background database update (non-blocking)
+              setTimeout(async () => {
+                try {
+                   // Filter out undefined values and fields that don't exist in current schema
+                   const filteredUpdates: Record<string, any> = {}
+                   Object.entries(updates).forEach(([key, value]) => {
+                     if (value !== undefined) {
+                       // Only include fields that exist in current schema
+                       // Note: end_date, is_all_day, description, color, location may not exist until migration is run
+                       if (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time') {
+                         filteredUpdates[key] = value
+                       }
+                       // Only include end_date and is_all_day if they're explicitly set (not defaults)
+                       if ((key === 'end_date' || key === 'is_all_day') && value !== undefined) {
+                         filteredUpdates[key] = value
+                       }
                      }
-                     // Note: description, color, is_all_day, location are only available in new schema
-                     // Uncomment after running updated database_schema.sql
-                   }
-                 })
+                   })
 
-                 console.log('Background: Updating event in database:', id, 'with:', filteredUpdates)
+                   console.log('Background: Updating event in database:', id, 'with:', filteredUpdates)
 
-                 const { error } = await supabase
-                   .from('events')
-                   .update(filteredUpdates)
-                   .eq('id', id)
+                   const { error } = await supabase
+                     .from('events')
+                     .update(filteredUpdates)
+                     .eq('id', id)
 
-                 if (error) {
-                   console.error('Background: Database update failed:', error)
-                   // Note: We don't rollback UI update - user sees their change
-                   // In a production app, you might want to show an error notification
-                 } else {
+                   if (error) {
+                    console.error('Background: Database update failed:', error)
+                    // Note: We don't rollback UI update - user sees their change
+                    // In a production app, you might want to show an error notification
+                  } else {
                    console.log('Background: Event updated in database:', id)
                  }
                } catch (err) {

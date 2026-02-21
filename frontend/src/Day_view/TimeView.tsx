@@ -317,6 +317,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       addEventOptimistic({
         title: storeEvent.title!,
         date: storeEvent.date!,
+        end_date: storeEvent.end_date!,
         start_time: storeEvent.start_time!,
         end_time: storeEvent.end_time!,
         description: storeEvent.description,
@@ -648,13 +649,16 @@ const TimeView: React.FC<TimeViewProps> = () => {
     }
   }, [draggingId, resizingId, localEvents, selectedDate])
 
+  // Filter out all-day events from time grid (they're shown in the sticky row)
+  const timedEvents = localEvents.filter(event => !event.isAllDay)
+
   return (
     <div
       onClick={handleContainerClick}
       className="absolute inset-0 calendar-container"
       style={{ zIndex: 10 }}
     >
-        {localEvents.map(event => {
+        {timedEvents.map(event => {
           // Get stable key - use temp ID if available in mapping, otherwise use real ID
           // This prevents React from remounting when temp ID is swapped to real ID
           let stableKey = event.id

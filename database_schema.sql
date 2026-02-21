@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS events (
   notes TEXT,                          -- Additional notes for event editor
   urls TEXT[],                         -- Array of URLs for event
   date DATE NOT NULL,                  -- Calendar date (YYYY-MM-DD)
+  end_date DATE,                       -- End date for multi-day events (YYYY-MM-DD), nullable for backward compatibility
   start_time INTEGER NOT NULL,         -- Minutes since midnight (0-1439)
   end_time INTEGER NOT NULL,           -- Minutes since midnight
   color TEXT DEFAULT '#3b82f6',        -- Event color (hex code)
