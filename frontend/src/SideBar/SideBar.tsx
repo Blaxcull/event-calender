@@ -54,7 +54,7 @@ export function SideBar() {
 
   return (
       <>
-    <Card className="h-full w-[630px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-3 relative overflow-hidden">
+    <Card className="h-full w-[630px] flex flex-col bg-neutral-800 text-slate-100 border border-slate-700 py-3 relative overflow-y-auto">
       {/* Sign out button - positioned absolutely to hover over content */}
       <Button
         variant="ghost"

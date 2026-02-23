@@ -16,6 +16,8 @@ export interface Event {
   color?: string
   is_all_day?: boolean
   location?: string
+  repeat?: string
+  reminder?: string
   created_at: string
   updated_at: string
   // For optimistic updates
@@ -34,6 +36,8 @@ export interface NewEvent {
   color?: string
   is_all_day?: boolean
   location?: string
+  repeat?: string
+  reminder?: string
   // For optimistic updates
   id?: string
 }

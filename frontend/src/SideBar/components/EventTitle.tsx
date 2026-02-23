@@ -3,6 +3,7 @@ import { useEventsStore, formatDate } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import EventEditor from './EventEditor'
 import DateTimeEditor from './DateTimeEditor'
+import SettingsPanel from './SettingPannel'
 
 const EventTitle: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -37,15 +38,11 @@ const EventTitle: React.FC = () => {
   // If an event is selected, show the editor
   if (selectedEventId) {
     return (
-
-        <>
-
-
+      <div className="px-4 flex-1 overflow-y-auto no-scrollbar">
         <EventEditor />
         <DateTimeEditor />
-
-        </>
-
+        <SettingsPanel />
+      </div>
     )
   }
 
