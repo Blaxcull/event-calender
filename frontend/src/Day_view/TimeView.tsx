@@ -1,6 +1,6 @@
 import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import type { EventType } from '../lib/eventUtils'
-import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, restoreEventWidths, calculateEventDuration, STEP_HEIGHT, snap, yToTime, storeEventToUIEvent, uiEventToStoreEvent } from '../lib/eventUtils'
+import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, restoreEventWidths, calculateEventDuration, STEP_HEIGHT, snap, yToTime, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 

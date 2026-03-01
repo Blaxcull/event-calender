@@ -57,7 +57,16 @@ export function yToTime(y: number) {
   const totalMinutes = (y / SLOT_HEIGHT) * 60
   return {
     hour: Math.floor(totalMinutes / 60) % 24,
-    min: Math.floor(totalMinutes % 60),
+    min: Math.round(totalMinutes % 60),
+  }
+}
+
+export function yToTimeSnapped(y: number) {
+  const totalMinutes = (y / SLOT_HEIGHT) * 60
+  const snappedMinutes = Math.round(totalMinutes / 15) * 15
+  return {
+    hour: Math.floor(snappedMinutes / 60) % 24,
+    min: snappedMinutes % 60,
   }
 }
 

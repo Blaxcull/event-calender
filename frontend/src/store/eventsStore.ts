@@ -18,6 +18,8 @@ export interface Event {
   location?: string
   repeat?: string
   reminder?: string
+  goalType?: string
+  goal?: string
   created_at: string
   updated_at: string
   // For optimistic updates
@@ -38,6 +40,8 @@ export interface NewEvent {
   location?: string
   repeat?: string
   reminder?: string
+  goalType?: string
+  goal?: string
   // For optimistic updates
   id?: string
 }
@@ -662,15 +666,39 @@ export const useEventsStore = create<EventsState>()(
         const eventIndex = eventsCache[dateKey].findIndex(e => e.id === id)
         if (eventIndex === -1) return
 
+        const currentEvent = eventsCache[dateKey][eventIndex]
+        const duration = currentEvent.end_time - currentEvent.start_time
+
+        let endTimeValue = currentEvent.end_time
+        if (field === 'start_time') {
+          endTimeValue = value + duration
+        }
+
         const updatedEvent = {
-          ...eventsCache[dateKey][eventIndex],
+          ...currentEvent,
           [field]: value,
+          ...(field === 'start_time' && { end_time: endTimeValue }),
           updated_at: new Date().toISOString(),
         }
 
         const newCache = { ...eventsCache }
-        newCache[dateKey] = [...newCache[dateKey]]
-        newCache[dateKey][eventIndex] = updatedEvent
+
+        // Handle date change - move event to new date key
+        if (field === 'date' && value !== dateKey) {
+          // Remove from old date
+          newCache[dateKey] = newCache[dateKey].filter(e => e.id !== id)
+          if (newCache[dateKey].length === 0) {
+            delete newCache[dateKey]
+          }
+          // Add to new date
+          if (!newCache[value]) {
+            newCache[value] = []
+          }
+          newCache[value] = [...newCache[value], updatedEvent]
+        } else {
+          newCache[dateKey] = [...newCache[dateKey]]
+          newCache[dateKey][eventIndex] = updatedEvent
+        }
 
         set({ eventsCache: newCache })
 
