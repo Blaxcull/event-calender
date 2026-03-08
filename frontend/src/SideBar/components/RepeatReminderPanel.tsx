@@ -1,12 +1,14 @@
-import React, { useCallback } from "react"
+import React from "react"
 import { useEventsStore } from "@/store/eventsStore"
 import { useTimeStore } from "@/store/timeStore"
-import GoalTypeRow from "./GoalTypeRow"
-import GoalRow from "./GoalRow"
+import RepeatRow from "./RepeatRow"
+import EarlyReminderRow from "./EarlyReminderRow"
+import AllDayRow from "./AllDayRow"
 import { useRecurringEvents } from "@/hooks/useRecurringEvents"
 import RecurringEditDialog from "@/components/RecurringEditDialog"
+import RepeatChangeDialog from "@/components/RepeatChangeDialog"
 
-const GoalPanel: React.FC = () => {
+const RepeatReminderPanel: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const updateEventField = useEventsStore((state) => state.updateEventField)
@@ -15,24 +17,23 @@ const GoalPanel: React.FC = () => {
 
   const {
     showEditDialog,
+    showRepeatDialog,
     pendingEdit,
+    pendingRepeatChange,
     getMasterEventId,
     handleFieldChange,
+    handleRepeatChange,
     cancelDialog
   } = useRecurringEvents()
 
-  // Get selected event
   const selectedEvent = React.useMemo(() => {
     if (!selectedEventId || !selectedDate) return null
     const events = getEventsForDate(selectedDate)
     return events.find((e) => e.id === selectedEventId) || null
   }, [selectedEventId, selectedDate, getEventsForDate])
 
-  // If no event selected → don't render
-  if (!selectedEvent) return null
-
   // Wrap updateEventField to match the expected signature
-  const wrappedUpdateEventField = useCallback((id: string, field: string, value: any) => {
+  const wrappedUpdateEventField = React.useCallback((id: string, field: string, value: any) => {
     updateEventField(id, field as any, value)
   }, [updateEventField])
 
@@ -98,37 +99,108 @@ const GoalPanel: React.FC = () => {
     cancelDialog()
   }
 
-  const handleGoalTypeChange = (value: string) => {
+  const handleRepeatChoice = (choice: 'only-this' | 'this-and-following') => {
+    if (!pendingRepeatChange || !selectedEvent) return
+
+    const { event } = pendingRepeatChange
+    const isVirtual = event.isRecurringInstance
+
+    switch (choice) {
+      case 'only-this':
+        if (isVirtual) {
+          // Create standalone event
+          const standaloneEvent = {
+            ...event,
+            id: crypto.randomUUID(),
+            series_id: undefined,
+            is_series_master: true,
+            series_position: 0,
+            isRecurringInstance: false,
+            repeat: 'None'
+          }
+          addEventOptimistic(standaloneEvent as any)
+        } else {
+          // Break the series at this point
+          const breakEvent = {
+            ...event,
+            id: crypto.randomUUID(),
+            series_id: undefined,
+            is_series_master: true,
+            series_position: 0,
+            isRecurringInstance: false,
+            repeat: 'None'
+          }
+          addEventOptimistic(breakEvent as any)
+        }
+        break
+
+      case 'this-and-following':
+        // Split series and stop recurrence from this point
+        const newMasterId = crypto.randomUUID()
+        const splitEvent = {
+          ...event,
+          id: newMasterId,
+          series_id: newMasterId,
+          is_series_master: true,
+          series_position: 0,
+          isRecurringInstance: false,
+          repeat: 'None'
+        }
+        addEventOptimistic(splitEvent as any)
+        break
+    }
+
+    cancelDialog()
+  }
+
+  const handleRepeatChangeWrapper = (value: string) => {
+    console.log('RepeatReminderPanel: handleRepeatChangeWrapper called with value=', value, 'selectedEvent.repeat=', selectedEvent?.repeat)
+    if (!selectedEvent) return
+    handleRepeatChange(selectedEvent as any, value, wrappedUpdateEventField)
+  }
+
+  const handleEarlyReminderChange = (value: string) => {
+    if (!selectedEvent) return
     handleFieldChange(
       selectedEvent as any,
-      "goalType",
+      "earlyReminder",
       value,
       wrappedUpdateEventField
     )
   }
 
-  const handleGoalChange = (value: string) => {
+  const handleAllDayChange = (value: boolean) => {
+    if (!selectedEvent) return
     handleFieldChange(
       selectedEvent as any,
-      "goal",
-      value,
+      "allDay",
+      value ? "Yes" : "No",
       wrappedUpdateEventField
     )
   }
+
+  if (!selectedEvent) return null
 
   return (
     <>
       <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] p-4 border-20 space-y-3 shadow-none">
-        <GoalTypeRow
-          value={selectedEvent.goalType || "a"}
-          onChange={handleGoalTypeChange}
+        <RepeatRow
+          value={selectedEvent.repeat || "None"}
+          onChange={handleRepeatChangeWrapper}
         />
 
         <hr className="border-neutral-300 border-t-[2px]" />
 
-        <GoalRow
-          value={selectedEvent.goal || "dummy"}
-          onChange={handleGoalChange}
+        <EarlyReminderRow
+          value={selectedEvent.earlyReminder || "dummy"}
+          onChange={handleEarlyReminderChange}
+        />
+
+        <hr className="border-neutral-300 border-t-[2px]" />
+
+        <AllDayRow
+          value={selectedEvent.allDay === "Yes"}
+          onChange={handleAllDayChange}
         />
       </div>
 
@@ -143,8 +215,18 @@ const GoalPanel: React.FC = () => {
           oldValue={pendingEdit.oldValue}
         />
       )}
+
+      {showRepeatDialog && pendingRepeatChange && (
+        <RepeatChangeDialog
+          open={showRepeatDialog}
+          onClose={cancelDialog}
+          onChoice={handleRepeatChoice}
+          event={pendingRepeatChange.event}
+          newRepeat={pendingRepeatChange.newRepeat}
+        />
+      )}
     </>
   )
 }
 
-export default GoalPanel
+export default RepeatReminderPanel

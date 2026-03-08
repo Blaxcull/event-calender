@@ -1,22 +1,22 @@
 import React from 'react'
-import { useEventsStore, formatDate } from '@/store/eventsStore'
+import { useEventsStore } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import EventEditor from './EventEditor'
 import DateTimeEditor from './DateTimeEditor'
 import GoalPanel from './GoalSetter'
+import RepeatReminderPanel from './RepeatReminderPanel'
 
-const EventTitle: React.FC = () => {
+const EventTitle: React.FC = React.memo(() => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
-  const eventsCache = useEventsStore((state) => state.eventsCache)
+  const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedDate = useTimeStore((state) => state.selectedDate)
 
   // Get events for selected date
   const todaysEvents = React.useMemo(() => {
     if (!selectedDate) return []
-    const dateKey = formatDate(selectedDate)
-    return eventsCache[dateKey] || []
-  }, [selectedDate, eventsCache])
+    return getEventsForDate(selectedDate)
+  }, [selectedDate, getEventsForDate])
 
   // Sort events by start time
   const sortedEvents = React.useMemo(() => {
@@ -42,6 +42,7 @@ const EventTitle: React.FC = () => {
         <EventEditor />
         <DateTimeEditor />
         <GoalPanel />
+        <RepeatReminderPanel />
       </div>
     )
   }
@@ -49,7 +50,7 @@ const EventTitle: React.FC = () => {
   // Otherwise, show list of today's events
   return (
     <div className="px-4 flex-1 flex flex-col min-h-0">
-      <h3 className="text-lg font-semibold text-slate-100 mb-3 shrink-0">
+      <h3 className="text-lg font-semibold text-slate-800 mb-3 shrink-0">
         {selectedDate ? (
           <>
             Events for{' '}
@@ -64,18 +65,18 @@ const EventTitle: React.FC = () => {
       </h3>
 
       {sortedEvents.length === 0 ? (
-        <p className="text-slate-400 text-sm">No events for this day</p>
+        <p className="text-slate-600 text-sm">No events for this day</p>
       ) : (
         <div className="overflow-y-auto no-scrollbar flex-1">
           <div className="space-y-2 pb-3">
             {sortedEvents.map((event) => (
               <div
                 key={event.id}
-                onClick={() => handleEventClick(event.id)}
-                className="p-2.5 bg-slate-700/50 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"
+                 onClick={() => handleEventClick(event.id)}
+                className="p-2.5 bg-gray-200/50 hover:bg-gray-200 rounded-lg cursor-pointer transition-colors"
               >
-                <div className="font-medium text-slate-100 text-sm">{event.title}</div>
-                <div className="text-xs text-slate-400 mt-1">
+                <div className="font-medium text-slate-800 text-sm">{event.title}</div>
+                <div className="text-xs text-slate-600 mt-1">
                   {formatTime(event.start_time)} - {formatTime(event.end_time)}
                 </div>
                 {event.notes && (
@@ -88,6 +89,6 @@ const EventTitle: React.FC = () => {
       )}
     </div>
   )
-}
+})
 
 export default EventTitle

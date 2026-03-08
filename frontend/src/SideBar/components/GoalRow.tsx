@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react"
-import { ChevronsUpDown, Circle } from "lucide-react"
+import { ChevronsUpDown, Circle, Check } from "lucide-react"
 
-const GOAL_OPTIONS = ["dummy"] as const
+const GOAL_OPTIONS = ["None","Hello", "Improve time management and prioritization skills", "Spend less time on social media and distractions"] as const
 
 interface GoalRowProps {
   value: string
@@ -51,25 +51,28 @@ const GoalRow: React.FC<GoalRowProps> = ({ value, onChange }) => {
 
   return (
     <div ref={containerRef} className="relative">
-      <div
-        className="flex items-center justify-between py-1 px-0 transition-colors cursor-pointer rounded-lg"
-        onClick={() => setIsOpen(!isOpen)}
-      >
+      <div className="flex items-center justify-between py-1 px-0">
         <div className="flex items-center gap-3">
-          <Circle className="w-7 h-7 text-neutral-400" />
-          <span className="text-neutral-100 pl-2 text-2xl w-24 shrink-0">Goal</span>
+          <Circle className="w-7 h-7 text-neutral-600" />
+          <span className="text-neutral-800 pl-2 text-2xl shrink-0">Goal</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-neutral-400 text-xl">{validValue}</span>
-          <ChevronsUpDown className="w-4 h-4 text-neutral-500" />
+        <div className="flex items-center gap-4">
+          <span className="text-neutral-700 text-2xl truncate max-w-[250px]">{validValue}</span>
+          <button
+            type="button"
+            onClick={() => setIsOpen(!isOpen)}
+            className="p-1 bg-neutral-300  rounded-full transition-colors cursor-pointer hover:bg-neutral-500"
+          >
+            <ChevronsUpDown className="w-5 h-5 text-neutral-700" />
+          </button>
         </div>
       </div>
 
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute right-0 top-full mt-1 z-50 bg-neutral-700 border-2 border-pink-500 rounded-lg shadow-xl py-1 min-w-[180px] max-h-[200px] overflow-y-auto"
+          className="absolute px-2 right-0 top-full mr-0 mt-1 z-50  bg-[#f6f6f6] rounded-lg shadow-xl py-1 min-w-[200px] max-h-[115px] overflow-y-auto [&::-webkit-scrollbar]:hidden"
         >
           {GOAL_OPTIONS.map((option, index) => {
             const isSelected = option === validValue
@@ -84,11 +87,12 @@ const GoalRow: React.FC<GoalRowProps> = ({ value, onChange }) => {
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 className={`
-                  w-full text-center py-2 px-4 text-xl transition-colors duration-100
-                  ${isHighlighted ? "bg-pink-500 text-white" : "text-neutral-300 hover:bg-pink-500"}
+                  relative w-75 rounded-[10px] flex items-center py-1 px-4 text-xl transition-colors duration-100
+                  ${isHighlighted ? "bg-red-400 text-white" : "text-neutral-700 hover:bg-red-400"}
                 `}
               >
-                {option}
+                {isSelected && <Check className="absolute left-1 w-4 h-4 shrink-0" />}
+                <span className="pl-4 text-left">{option}</span>
               </button>
             )
           })}

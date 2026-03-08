@@ -9,6 +9,7 @@ export function DayViewRoute() {
   const setDate = useTimeStore(state => state.setDate)
   const setToday = useTimeStore(state => state.setToday)
   const fetchEventsWindow = useEventsStore(state => state.fetchEventsWindow)
+  const setSelectedEvent = useEventsStore(state => state.setSelectedEvent)
 
   useEffect(() => {
     // Validate URL parameters
@@ -37,9 +38,15 @@ export function DayViewRoute() {
     // Set the date in the store
     setDate(date)
     
-    // Fetch events for this date (with 35-day window)
-    fetchEventsWindow(date)
-  }, [year, month, day, setDate, setToday, fetchEventsWindow])
+    // Deselect any currently selected event when date changes
+    setSelectedEvent(null)
+    
+    // Fetch events in background - don't wait for it
+    // UI shows cached data immediately, updates when fetch completes
+    queueMicrotask(() => {
+      fetchEventsWindow(date)
+    })
+  }, [year, month, day, setDate, setToday, fetchEventsWindow, setSelectedEvent])
 
   // Validate parameters
   if (!year || !month || !day) {

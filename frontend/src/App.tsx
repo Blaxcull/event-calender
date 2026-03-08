@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import TimeUpdater from "./components/TimeUpdater"
+import { ViewSwitcher } from "./components/ViewSwitcher"
+import { TopBarLeft } from "./components/TopBarLeft"
 import {SideBar} from "./SideBar/SideBar.tsx"
 import { DayViewRoute, TodayRedirect } from "./components/DayViewRoute"
 import { Login } from "./pages/Login"
@@ -8,10 +11,13 @@ import { Signup } from "./pages/Signup"
 function App() {
   const location = useLocation()
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup'
+  const [currentView, setCurrentView] = useState<string>('day')
 
   return (
     <>
       <TimeUpdater />
+      {!isAuthPage && <ViewSwitcher currentView={currentView as any} onViewChange={setCurrentView} />}
+      {!isAuthPage && <TopBarLeft />}
       <div className={`flex h-screen overflow-hidden relative ${isAuthPage ? '' : ''}`}>
         {/* Main content - Routes */}
         <div className={`flex-1 overflow-hidden ${isAuthPage ? 'w-full' : ''}`}>

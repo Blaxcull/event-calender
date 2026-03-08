@@ -32,7 +32,7 @@ function Calendar({
       showOutsideDays={showOutsideDays}
       fixedWeeks
       className={cn(
-        "bg-neutral-800 text-slate-100 rounded-md w-fit [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
+        "bg-neutral-100 text-slate-800 rounded-md w-fit [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
         String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
         String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
         className
@@ -55,29 +55,30 @@ function Calendar({
         ),
         button_previous: cn(
           buttonVariants({ variant: buttonVariant }),
-          "size-(--cell-size) aria-disabled:opacity-50 p-0 select-none ml-auto",
+          "size-8 aria-disabled:opacity-50 p-0 select-none ml-auto hover:bg-neutral-300 rounded-full",
           defaultClassNames.button_previous
         ),
         button_next: cn(
           buttonVariants({ variant: buttonVariant }),
-          "size-(--cell-size) aria-disabled:opacity-50 p-0 select-none",
+          "size-8 aria-disabled:opacity-50 p-0 select-none hover:bg-neutral-300 rounded-full",
           defaultClassNames.button_next
         ),
         month_caption: cn(
-          "flex items-center justify-start h-(--cell-size) w-full px-(--cell-size) pl-4",
+          "flex items-center justify-start h-(--cell-size) w-full px-(--cell-size) pl-2",
           defaultClassNames.month_caption
         ),
         caption_label: cn(
-          "select-none font-medium text-white text-lg",
+          "select-none font-semibold text-neutral-600 text-2xl",
           captionLayout === "label"
-            ? "text-lg"
-            : "rounded-md pl-2 pr-1 flex items-center gap-1 text-lg h-8 [&>svg]:text-muted-foreground [&>svg]:size-3.5",
+            ? "text-xl"
+            : "rounded-md pl-2 pr-1 flex items-center gap-1 text-2xl h-8 [&>svg]:text-muted-foreground [&>svg]:size-3.5",
           defaultClassNames.caption_label
         ),
         table: "w-full border-collapse",
         weekdays: cn("flex gap-x-5", defaultClassNames.weekdays),
         weekday: cn(
-          "text-lg text-slate-300 font-normal tracking-wide flex-1 text-center select-none mb-1",
+          "text-xl text-neutral-500 font-semibold tracking-wide flex-1 text-center select-none mb-1",
+
           defaultClassNames.weekday
         ),
         week: cn("flex w-full mt-0 gap-x-5 px-0 py-0", defaultClassNames.week),
@@ -104,7 +105,7 @@ function Calendar({
           defaultClassNames.today
         ),
         outside: cn(
-          "text-neutral-500 opacity-50",
+          "text-neutral-600 opacity-50",
           defaultClassNames.outside
         ),
         disabled: cn(
@@ -193,18 +194,17 @@ function CalendarDayButton({
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
       className={cn(
-        "h-8 w-8 rounded-full text-lg font-sf font-bold transition-colors",
 
-        modifiers.outside
-          ? "text-neutral-500 hover:bg-neutral-600/80"
+        "h-8 w-8 rounded-full text-lg tabular-nums text-lg font-sf font-bold transition-colors flex items-center justify-center leading-none",
+        modifiers.selected
+          ? "bg-red-400 text-white hover:bg-neutral-300"
+          : modifiers.today
+          ? "bg-red-500 text-white hover:bg-neutral-300"
+          : modifiers.outside
+          ? "text-neutral-400  hover:bg-neutral-300"
           : isWeekend
-          ? "text-rose-400 hover:bg-rose-500/80"
-          : "text-slate-200 hover:bg-neutral-300",
-
-        modifiers.selected && modifiers.outside
-          ? "bg-neutral-700 text-neutral-300"
-          : "data-[selected-single=true]:bg-slate-600 data-[selected-single=true]:text-white",
-
+          ? "text-neutral-500 hover:bg-neutral-300"
+          : "text-neutral-800 hover:bg-neutral-300",
         defaultClassNames.day,
         className
       )}

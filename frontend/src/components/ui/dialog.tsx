@@ -13,7 +13,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 bg-white/50 backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
       />
       <div className="relative z-10">
@@ -31,7 +31,7 @@ interface DialogContentProps {
 
 export function DialogContent({ children, className = "", onClose }: DialogContentProps) {
   return (
-    <div className={`bg-neutral-800 border border-neutral-600 rounded-xl shadow-2xl ${className}`}>
+    <div className={`bg-neutral-100 border border-neutral-300 rounded-xl shadow-2xl ${className}`}>
       {onClose && (
         <button
           onClick={onClose}
@@ -51,7 +51,7 @@ interface DialogHeaderProps {
 
 export function DialogHeader({ children }: DialogHeaderProps) {
   return (
-    <div className="px-4 py-3 border-b border-neutral-600">
+    <div className="px-4 py-3 border-b border-neutral-300">
       {children}
     </div>
   )

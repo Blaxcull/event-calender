@@ -1,8 +1,10 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { Calendar as CalendarIcon, Clock } from 'lucide-react'
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useEventsStore, formatDate } from '@/store/eventsStore'
-import { useTimeStore } from '@/store/timeStore'
 import { Calendar } from '@/components/ui/calendar'
+import { useRecurringEvents } from '@/hooks/useRecurringEvents'
+import RecurringEditDialog from '@/components/RecurringEditDialog'
+import RepeatChangeDialog from '@/components/RepeatChangeDialog'
+import { uiEventToStoreEvent } from '@/lib/eventUtils'
 
 /* ================= TIME OPTIONS ================= */
 
@@ -37,21 +39,33 @@ const getClosestTimeOption = (minutes: number) => {
 
 /* ================= TIME PICKER ================= */
 
-
-
 const TimePicker: React.FC<{
   value: number
   onChange: (minutes: number) => void
   disabled?: boolean
-}> = ({ value, onChange, disabled }) => {
+  minValue?: number
+}> = ({ value, onChange, disabled, minValue }) => {
+
   const [isOpen, setIsOpen] = useState(false)
   const [inputValue, setInputValue] = useState(formatTimeValue(value))
   const [hoveredValue, setHoveredValue] = useState<number | null>(null)
+  const [debouncedInput, setDebouncedInput] = useState(inputValue)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const isInputFocused = useRef(false)
+
+
+
+  useEffect(() => {
+  const t = setTimeout(() => {
+    setDebouncedInput(inputValue)
+  }, 60)
+
+  return () => clearTimeout(t)
+}, [inputValue])
+
 
   /* Sync external value */
   useEffect(() => {
@@ -89,41 +103,60 @@ const TimePicker: React.FC<{
   return getClosestTimeOption(value)
 }, [value])
 
+
+
 const typedClosest = useMemo(() => {
-  const match = inputValue.match(/^(\d{1,2}):?(\d{0,2})$/)
+    const match = debouncedInput.match(/^(\d{1,2}):?(\d{0,2})$/)
   if (!match) return null
 
-  const h = parseInt(match[1], 10)
-  if (isNaN(h) || h > 23) return null
+  let h = parseInt(match[1], 10)
+  if (isNaN(h)) return null
+
+  // 🔹 Clamp hour
+  if (h > 23) h = 23
+  if (h < 0) h = 0
 
   const minutePart = match[2] || ""
 
-  // 🔹 If no minutes typed yet
-  if (minutePart.length === 0) return null
+  // 🔹 No minutes typed
+  if (minutePart.length === 0) {
+    return h * 60
+  }
 
+  // 🔹 ONE digit minute snapping
+  if (minutePart.length === 1) {
+    const digit = minutePart
 
-      // 🔹 If ONE digit minute
-if (minutePart.length === 1) {
-  const digit = minutePart
+    if (digit === "0") return h * 60 
+    if (digit === "1") return h * 60 + 15
+    if (digit === "3") return h * 60 + 30
+    if (digit === "4") return h * 60 + 45
 
-  if (digit === "1") return h * 60 + 15
-  if (digit === "3") return h * 60 + 30
-  if (digit === "4") return h * 60 + 45
+    return null
+  }
 
-  return null
-}
-
-
+  // 🔹 TWO digit minutes
   if (minutePart.length === 2) {
-    const m = parseInt(minutePart, 10)
-    if (isNaN(m) || m > 59) return null
+    let m = parseInt(minutePart, 10)
+    if (isNaN(m)) return null
 
-    const total = h * 60 + m
-    return total
+    // Clamp minute
+    if (m > 59) m = 59
+    if (m < 0) m = 0
+
+    return h * 60 + m
   }
 
   return null
-}, [inputValue])
+}, [debouncedInput])
+
+
+
+useEffect(() => {
+  if (!isOpen) {
+    setHoveredValue(null)
+  }
+}, [isOpen])
 
   /* Auto scroll to highlighted option */
 useEffect(() => {
@@ -131,26 +164,34 @@ useEffect(() => {
 
   const container = dropdownRef.current
 
-  // Parse the hour from the input
-  const match = inputValue.match(/^(\d{1,2}):?(\d{0,2})$/)
-  if (!match) return
+  const targetValue =
+  typedClosest !== null &&
+  TIME_OPTIONS.some(o => o.value === typedClosest)
+    ? typedClosest
+    : roundedValue
 
-  const hour = parseInt(match[1], 10)
-  if (isNaN(hour) || hour < 0 || hour > 23) return
-
-  // Find the first option of that hour
   const index = TIME_OPTIONS.findIndex(
-    (opt) => Math.floor(opt.value / 60) === hour
+    (opt) => opt.value === targetValue
   )
+
   if (index === -1) return
 
-  const option = container.children[index] as HTMLElement
-  if (!option) return
+  requestAnimationFrame(() => {
+    const option = container.children[index] as HTMLElement
+    if (!option) return
 
-  // 🔹 Instant scroll to the top of this hour block
-  container.scrollTop = option.offsetTop
-}, [inputValue, isOpen])
+    const containerHeight = container.clientHeight
+    const optionHeight = option.clientHeight
 
+    let scroll =
+      option.offsetTop - containerHeight / 2 + optionHeight / 2
+
+    const maxScroll = container.scrollHeight - containerHeight
+    scroll = Math.max(0, Math.min(scroll, maxScroll))
+
+    container.scrollTop = scroll
+  })
+}, [isOpen, typedClosest, roundedValue])
 
 const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
   const val = e.target.value.replace(/[^0-9:]/g, '')
@@ -159,8 +200,12 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 }
 
   const handleInputBlur = () => {
-    const finalValue =
-      typedClosest !== null ? typedClosest : value
+      let finalValue =
+  typedClosest !== null ? typedClosest : value
+
+if (minValue !== undefined && finalValue < minValue) {
+  finalValue = minValue
+}
 
     onChange(finalValue)
     setInputValue(formatTimeValue(finalValue))
@@ -180,12 +225,13 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     }
   }
 
-  const handleSelect = (minutes: number) => {
-    onChange(minutes)
-    setInputValue(formatTimeValue(minutes))
-    setIsOpen(false)
-  }
+const handleSelect = (minutes: number) => {
+  if (minValue !== undefined && minutes < minValue) return
 
+  onChange(minutes)
+  setInputValue(formatTimeValue(minutes))
+  setIsOpen(false)
+}
   return (
     <div ref={containerRef} className="relative">
       <input
@@ -200,50 +246,56 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
           !disabled && setIsOpen(true)
         }}
         disabled={disabled}
-        className={`bg-neutral-700 rounded-lg px-2 py-1 border-b-2 border-neutral-500 text-xl focus:outline-none focus:border-pink-500 w-20 text-center ${
+        className={`bg-neutral-100 rounded-lg px-2 py-1 border-b-2 border-neutral-300 text-xl focus:outline-none focus:border-red-500 w-20 text-center ${
           disabled
-            ? 'opacity-40 cursor-not-allowed text-neutral-100'
+            ? 'opacity-40 cursor-not-allowed text-neutral-800'
             : isOpen
-            ? 'text-pink-500'
-            : 'text-neutral-100'
+            ? 'text-red-500'
+            : 'text-neutral-800'
         }`}
       />
 
       {isOpen && !disabled && (
         <div
           ref={dropdownRef}
-          className="absolute left-1/2 -translate-x-1/2 mt-1 bg-neutral-700 border-2 border-pink-500 rounded-lg shadow-xl p-1 max-h-[220px] overflow-y-auto w-28 z-50 no-scrollbar"
+          className="absolute left-1/2 -translate-x-1/2 mt-1 bg-[#f6f6f6] shadow rounded-lg shadow-xl p-1 max-h-[220px] overflow-y-auto w-28 z-50 no-scrollbar"
         >
 
 {TIME_OPTIONS.map((option) => {
+  const isDisabled =
+    minValue !== undefined && option.value < minValue
+
   const isHovered = hoveredValue === option.value
 
   const isTypingMatch =
-    typedClosest !== null &&
-    hoveredValue === null &&
-    option.value === typedClosest
+  hoveredValue === null &&
+  typedClosest !== null &&
+  TIME_OPTIONS.some(o => o.value === typedClosest) &&
+  option.value === typedClosest
 
   return (
     <button
       key={option.value}
       type="button"
+      disabled={isDisabled}
       onMouseDown={(e) => {
         e.preventDefault()
         handleSelect(option.value)
       }}
-      onMouseEnter={() => setHoveredValue(option.value)}
-      className={`w-full text-center py-2 px-2 rounded text-lg transition-colors duration-100 ${
-        isHovered || isTypingMatch
-          ? 'bg-pink-500 text-white'
-          : 'text-neutral-100'
-      }`}
+      onMouseEnter={() => !isDisabled && setHoveredValue(option.value)}
+      className={`w-full text-center py-2 px-2 rounded text-lg transition-colors duration-100
+        ${
+          isDisabled
+            ? "text-neutral-400 cursor-not-allowed"
+            : isHovered || isTypingMatch
+            ? "bg-red-400 text-white"
+            : "text-neutral-800"
+        }`}
     >
       {option.label}
     </button>
   )
 })}
-
-
         </div>
       )}
     </div>
@@ -298,7 +350,7 @@ const DatePickerButton: React.FC<{
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-neutral-700 hover:bg-neutral-600 rounded px-2 py-1.5 text-neutral-100 text-lg focus:outline-none ring-2 ring-neutral-500 focus:ring-pink-500"
+        className="bg-neutral-100 hover:bg-neutral-200 rounded px-2 py-1.5 text-neutral-800 text-lg focus:outline-none ring-2 ring-neutral-400 focus:ring-red-500"
       >
         {selectedDate
           ? selectedDate.toLocaleDateString('en-US', {
@@ -311,7 +363,7 @@ const DatePickerButton: React.FC<{
 
       {isOpen && (
         <div
-          className={`absolute z-50 mt-1 bg-neutral-800 border-2 border-pink-500 rounded-lg shadow-xl p-2 ${
+          className={`absolute z-50 mt-1 bg-[#f6f6f6] shadow  rounded-lg  p-2 ${
             alignRight
               ? 'right-0'
               : 'left-1/2 -translate-x-1/2'
@@ -328,8 +380,9 @@ const DatePickerButton: React.FC<{
                 setIsOpen(false)
               }
             }}
-            className="bg-neutral-800 text-white rounded-md"
+            className="bg-[#f6f6f6] text-black rounded-md"
           />
+
         </div>
       )}
     </div>
@@ -342,111 +395,261 @@ const DateTimeEditor: React.FC = () => {
   const selectedEventId = useEventsStore(
     (state) => state.selectedEventId
   )
-  const eventsCache = useEventsStore(
-    (state) => state.eventsCache
-  )
+
   const updateEventField = useEventsStore(
     (state) => state.updateEventField
   )
-  const selectedDate = useTimeStore(
-    (state) => state.selectedDate
+  const addEventOptimistic = useEventsStore(
+    (state) => state.addEventOptimistic
   )
 
-  const selectedEvent = useMemo(() => {
-    if (!selectedEventId || !selectedDate) return null
-    const dateKey = formatDate(selectedDate)
-    const events = eventsCache[dateKey] || []
-    return events.find((e) => e.id === selectedEventId)
-  }, [selectedEventId, eventsCache, selectedDate])
+
+  const {
+    showEditDialog,
+    showRepeatDialog,
+    pendingEdit,
+    pendingRepeatChange,
+    getMasterEventId,
+    handleFieldChange,
+    cancelDialog
+  } = useRecurringEvents()
+
+  const selectedEvent = useEventsStore((state) => {
+    if (!selectedEventId) return null
+    return state.getEventById(selectedEventId)
+  })
+
+  // Wrap updateEventField to match the expected signature
+  const wrappedUpdateEventField = useCallback((id: string, field: string, value: any) => {
+    updateEventField(id, field as any, value)
+  }, [updateEventField])
+
+  const handleEditChoice = (choice: 'only-this' | 'all-events' | 'this-and-following') => {
+    if (!pendingEdit) return
+
+    const { event, field, newValue } = pendingEdit
+    const isVirtual = event.isRecurringInstance
+    const dateStr = formatDate(event.date)
+
+    switch (choice) {
+      case 'only-this':
+        if (isVirtual) {
+          // For virtual events, create a standalone copy
+          const storeEvent = uiEventToStoreEvent(event, dateStr)
+          const standaloneEvent = {
+            ...storeEvent,
+            id: crypto.randomUUID(),
+            series_id: undefined,
+            is_series_master: true,
+            series_position: 0,
+            isRecurringInstance: false,
+            repeat: 'None'
+          } as any
+          addEventOptimistic(standaloneEvent)
+          updateEventField(standaloneEvent.id, field as any, newValue)
+        } else {
+          // For master events, create a break in the series
+          const storeEvent = uiEventToStoreEvent(event, dateStr)
+          const breakEvent = {
+            ...storeEvent,
+            id: crypto.randomUUID(),
+            series_id: undefined,
+            is_series_master: true,
+            series_position: 0,
+            isRecurringInstance: false,
+            repeat: 'None'
+          } as any
+          addEventOptimistic(breakEvent)
+          updateEventField(breakEvent.id, field as any, newValue)
+        }
+        break
+
+      case 'all-events':
+        // Update the master event
+        const masterId = getMasterEventId(event)
+        updateEventField(masterId, field as any, newValue)
+        break
+
+      case 'this-and-following':
+        // Split the series at this point
+        const storeEvent = uiEventToStoreEvent(event, dateStr)
+        const newMasterId = crypto.randomUUID()
+        const splitEvent = {
+          ...storeEvent,
+          id: newMasterId,
+          series_id: newMasterId,
+          is_series_master: true,
+          series_position: 0,
+          isRecurringInstance: false
+        } as any
+        addEventOptimistic(splitEvent)
+        updateEventField(newMasterId, field as any, newValue)
+        break
+    }
+
+    cancelDialog()
+  }
+
+  const handleRepeatChoice = (choice: 'only-this' | 'this-and-following') => {
+    if (!pendingRepeatChange) return
+
+    const { event } = pendingRepeatChange
+    const isVirtual = event.isRecurringInstance
+    const dateStr = formatDate(event.date)
+
+    switch (choice) {
+      case 'only-this':
+        if (isVirtual) {
+          // Create standalone event
+          const storeEvent = uiEventToStoreEvent(event, dateStr)
+          const standaloneEvent = {
+            ...storeEvent,
+            id: crypto.randomUUID(),
+            series_id: undefined,
+            is_series_master: true,
+            series_position: 0,
+            isRecurringInstance: false,
+            repeat: 'None'
+          } as any
+          addEventOptimistic(standaloneEvent)
+        } else {
+          // Break the series at this point
+          const storeEvent = uiEventToStoreEvent(event, dateStr)
+          const breakEvent = {
+            ...storeEvent,
+            id: crypto.randomUUID(),
+            series_id: undefined,
+            is_series_master: true,
+            series_position: 0,
+            isRecurringInstance: false,
+            repeat: 'None'
+          } as any
+          addEventOptimistic(breakEvent)
+        }
+        break
+
+      case 'this-and-following':
+        // Split series and stop recurrence from this point
+        const storeEvent = uiEventToStoreEvent(event, dateStr)
+        const newMasterId = crypto.randomUUID()
+        const splitEvent = {
+          ...storeEvent,
+          id: newMasterId,
+          series_id: newMasterId,
+          is_series_master: true,
+          series_position: 0,
+          isRecurringInstance: false,
+          repeat: 'None'
+        } as any
+        addEventOptimistic(splitEvent)
+        break
+    }
+
+    cancelDialog()
+  }
 
   if (!selectedEvent) return null
 
   const isAllDay = selectedEvent.is_all_day || false
 
-  const toggleAllDay = () => {
-    updateEventField(selectedEvent.id, 'is_all_day', !isAllDay)
-  }
-
   return (
-    <div className="border border-neutral-800 w-full border-20 bg-neutral-700 rounded-[34px] p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <CalendarIcon className="w-7 h-7 text-neutral-400" />
-        <span className="text-neutral-100 text-2xl w-16 pr-55 shrink-0">
-          Date
-        </span>
-        <DatePickerButton
-          value={selectedEvent.date}
-          onChange={(date) => {
-            const newDate = formatDate(date)
-            updateEventField(selectedEvent.id, 'date', newDate)
-            updateEventField(selectedEvent.id, 'end_date', newDate)
-          }}
-        />
-        <span className="text-neutral-400">-</span>
-        <DatePickerButton
-          value={selectedEvent.end_date || selectedEvent.date}
-          onChange={(date) =>
-            updateEventField(
-              selectedEvent.id,
-              'end_date',
-              formatDate(date)
-            )
-          }
-          alignRight
-        />
-      </div>
-
-      <hr className="border-neutral-600 border-t-[2px]" />
-
-      <div className="flex items-center gap-3">
-        <Clock className="w-7 h-7 text-neutral-400" />
-        <span className="text-neutral-100 text-2xl w-16 pr-64 shrink-0">
-          Time
-        </span>
-        <TimePicker
-          value={selectedEvent.start_time}
-          onChange={(mins) =>
-            updateEventField(
-              selectedEvent.id,
-              'start_time',
-              mins
-            )
-          }
-          disabled={isAllDay}
-        />
-        <span className="text-neutral-400">-</span>
-        <TimePicker
-          value={selectedEvent.end_time}
-          onChange={(mins) =>
-            updateEventField(
-              selectedEvent.id,
-              'end_time',
-              mins
-            )
-          }
-          disabled={isAllDay}
-        />
-      </div>
-
-      <hr className="border-neutral-600 border-t-[2px]" />
-
-      <div className="flex items-center justify-between">
-        <span className="text-neutral-100 text-2xl">All Day</span>
-        <button
-          type="button"
-          onClick={toggleAllDay}
-          className={`w-12 h-6 rounded-full transition-colors relative ${
-            isAllDay ? 'bg-pink-500' : 'bg-neutral-600'
-          }`}
-        >
-          <span
-            className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-              isAllDay ? 'left-7' : 'left-1'
-            }`}
+    <>
+      <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] pl-5 pr-6 py-6 border-20 space-y-3 shadow-none">
+        <div className="flex items-center gap-3">
+          <img src="/src/assets/calendar2.png" alt="Calendar" className="w-7 h-7 opacity-30" />
+          <span className="text-neutral-800 text-2xl w-16 pl-2 pr-55 shrink-0">
+            Date
+          </span>
+          <DatePickerButton
+            value={selectedEvent.date}
+            onChange={(date) => {
+              const newDate = formatDate(date)
+              handleFieldChange(
+                selectedEvent as any,
+                'date',
+                newDate,
+                (id: string, field: string, value: any) => {
+                  wrappedUpdateEventField(id, field, value)
+                  wrappedUpdateEventField(id, 'end_date', value)
+                }
+              )
+            }}
           />
-        </button>
+          <span className="text-neutral-600">-</span>
+          <DatePickerButton
+            value={selectedEvent.end_date || selectedEvent.date}
+            onChange={(date) => {
+              const newDate = formatDate(date)
+              handleFieldChange(
+                selectedEvent as any,
+                'end_date',
+                newDate,
+                wrappedUpdateEventField
+              )
+            }}
+            alignRight
+          />
+        </div>
+
+        <hr className="border-neutral-200 border-t-[3px]" />
+        <div className="flex items-center gap-3">
+          <img src="/src/assets/clock.png" alt="Clock" className="w-7 h-7 opacity-30" />
+          <span className="text-neutral-800 text-2xl w-16 pl-2 pr-61 shrink-0">
+            Time
+          </span>
+          <TimePicker
+            value={selectedEvent.start_time}
+            onChange={(mins) => {
+              console.log('DateTimeEditor: start_time onChange called with:', mins, 'current:', selectedEvent.start_time)
+              handleFieldChange(
+                selectedEvent as any,
+                'start_time',
+                mins,
+                wrappedUpdateEventField
+              )
+            }}
+            disabled={isAllDay}
+          />
+          <span className="text-neutral-600">-</span>
+          <TimePicker
+            value={selectedEvent.end_time}
+            onChange={(mins) => {
+              console.log('DateTimeEditor: end_time onChange called with:', mins, 'current:', selectedEvent.end_time, 'minValue:', selectedEvent.start_time)
+              handleFieldChange(
+                selectedEvent as any,
+                'end_time',
+                mins,
+                wrappedUpdateEventField
+              )
+            }}
+            disabled={isAllDay}
+            minValue={selectedEvent.start_time}
+          />
+        </div>
       </div>
-    </div>
+
+      {showEditDialog && pendingEdit && (
+        <RecurringEditDialog
+          open={showEditDialog}
+          onClose={cancelDialog}
+          onChoice={handleEditChoice}
+          event={pendingEdit.event}
+          field={pendingEdit.field}
+          newValue={pendingEdit.newValue}
+          oldValue={pendingEdit.oldValue}
+        />
+      )}
+
+      {showRepeatDialog && pendingRepeatChange && (
+        <RepeatChangeDialog
+          open={showRepeatDialog}
+          onClose={cancelDialog}
+          onChoice={handleRepeatChoice}
+          event={pendingRepeatChange.event}
+          newRepeat={pendingRepeatChange.newRepeat}
+        />
+      )}
+    </>
   )
 }
 
