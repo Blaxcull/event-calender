@@ -1,4 +1,5 @@
 "use client"
+import React from "react"
 import { LogOut } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import ChevronLeft from "@/assets/chevron-left.svg"
@@ -8,9 +9,10 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/sidebarCalendar"
 import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
-import { useEventsStore } from "@/store/eventsStore"
+import { useEventsStore, type CalendarEvent } from "@/store/eventsStore"
 import { supabase } from "@/lib/supabase"
 import EventTitle from "./components/EventTitle"
+import RecurringActionDialog from "@/components/RecurringActionDialog"
 
 function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date) {
   const year = date.getFullYear()
@@ -55,18 +57,51 @@ export function SideBar() {
   }
 
   const saveSelectedEvent = useEventsStore((state) => state.saveSelectedEvent)
+  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
+  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
+  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
+  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
+  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+  const getEventById = useEventsStore((state) => state.getEventById)
 
-  const handleSave = async () => {
-    console.log('Save button clicked')
-    try {
-      await saveSelectedEvent()
-      // Save button should deselect the event (close editor)
-      setSelectedEvent(null)
-      console.log('Save completed, event deselected')
-    } catch (error) {
-      console.error('Error in handleSave:', error)
+  const handleSave = React.useCallback(async () => {
+    if (!selectedEventId) return
+    
+    const selectedEvent = getEventById(selectedEventId)
+    
+    // Don't show dialog for new events or non-recurring events
+    // Check: isTemp, title is "New Event", or no series dates
+    const isRecurring = selectedEvent && 
+                       !selectedEvent.isTemp &&
+                       selectedEvent.title !== "New Event" &&
+                       selectedEvent.repeat && 
+                       selectedEvent.repeat !== "None" &&
+                       (selectedEvent.series_start_date || selectedEvent.series_end_date)
+
+    if (isRecurring) {
+      showRecurringDialog(
+        selectedEvent as CalendarEvent,
+        "edit",
+        async (choice: string) => {
+          console.log(`Save clicked, choice: ${choice}`)
+          closeRecurringDialog()
+          try {
+            await saveSelectedEvent()
+            setSelectedEvent(null)
+          } catch (error) {
+            console.error('Error in handleSave:', error)
+          }
+        }
+      )
+    } else {
+      try {
+        await saveSelectedEvent()
+        setSelectedEvent(null)
+      } catch (error) {
+        console.error('Error in handleSave:', error)
+      }
     }
-  }
+  }, [selectedEventId, getEventById, showRecurringDialog, closeRecurringDialog, saveSelectedEvent, setSelectedEvent])
 
   return (
       <>
@@ -179,6 +214,19 @@ hover:scale-110 hover:shadow-xl"
           Save
         </Button>
       </div>
+      )}
+
+      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
+        <RecurringActionDialog
+          open={recurringDialogOpen}
+          onClose={closeRecurringDialog}
+          onChoice={(choice) => {
+            const callback = useEventsStore.getState().recurringDialogCallback
+            if (callback) callback(choice)
+          }}
+          actionType={recurringDialogActionType}
+          eventTitle={recurringDialogEvent?.title || ""}
+        />
       )}
 
     </Card>

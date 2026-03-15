@@ -26,12 +26,11 @@ export interface EventType {
   color?: string
   isAllDay?: boolean
   location?: string
-  // For recurring events
   series_id?: string
-  is_series_master?: boolean
-  series_position?: number
   isRecurringInstance?: boolean
-  originalEventId?: string
+  seriesMasterId?: string
+  occurrenceDate?: string
+  repeat?: string
 }
 
 /* ================= INTERACTION LOCK ================= */
@@ -126,12 +125,10 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
     color: storeEvent.color,
     isAllDay,
     location: storeEvent.location,
-    // For recurring events
-    series_id: storeEvent.series_id,
-    is_series_master: storeEvent.is_series_master,
-    series_position: storeEvent.series_position,
-    isRecurringInstance: storeEvent.isRecurringInstance,
-    originalEventId: storeEvent.originalEventId,
+    series_id: (storeEvent as any).series_id,
+    isRecurringInstance: (storeEvent as any).isRecurringInstance,
+    seriesMasterId: (storeEvent as any).seriesMasterId,
+    occurrenceDate: (storeEvent as any).occurrenceDate,
   }
 }
 
@@ -462,70 +459,4 @@ export function calculateEventDuration(event: EventType): number {
   }
   
   return endTotal - startTotal
-}
-
-/* ================= RECURRING EVENT HELPERS ================= */
-
-/**
- * Generate a virtual event ID for recurring instances
- * Format: {masterId}-{date} where date is YYYY-MM-DD
- */
-export function generateVirtualEventId(masterId: string, date: string): string {
-  return `${masterId}-${date}`
-}
-
-/**
- * Parse a virtual event ID to extract master ID and date
- * Returns null if not a valid virtual ID format
- */
-export function parseVirtualEventId(virtualId: string): { masterId: string; date: string } | null {
-  const parts = virtualId.split('-')
-  
-  // Need at least 4 parts: masterId (could have hyphens) + YYYY-MM-DD
-  if (parts.length >= 4) {
-    // Last 3 parts should be date (YYYY-MM-DD)
-    const dateParts = parts.slice(-3)
-    const masterIdParts = parts.slice(0, -3)
-    
-    // Validate date format
-    if (dateParts[0].length === 4 && dateParts[1].length === 2 && dateParts[2].length === 2) {
-      const dateStr = dateParts.join('-')
-      const masterId = masterIdParts.join('-')
-      
-      // Additional validation: check if date is valid
-      const dateObj = new Date(dateStr + 'T00:00:00')
-      if (!isNaN(dateObj.getTime())) {
-        return { masterId, date: dateStr }
-      }
-    }
-  }
-  
-  return null
-}
-
-/**
- * Check if an event ID is a virtual recurrence ID
- */
-export function isVirtualEventId(eventId: string): boolean {
-  return parseVirtualEventId(eventId) !== null
-}
-
-/**
- * Create a virtual recurring event instance from a master event
- */
-export function createVirtualRecurrence(masterEvent: Event, recurrenceDate: string): Event {
-  const virtualId = generateVirtualEventId(masterEvent.id, recurrenceDate)
-  
-  return {
-    ...masterEvent,
-    id: virtualId,
-    date: recurrenceDate,
-    end_date: recurrenceDate, // For single-day recurring events
-    isRecurringInstance: true,
-    originalEventId: masterEvent.id,
-    // Virtual events inherit series fields from master
-    series_id: masterEvent.series_id,
-    is_series_master: false,
-    series_position: 0, // Will be calculated when generating series
-  }
 }

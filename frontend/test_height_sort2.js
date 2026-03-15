@@ -30,12 +30,7 @@ function newSortThreeEvents(events) {
   });
 }
 
-console.log('Old sort (by height first):');
-oldSortThreeEvents(events).forEach(e => console.log(`  ${e.id}: slot=${e.slot}, height=${e.height}`));
 
-console.log('\nNew sort (by slot only):');
-newSortThreeEvents(events).forEach(e => console.log(`  ${e.id}: slot=${e.slot}, height=${e.height}`));
 
-console.log('\nAre they different?', 
   JSON.stringify(oldSortThreeEvents(events).map(e => e.id)) !== 
   JSON.stringify(newSortThreeEvents(events).map(e => e.id)));

@@ -2,10 +2,6 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { supabase } from '@/lib/supabase'
 
-type EventFieldValue = string | number | boolean | string[] | undefined
-
-export type { EventFieldValue }
-
 export interface Event {
   id: string
   user_id: string
@@ -20,9 +16,8 @@ export interface Event {
   color?: string
   is_all_day?: boolean
   location?: string
-  repeat?: string // For UI display only (no recurring logic)
-  series_start_date?: string // Start date of recurring series
-  series_end_date?: string // End date of recurring series
+  repeat?: string
+  repeat_end_date?: string // ISO date string for when recurring should stop
   reminder?: string
   goalType?: string
   goal?: string
@@ -32,24 +27,12 @@ export interface Event {
   updated_at?: string
   // For optimistic updates
   isTemp?: boolean
-}
-
-// CalendarEvent is an Event with additional UI fields for recurring instances
-export interface CalendarEvent extends Event {
-  // UI-only fields for recurring events (not stored in DB)
-  isRecurringInstance?: boolean
-  seriesMasterId?: string
-  occurrenceDate?: string
-}
-
-export interface EventException {
-  id: string
-  series_id: string
-  date: string
-  start_time?: number
-  end_time?: number
-  title?: string
-  created_at?: string
+  // For recurring events
+  series_id?: string  // UUID to link recurring events together
+  is_series_master?: boolean  // true for master, false for instances
+  series_position?: number  // 0 for master, 1+ for instances
+  isRecurringInstance?: boolean  // true for virtual recurrences (not in DB)
+  originalEventId?: string  // For virtual recurrences, points to master
 }
 
 export interface NewEvent {
@@ -64,14 +47,17 @@ export interface NewEvent {
   color?: string
   is_all_day?: boolean
   location?: string
-  repeat?: string // For UI display only (no recurring logic)
-  series_start_date?: string // Start date of recurring series
-  series_end_date?: string // End date of recurring series
+  repeat?: string
+  repeat_end_date?: string // ISO date string for when recurring should stop
   reminder?: string
   goalType?: string
   goal?: string
   earlyReminder?: string
   allDay?: string
+  // For recurring events
+  series_id?: string
+  is_series_master?: boolean
+  series_position?: number
   // For optimistic updates
   id?: string
 }
@@ -82,22 +68,12 @@ interface EventsCache {
   [date: string]: Event[]
 }
 
-interface ComputedEventsCache {
-  [date: string]: CalendarEvent[]
-}
-
 interface EventsState {
   // Cache storage
   eventsCache: EventsCache
 
   // Cache for computed events (real + virtual)
-  computedEventsCache: ComputedEventsCache
-
-  // Cache for recurring events (keyed by month YYYY-MM)
-  recurringEventsCache: Record<string, CalendarEvent[]>
-
-  // Cache for event exceptions (keyed by series_id)
-  eventExceptionsCache: Record<string, EventException[]>
+  computedEventsCache: EventsCache
 
   // Current cached window (ISO date strings)
   cacheStartDate: string | null
@@ -122,11 +98,8 @@ interface EventsState {
   // Trigger to force EventEditor to save local state
   saveTrigger: number
 
-  // Recurring action dialog state
-  recurringDialogOpen: boolean
-  recurringDialogEvent: CalendarEvent | null
-  recurringDialogActionType: "edit" | "delete" | null
-  recurringDialogCallback: ((choice: string) => void) | null
+  // Recurring event exceptions (dates to skip for specific series)
+  recurringExceptions: Record<string, Set<string>>
 
   // Actions
   fetchEventsWindow: (centerDate: Date) => void
@@ -134,16 +107,17 @@ interface EventsState {
   addEventOptimistic: (event: NewEvent) => Promise<Event>
   updateEvent: (id: string, updates: Partial<NewEvent>) => Promise<Event | null>
   deleteEvent: (id: string) => Promise<boolean>
-  getEventsForDate: (date: Date) => CalendarEvent[]
-  getEventById: (id: string) => CalendarEvent | null
+  getEventsForDate: (date: Date) => Event[]
+  getEventById: (id: string) => Event | null
   clearCache: () => void
   isEventSyncing: (eventId: string) => boolean
   isAnyEventSyncing: () => boolean
   setSelectedEvent: (id: string | null) => void
-  updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => void
+  updateEventField: (id: string, field: keyof NewEvent, value: any) => void
   saveSelectedEvent: () => Promise<void>
-  showRecurringDialog: (event: CalendarEvent, actionType: "edit" | "delete", callback: (choice: string) => void) => void
-  closeRecurringDialog: () => void
+  addRecurringException: (seriesId: string, date: string) => void
+  removeRecurringException: (seriesId: string, date: string) => void
+  hasRecurringException: (seriesId: string, date: string) => boolean
 }
 
 const CACHE_WINDOW_DAYS = 17 // Days before and after
@@ -173,47 +147,62 @@ const addDaysToDateStr = (dateStr: string, days: number): string => {
   return `${year}-${month}-${day}`
 }
 
-// Generate recurring dates for a month based on series_start_date and series_end_date
-const generateRecurringDatesForMonth = (
-  seriesStartDate: string,
-  seriesEndDate: string,
-  monthStart: string, // YYYY-MM-01
-  monthEnd: string    // YYYY-MM-31 (last day of month)
-): string[] => {
+
+
+// Helper to generate recurring dates based on repeat type
+const generateRecurringDates = (startDate: string, repeat: string, endDate?: string): string[] => {
   const dates: string[] = []
+  const maxOccurrences = 365 // Generate up to 1 year of events
   
-  // Determine effective start and end dates for this month
-  const effectiveStart = seriesStartDate > monthStart ? seriesStartDate : seriesStartDate
-  const effectiveEnd = seriesEndDate < monthEnd ? seriesEndDate : seriesEndDate
-  
-  if (effectiveStart > effectiveEnd) {
-    return dates // Series doesn't cover this month
+  if (repeat === 'None' || !repeat) {
+    return [startDate]
   }
+
+  let currentDate = startDate
   
-  // Generate all dates from effectiveStart to effectiveEnd (Daily)
-  let currentDate = effectiveStart
-  while (currentDate <= effectiveEnd) {
-    dates.push(currentDate)
-    currentDate = addDaysToDateStr(currentDate, 1)
+  for (let i = 0; i < maxOccurrences; i++) {
+    if (i > 0) { // Skip the first one since it's the original event
+      dates.push(currentDate)
+    }
+    
+    // Check if we've reached the end date
+    if (endDate && currentDate >= endDate) {
+      break
+    }
+    
+    switch (repeat) {
+      case 'Daily':
+        currentDate = addDaysToDateStr(currentDate, 1)
+        break
+      case 'Weekly':
+        currentDate = addDaysToDateStr(currentDate, 7)
+        break
+      case 'Monthly':
+        // Add 1 month
+        const date = new Date(currentDate + 'T00:00:00')
+        date.setMonth(date.getMonth() + 1)
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        currentDate = `${year}-${month}-${day}`
+        break
+      case 'Yearly':
+        // Add 1 year
+        const d = new Date(currentDate + 'T00:00:00')
+        d.setFullYear(d.getFullYear() + 1)
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const da = String(d.getDate()).padStart(2, '0')
+        currentDate = `${y}-${m}-${da}`
+        break
+      default:
+        return [startDate]
+    }
   }
   
   return dates
 }
 
-// Get month range (first and last day) from a date
-const getMonthRange = (date: Date): { monthStart: string; monthEnd: string } => {
-  const year = date.getFullYear()
-  const month = date.getMonth()
-  const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`
-  const lastDay = new Date(year, month + 1, 0).getDate()
-  const monthEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
-  return { monthStart, monthEnd }
-}
-
-// Get month key from date
-const getMonthKey = (date: Date): string => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
 
 
 export const useEventsStore = create<EventsState>()(
@@ -221,8 +210,6 @@ export const useEventsStore = create<EventsState>()(
     (set, get) => ({
       eventsCache: {},
       computedEventsCache: {},
-      recurringEventsCache: {},
-      eventExceptionsCache: {},
       cacheStartDate: null,
       cacheEndDate: null,
       cachedUserId: null,
@@ -232,10 +219,7 @@ export const useEventsStore = create<EventsState>()(
       pendingUpdates: new Map<string, Partial<NewEvent>[]>(),
       selectedEventId: null,
       saveTrigger: 0,
-      recurringDialogOpen: false,
-      recurringDialogEvent: null,
-      recurringDialogActionType: null,
-      recurringDialogCallback: null,
+      recurringExceptions: {}, // series_id -> Set of dates to exclude
 
       fetchEventsWindow: async (centerDate: Date) => {
         const startDate = addDays(centerDate, -CACHE_WINDOW_DAYS)
@@ -376,10 +360,7 @@ export const useEventsStore = create<EventsState>()(
         set({
           eventsCache: {
             ...eventsCache,
-            [dateKey]: [...(eventsCache[dateKey] || []), localEvent]
-
-  .sort((a, b) => a.start_time - b.start_time),
-
+            [dateKey]: [...(eventsCache[dateKey] || []), localEvent],
           },
           computedEventsCache: newComputedCache
         })
@@ -455,15 +436,6 @@ export const useEventsStore = create<EventsState>()(
          // Create temp event with placeholder user ID
          const now = new Date().toISOString()
          const endDate = event.end_date || event.date
-         
-         // Calculate series end date if repeat is set (10 years from start)
-         let seriesEndDate: string | undefined
-         if (event.repeat && event.repeat !== 'None' && event.date) {
-           const startDate = new Date(event.date + 'T00:00:00')
-           startDate.setFullYear(startDate.getFullYear() + 10)
-           seriesEndDate = startDate.toISOString().split('T')[0]
-         }
-         
          const tempEvent: Event = {
            id: tempId,
            user_id: 'temp-user', // Will be replaced with real user ID from DB
@@ -475,15 +447,17 @@ export const useEventsStore = create<EventsState>()(
            description: event.description,
            notes: event.notes,
            urls: event.urls,
-            color: event.color,
-            is_all_day: event.is_all_day,
-            location: event.location,
-            repeat: event.repeat,
-            series_start_date: event.repeat && event.repeat !== 'None' ? event.date : undefined,
-            series_end_date: seriesEndDate,
-            created_at: now,
-            updated_at: now,
-            isTemp: true,
+           color: event.color,
+           is_all_day: event.is_all_day,
+           location: event.location,
+           created_at: now,
+           updated_at: now,
+           isTemp: true,
+           // Set series fields for recurring events
+           series_id: event.repeat && event.repeat !== 'None' ? `series-${tempId}` : undefined,
+           is_series_master: event.repeat && event.repeat !== 'None' ? true : undefined,
+           series_position: event.repeat && event.repeat !== 'None' ? 0 : undefined,
+           repeat: event.repeat,
          }
 
         // Add to cache immediately
@@ -501,9 +475,7 @@ export const useEventsStore = create<EventsState>()(
         set({
           eventsCache: {
             ...eventsCache,
-            [dateKey]: [...(eventsCache[dateKey] || []), tempEvent]
-  .sort((a, b) => a.start_time - b.start_time),
-
+            [dateKey]: [...(eventsCache[dateKey] || []), tempEvent],
           },
           computedEventsCache: newComputedCache,
           pendingSyncs: currentPendingSyncs,
@@ -549,8 +521,16 @@ export const useEventsStore = create<EventsState>()(
             if (event.is_all_day !== undefined) eventForDb.is_all_day = event.is_all_day
             if (event.location !== undefined) eventForDb.location = event.location
             if (event.repeat !== undefined) eventForDb.repeat = event.repeat
-            if (event.series_start_date !== undefined) eventForDb.series_start_date = event.series_start_date
-            if (event.series_end_date !== undefined) eventForDb.series_end_date = event.series_end_date
+            
+            // Add series fields for recurring events
+            if (event.repeat && event.repeat !== 'None') {
+              // Generate a proper series ID (UUID-like)
+              const seriesId = `series-${Date.now()}-${Math.random().toString(36).slice(2)}`
+              eventForDb.series_id = seriesId
+              eventForDb.is_series_master = true
+              eventForDb.series_position = 0
+            }
+
 
             const { data, error } = await supabase
               .from('events')
@@ -669,48 +649,35 @@ export const useEventsStore = create<EventsState>()(
            eventsCache[date].some(e => e.id === id)
          )
 
-          if (oldDate) {
-            const newCache = { ...eventsCache }
-            const newComputedCache = { ...computedEventsCache }
-            
-            // Find and update the event
-            const eventIndex = newCache[oldDate].findIndex(e => e.id === id)
-            if (eventIndex !== -1) {
-              const updatedEvent = {
-                ...newCache[oldDate][eventIndex],
-                ...updates,
-                updated_at: new Date().toISOString(),
-              }
-              
-              // Remove from old date - create new array
-              const oldEvents = [...newCache[oldDate]]
-              oldEvents.splice(eventIndex, 1)
-              
-              // Add to new date (if date changed) or same date
-              const newDate = updates.date || oldDate
-              if (!newCache[newDate]) {
-                newCache[newDate] = []
-              }
-              
-              // Create new array for new date
-              const newDateEvents = newDate === oldDate ? oldEvents : [...newCache[newDate]]
-              newDateEvents.push(updatedEvent)
-              newDateEvents.sort((a, b) => a.start_time - b.start_time)
-              newCache[newDate] = newDateEvents
-              
-              // If dates are different, update old date too
-              if (newDate !== oldDate) {
-                newCache[oldDate] = oldEvents
-                if (newCache[oldDate].length === 0) {
-                  delete newCache[oldDate]
-                }
-              }
+         if (oldDate) {
+           const newCache = { ...eventsCache }
+           const newComputedCache = { ...computedEventsCache }
+           
+           // Find and update the event
+           const eventIndex = newCache[oldDate].findIndex(e => e.id === id)
+           if (eventIndex !== -1) {
+             const updatedEvent = {
+               ...newCache[oldDate][eventIndex],
+               ...updates,
+               updated_at: new Date().toISOString(),
+             }
+             
+             // Remove from old date
+             newCache[oldDate].splice(eventIndex, 1)
+             
+             // Add to new date (if date changed) or same date
+             const newDate = updates.date || oldDate
+             if (!newCache[newDate]) {
+               newCache[newDate] = []
+             }
+             newCache[newDate].push(updatedEvent)
+             newCache[newDate].sort((a, b) => a.start_time - b.start_time)
 
-              // Invalidate computed cache for both old and new dates
-              delete newComputedCache[oldDate]
-              delete newComputedCache[newDate]
+             // Invalidate computed cache for both old and new dates
+             delete newComputedCache[oldDate]
+             delete newComputedCache[newDate]
 
-              set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
+             set({ eventsCache: newCache, computedEventsCache: newComputedCache })
              
              // Check if this is a temp event still syncing
              if (pendingSyncs.has(id)) {
@@ -730,8 +697,7 @@ export const useEventsStore = create<EventsState>()(
                      Object.entries(updates).forEach(([key, value]) => {
                        if (value !== undefined) {
                          if (key === 'title' || key === 'date' || key === 'start_time' || key === 'end_time' || key === 'repeat' || key === 'repeat_end_date' || 
-                             key === 'series_id' || key === 'is_series_master' || key === 'series_position' ||
-                             key === 'series_start_date' || key === 'series_end_date') {
+                             key === 'series_id' || key === 'is_series_master' || key === 'series_position') {
                            filteredUpdates[key] = value
                          }
                         // Only include end_date and is_all_day if they're explicitly set (not defaults)
@@ -786,7 +752,7 @@ export const useEventsStore = create<EventsState>()(
            delete newComputedCache[date]
          })
 
-         set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
+         set({ eventsCache: newCache, computedEventsCache: newComputedCache })
         
         // Start background database delete (non-blocking)
         setTimeout(async () => {
@@ -811,125 +777,92 @@ export const useEventsStore = create<EventsState>()(
         return true
       },
 
-      getEventsForDate: (date: Date): CalendarEvent[] => {
+      getEventsForDate: (date: Date): Event[] => {
         const dateKey = formatDate(date)
-        const { eventsCache, computedEventsCache, recurringEventsCache, eventExceptionsCache } = get()
+        const { eventsCache, computedEventsCache } = get()
         
         // Check if we have cached computed events for this date
         if (computedEventsCache[dateKey]) {
-          return computedEventsCache[dateKey] as CalendarEvent[]
+          return computedEventsCache[dateKey]
         }
         
-        // Get real events for this date
-        const realEvents: CalendarEvent[] = (eventsCache[dateKey] || []).map(e => ({
-          ...e,
-          isRecurringInstance: false
-        }))
         
-        // Get recurring events for this date
-        const monthKey = getMonthKey(date)
-        let recurringEvents: CalendarEvent[] = []
+        // Get real events for this date, filtering out those with exceptions
+        const rawRealEvents = eventsCache[dateKey] || []
+        const realEvents = rawRealEvents.filter(event => {
+          // Check if this is a recurring event with an exception for this date
+          if (event.repeat && event.repeat !== 'None') {
+            const seriesId = event.series_id || event.id
+            if (get().hasRecurringException(seriesId, dateKey)) {
+              return false // Skip this event, it has an exception
+            }
+          }
+          return true
+        })
         
-        // Check if recurring events are cached for this month
-        if (recurringEventsCache[monthKey]) {
-          recurringEvents = recurringEventsCache[monthKey].filter(e => e.date === dateKey)
-        } else {
-          // Generate recurring events for the entire month
-          const { monthStart, monthEnd } = getMonthRange(date)
-          
-          // Find all master recurring events in cache
-          const allMasterEvents: Event[] = []
-          Object.values(eventsCache).forEach(dayEvents => {
-            dayEvents.forEach(event => {
-              if (event.repeat && event.repeat !== 'None' && event.series_start_date && event.series_end_date) {
-                // Check if this master event's series covers the current month
-                if (event.series_end_date >= monthStart && event.series_start_date <= monthEnd) {
-                  // Avoid duplicates
-                  if (!allMasterEvents.find(e => e.id === event.id)) {
-                    allMasterEvents.push(event)
-                  }
-                }
-              }
-            })
-          })
-          
-          // Generate recurring dates for each master event
-          const generatedRecurring: CalendarEvent[] = []
-          allMasterEvents.forEach(masterEvent => {
-            const recurringDates = generateRecurringDatesForMonth(
-              masterEvent.series_start_date!,
-              masterEvent.series_end_date!,
-              monthStart,
-              monthEnd
-            )
-            
-            // Get exceptions for this series
-            const seriesExceptions = eventExceptionsCache[masterEvent.id] || []
-            
-            recurringDates.forEach(recDate => {
-              // Skip if this is the master event's original date (already in database)
-              if (recDate === masterEvent.date) {
-                return
-              }
-              
-              // Check if there's an exception for this date
-              const exception = seriesExceptions.find(ex => ex.date === recDate)
-              
-              if (exception) {
-                // Use exception data
-                const recurringEvent: CalendarEvent = {
-                  ...masterEvent,
-                  id: `${masterEvent.id}-${recDate}`,
-                  date: recDate,
-                  end_date: recDate,
-                  isRecurringInstance: true,
-                  seriesMasterId: masterEvent.id,
-                  occurrenceDate: recDate,
-                  // Override with exception data
-                  start_time: exception.start_time ?? masterEvent.start_time,
-                  end_time: exception.end_time ?? masterEvent.end_time,
-                  title: exception.title ?? masterEvent.title,
-                }
-                generatedRecurring.push(recurringEvent)
-              } else {
-                // Use generated data
-                const recurringEvent: CalendarEvent = {
-                  ...masterEvent,
-                  id: `${masterEvent.id}-${recDate}`,
-                  date: recDate,
-                  end_date: recDate,
-                  isRecurringInstance: true,
-                  seriesMasterId: masterEvent.id,
-                  occurrenceDate: recDate,
-                }
-                generatedRecurring.push(recurringEvent)
-              }
-            })
-          })
-          
-          // Cache the recurring events for this month
-          recurringEvents = generatedRecurring.filter(e => e.date === dateKey)
-          
+        // Also generate virtual recurring events from master events
+        const virtualEvents: Event[] = []
+        const today = new Date()
+        const cacheWindowDays = 30 // Generate virtual events for 30-day window
+        const windowStart = addDays(today, -cacheWindowDays)
+        const windowEnd = addDays(today, cacheWindowDays)
+        
+        // Check if target date is within cache window
+        if (date < windowStart || date > windowEnd) {
+          // Cache the result
           set(state => ({
-            recurringEventsCache: {
-              ...state.recurringEventsCache,
-              [monthKey]: generatedRecurring
+            computedEventsCache: {
+              ...state.computedEventsCache,
+              [dateKey]: realEvents
             }
           }))
+          return realEvents // Outside cache window, no virtual events
         }
         
-        // Combine real and recurring events
-        const allEvents = [...realEvents, ...recurringEvents]
+        // Look through all events in cache to find master recurring events
+        Object.values(eventsCache).forEach(events => {
+          events.forEach(event => {
+            // Check if this is a master recurring event
+            if (event.repeat && event.repeat !== 'None' && event.is_series_master !== false) {
+              // Generate recurring dates for this event
+              const recurringDates = generateRecurringDates(event.date, event.repeat, event.repeat_end_date)
+              
+              // Check if target date is a recurrence of this event
+              if (recurringDates.includes(dateKey)) {
+                // Check if this date is excluded for this series
+                const seriesId = event.series_id || event.id
+                const hasException = get().hasRecurringException(seriesId, dateKey)
+                
+                if (!hasException) {
+                  // Create virtual recurrence
+                  const virtualEvent: Event = {
+                    ...event,
+                    id: `${event.id}-${dateKey}`, // masterId-date format
+                    date: dateKey,
+                    end_date: dateKey, // Single-day recurring events
+                    isRecurringInstance: true,
+                    originalEventId: event.id,
+                    // Inherit series fields
+                    series_id: event.series_id,
+                    is_series_master: false,
+                    series_position: 0, // Will calculate if needed
+                  }
+                  virtualEvents.push(virtualEvent)
+                }
+              }
+            }
+          })
+        })
+        
+        // Combine real and virtual events, remove duplicates
+        const allEvents = [...realEvents, ...virtualEvents]
         
         // Remove duplicates (in case a real event already exists for this date)
         const uniqueEvents = allEvents.filter((event, index, self) =>
           index === self.findIndex(e => e.id === event.id)
         )
         
-        // Sort by start time
-        uniqueEvents.sort((a, b) => a.start_time - b.start_time)
-        
-        // Cache the result
+        // Cache the computed result
         set(state => ({
           computedEventsCache: {
             ...state.computedEventsCache,
@@ -940,14 +873,14 @@ export const useEventsStore = create<EventsState>()(
         return uniqueEvents
       },
 
-      getEventById: (id: string): CalendarEvent | null => {
+      getEventById: (id: string): Event | null => {
         const { eventsCache, computedEventsCache } = get()
         
         // First search through all dates in eventsCache (real events)
         for (const dateKey in eventsCache) {
           const event = eventsCache[dateKey].find(e => e.id === id)
           if (event) {
-            return event as CalendarEvent
+            return event
           }
         }
         
@@ -974,9 +907,7 @@ export const useEventsStore = create<EventsState>()(
         set({ selectedEventId: id })
       },
 
-      updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => {
-        if (value === undefined) return
-        
+      updateEventField: (id: string, field: keyof NewEvent, value: any) => {
         const { eventsCache, computedEventsCache, pendingSyncs, pendingUpdates } = get()
         const dateKey = Object.keys(eventsCache).find(date =>
           eventsCache[date].some(e => e.id === id)
@@ -992,6 +923,11 @@ export const useEventsStore = create<EventsState>()(
         }
 
         const currentEvent = eventsCache[dateKey][eventIndex]
+          id: currentEvent.id, 
+          start_time: currentEvent.start_time, 
+          end_time: currentEvent.end_time,
+          title: currentEvent.title 
+        })
         
         // Check if value is actually changing
         const currentValue = currentEvent[field as keyof Event]
@@ -1002,14 +938,14 @@ export const useEventsStore = create<EventsState>()(
         const duration = currentEvent.end_time - currentEvent.start_time
 
         let endTimeValue = currentEvent.end_time
-        if (field === 'start_time' && typeof value === 'number') {
+        if (field === 'start_time') {
           endTimeValue = value + duration
         }
 
         const updatedEvent = {
           ...currentEvent,
           [field]: value,
-          ...(field === 'start_time' && typeof value === 'number' && { end_time: endTimeValue }),
+          ...(field === 'start_time' && { end_time: endTimeValue }),
           updated_at: new Date().toISOString(),
         }
 
@@ -1017,7 +953,7 @@ export const useEventsStore = create<EventsState>()(
         const newComputedCache = { ...computedEventsCache }
 
         // Handle date change - move event to new date key
-        if (field === 'date' && typeof value === 'string' && value !== dateKey) {
+        if (field === 'date' && value !== dateKey) {
           // Remove from old date
           newCache[dateKey] = newCache[dateKey].filter(e => e.id !== id)
           if (newCache[dateKey].length === 0) {
@@ -1040,7 +976,7 @@ export const useEventsStore = create<EventsState>()(
           delete newComputedCache[dateKey]
         }
 
-        set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
+        set({ eventsCache: newCache, computedEventsCache: newComputedCache })
 
         // Check if this is a temp event still syncing
         if (pendingSyncs.has(id)) {
@@ -1114,6 +1050,11 @@ export const useEventsStore = create<EventsState>()(
             color: event.color,
             is_all_day: event.is_all_day,
             location: event.location,
+            repeat: event.repeat,
+            repeat_end_date: event.repeat_end_date,
+            series_id: event.series_id,
+            is_series_master: event.is_series_master,
+            series_position: event.series_position,
           }
 
           // Update frontend cache FIRST (immediate UI update)
@@ -1145,33 +1086,53 @@ export const useEventsStore = create<EventsState>()(
         }
       },
 
-      showRecurringDialog: (event: CalendarEvent, actionType: "edit" | "delete", callback: (choice: string) => void) => {
-        set({
-          recurringDialogOpen: true,
-          recurringDialogEvent: event,
-          recurringDialogActionType: actionType,
-          recurringDialogCallback: callback,
-        })
+        addRecurringException: (seriesId: string, date: string) => {
+         const { recurringExceptions, computedEventsCache } = get()
+         const newExceptions = { ...recurringExceptions }
+         const newComputedCache = { ...computedEventsCache }
+         
+         if (!newExceptions[seriesId]) {
+           newExceptions[seriesId] = new Set<string>()
+         }
+         newExceptions[seriesId].add(date)
+         
+         // Invalidate computed cache for this date
+         delete newComputedCache[date]
+         
+         set({ recurringExceptions: newExceptions, computedEventsCache: newComputedCache })
+       },
+       
+       removeRecurringException: (seriesId: string, date: string) => {
+         const { recurringExceptions, computedEventsCache } = get()
+         const newExceptions = { ...recurringExceptions }
+         const newComputedCache = { ...computedEventsCache }
+         
+         if (newExceptions[seriesId]) {
+           newExceptions[seriesId].delete(date)
+           if (newExceptions[seriesId].size === 0) {
+             delete newExceptions[seriesId]
+           }
+         }
+         
+         // Invalidate computed cache for this date
+         delete newComputedCache[date]
+         
+         set({ recurringExceptions: newExceptions, computedEventsCache: newComputedCache })
       },
-
-      closeRecurringDialog: () => {
-        set({
-          recurringDialogOpen: false,
-          recurringDialogEvent: null,
-          recurringDialogActionType: null,
-          recurringDialogCallback: null,
-        })
+      
+      hasRecurringException: (seriesId: string, date: string) => {
+        const { recurringExceptions } = get()
+        return !!(recurringExceptions[seriesId] && recurringExceptions[seriesId].has(date))
       },
-
+      
       clearCache: () => {
         set({
           eventsCache: {},
           computedEventsCache: {},
-          recurringEventsCache: {},
-          eventExceptionsCache: {},
           cacheStartDate: null,
           cacheEndDate: null,
           cachedUserId: null,
+          recurringExceptions: {},
         })
       },
     }),
@@ -1182,7 +1143,24 @@ export const useEventsStore = create<EventsState>()(
         cacheStartDate: state.cacheStartDate,
         cacheEndDate: state.cacheEndDate,
         cachedUserId: state.cachedUserId,
+        recurringExceptions: Object.fromEntries(
+          Object.entries(state.recurringExceptions).map(([key, set]) => [key, Array.from(set)])
+        ),
       }),
+       onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Convert arrays back to Sets after rehydration
+          const convertedExceptions: Record<string, Set<string>> = {}
+          Object.entries(state.recurringExceptions || {}).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+              convertedExceptions[key] = new Set(value)
+            } else if (value instanceof Set) {
+              convertedExceptions[key] = value
+            }
+          })
+          state.recurringExceptions = convertedExceptions
+        }
+      },
     }
   )
 )

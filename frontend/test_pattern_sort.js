@@ -33,37 +33,28 @@ function sortThreeEventsByPattern(events, pattern) {
 }
 
 // Test 1: ALL_SAME_START
-console.log("Test 1: ALL_SAME_START");
 const events1 = [
   { id: 'A', slot: 0, height: 100 },
   { id: 'B', slot: 5, height: 200 }, // within STEP_HEIGHT of 0
   { id: 'C', slot: 10, height: 50 }  // within STEP_HEIGHT of 5
 ];
 const pattern1 = analyzeThreeEventPattern(...events1);
-console.log("Pattern:", pattern1);
-console.log("Sorted:", sortThreeEventsByPattern(events1, pattern1).map(e => e.id));
 // Should be B, A, C (by height: 200, 100, 50)
 
 // Test 2: ALL_DIFFERENT_START  
-console.log("\nTest 2: ALL_DIFFERENT_START");
 const events2 = [
   { id: 'A', slot: 0, height: 100 },
   { id: 'B', slot: 50, height: 200 }, // > STEP_HEIGHT
   { id: 'C', slot: 100, height: 50 }
 ];
 const pattern2 = analyzeThreeEventPattern(...events2);
-console.log("Pattern:", pattern2);
-console.log("Sorted:", sortThreeEventsByPattern(events2, pattern2).map(e => e.id));
 // Should be A, B, C (by slot: 0, 50, 100)
 
 // Test 3: PAIR_SAME_START (A and B same, C different)
-console.log("\nTest 3: PAIR_SAME_START");
 const events3 = [
   { id: 'A', slot: 0, height: 100 },
   { id: 'B', slot: 5, height: 200 }, // same as A (within STEP_HEIGHT)
   { id: 'C', slot: 50, height: 50 }  // different
 ];
 const pattern3 = analyzeThreeEventPattern(...events3);
-console.log("Pattern:", pattern3);
-console.log("Sorted:", sortThreeEventsByPattern(events3, pattern3).map(e => e.id));
 // Should be A, B, C (by slot: 0, 5, 50) - NOT by height!

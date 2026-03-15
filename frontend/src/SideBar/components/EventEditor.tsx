@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { useEventsStore } from '@/store/eventsStore'
+import { useEventsStore, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
 import { Input } from '@/components/ui/input'
-import { useRecurringEvents } from '@/hooks/useRecurringEvents'
-import RecurringEditDialog from '@/components/RecurringEditDialog'
+import RecurringActionDialog from '@/components/RecurringActionDialog'
 
 interface URLChip {
   url: string
@@ -11,17 +10,12 @@ interface URLChip {
 const EventEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const updateEventField = useEventsStore((state) => state.updateEventField)
-  const addEventOptimistic = useEventsStore((state) => state.addEventOptimistic)
-  // const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent) // Not used - Enter key doesn't deselect
   const saveTrigger = useEventsStore((state) => state.saveTrigger)
-
-  const {
-    showEditDialog,
-    pendingEdit,
-    getMasterEventId,
-    handleFieldChange,
-    cancelDialog
-  } = useRecurringEvents()
+  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
+  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
+  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
+  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
+  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
@@ -32,11 +26,28 @@ const EventEditor: React.FC = () => {
   const editorRef = useRef<HTMLDivElement>(null)
   const urlSectionRef = useRef<HTMLDivElement>(null)
 
-  // Get the selected event
+  // Subscribe to caches to trigger re-renders when events change
+  const eventsCache = useEventsStore((state) => state.eventsCache)
+  const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
+
+  // Get the selected event - depends on caches to update when events change
   const selectedEvent = useEventsStore((state) => {
     if (!selectedEventId) return null
+    // Access caches to ensure this selector re-runs when they change
+    void eventsCache
+    void computedEventsCache
     return state.getEventById(selectedEventId)
   })
+
+  // Check if this is a recurring event (virtual instance OR master with repeat AND series dates)
+  // Don't show dialog for new/temp events
+  const isRecurring = selectedEvent && 
+                      !selectedEvent.isTemp &&
+                      selectedEvent.title !== "New Event" &&
+                      (selectedEvent.isRecurringInstance || 
+                       (selectedEvent.repeat && 
+                        selectedEvent.repeat !== "None" &&
+                        (selectedEvent.series_start_date || selectedEvent.series_end_date)))
 
   // Load event data when selected event changes
   useEffect(() => {
@@ -48,73 +59,30 @@ const EventEditor: React.FC = () => {
     }
   }, [selectedEvent?.id])
 
-  // Wrap updateEventField to match the expected signature
-  const wrappedUpdateEventField = useCallback((id: string, field: string, value: any) => {
-    updateEventField(id, field as any, value)
-  }, [updateEventField])
+  // Handle property change with recurring dialog
+  const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
+    if (!selectedEvent || !selectedEventId) return
 
-  // Handle edit choice from dialog
-  const handleEditChoice = (choice: 'only-this' | 'all-events' | 'this-and-following') => {
-    if (!pendingEdit || !selectedEvent) return
-
-    const { event, field, newValue } = pendingEdit
-    const isVirtual = event.isRecurringInstance
-
-    switch (choice) {
-      case 'only-this':
-        if (isVirtual) {
-          // For virtual events, create a standalone copy
-          const standaloneEvent = {
-            ...event,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          }
-          addEventOptimistic(standaloneEvent as any)
-          updateEventField(standaloneEvent.id, field as any, newValue)
-        } else {
-          // For master events, create a break in the series
-          const breakEvent = {
-            ...event,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          }
-          addEventOptimistic(breakEvent as any)
-          updateEventField(breakEvent.id, field as any, newValue)
+    if (isRecurring) {
+      showRecurringDialog(
+        selectedEvent as CalendarEvent,
+        "edit",
+        (choice: string) => {
+          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
+          closeRecurringDialog()
         }
-        break
-
-      case 'all-events':
-        // Update the master event
-        const masterId = getMasterEventId(event)
-        updateEventField(masterId, field as any, newValue)
-        break
-
-      case 'this-and-following':
-        // Split the series at this point
-        const newMasterId = crypto.randomUUID()
-        const splitEvent = {
-          ...event,
-          id: newMasterId,
-          series_id: newMasterId,
-          is_series_master: true,
-          series_position: 0,
-          isRecurringInstance: false
-        }
-        addEventOptimistic(splitEvent as any)
-        updateEventField(newMasterId, field as any, newValue)
-        break
+      )
+    } else {
+      updateEventField(selectedEventId, field, value)
+      if (extraFields) {
+        Object.entries(extraFields).forEach(([key, val]) => {
+          if (val !== undefined) {
+            updateEventField(selectedEventId, key as keyof NewEvent, val)
+          }
+        })
+      }
     }
-
-    cancelDialog()
-  }
+  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
 
   // Save local state to cache when saveTrigger changes
   const titleRef = useRef(title)
@@ -135,11 +103,9 @@ const EventEditor: React.FC = () => {
   }, [urlChips])
   
   useEffect(() => {
-    console.log('EventEditor: saveTrigger useEffect, saveTrigger:', saveTrigger, 'selectedEventId:', selectedEventId)
     if (selectedEventId && saveTrigger > 0) {
       // For recurring events, we need to handle through the dialog
       // But for saveTrigger, we'll update directly since user already made choice
-      console.log('EventEditor: Saving to cache via updateEventField')
       updateEventField(selectedEventId, 'title', titleRef.current || 'New Event')
       updateEventField(selectedEventId, 'notes', notesRef.current)
       updateEventField(selectedEventId, 'urls', urlChipsRef.current.map(c => c.url))
@@ -177,26 +143,10 @@ const EventEditor: React.FC = () => {
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && selectedEventId && selectedEvent) {
       e.preventDefault()
-      handleFieldChange(
-        selectedEvent as any,
-        'title',
-        title || 'New Event',
-        wrappedUpdateEventField
-      )
-      handleFieldChange(
-        selectedEvent as any,
-        'notes',
+      handlePropertyChange('title', title || 'New Event', {
         notes,
-        wrappedUpdateEventField
-      )
-      handleFieldChange(
-        selectedEvent as any,
-        'urls',
-        urlChips.map(c => c.url),
-        wrappedUpdateEventField
-      )
-      // Don't deselect - keep event selected for further editing
-      // setSelectedEvent(null)
+        urls: urlChips.map(c => c.url)
+      })
     }
   }
 
@@ -207,26 +157,10 @@ const EventEditor: React.FC = () => {
   const handleNotesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && selectedEventId && selectedEvent) {
       e.preventDefault()
-      handleFieldChange(
-        selectedEvent as any,
-        'title',
-        title || 'New Event',
-        wrappedUpdateEventField
-      )
-      handleFieldChange(
-        selectedEvent as any,
-        'notes',
+      handlePropertyChange('title', title || 'New Event', {
         notes,
-        wrappedUpdateEventField
-      )
-      handleFieldChange(
-        selectedEvent as any,
-        'urls',
-        urlChips.map(c => c.url),
-        wrappedUpdateEventField
-      )
-      // Don't deselect - keep event selected for further editing
-      // setSelectedEvent(null)
+        urls: urlChips.map(c => c.url)
+      })
     }
   }
 
@@ -256,24 +190,10 @@ const EventEditor: React.FC = () => {
         addUrlChip(urlInput.trim())
         setUrlInput('')
       }
-      handleFieldChange(
-        selectedEvent as any,
-        'title',
-        title || 'New Event',
-        wrappedUpdateEventField
-      )
-      handleFieldChange(
-        selectedEvent as any,
-        'notes',
+      handlePropertyChange('title', title || 'New Event', {
         notes,
-        wrappedUpdateEventField
-      )
-      handleFieldChange(
-        selectedEvent as any,
-        'urls',
-        urlChips.map(c => c.url),
-        wrappedUpdateEventField
-      )
+        urls: urlChips.map(c => c.url)
+      })
     }
   }
 
@@ -285,12 +205,7 @@ const EventEditor: React.FC = () => {
     const newChips = [...urlChips, newChip]
     setUrlChips(newChips)
     if (selectedEventId && selectedEvent) {
-      handleFieldChange(
-        selectedEvent as any,
-        'urls',
-        newChips.map(c => c.url),
-        wrappedUpdateEventField
-      )
+      handlePropertyChange('urls', newChips.map(c => c.url))
     }
   }
 
@@ -298,12 +213,7 @@ const EventEditor: React.FC = () => {
     const newChips = urlChips.filter(chip => chip.id !== chipId)
     setUrlChips(newChips)
     if (selectedEventId && selectedEvent) {
-      handleFieldChange(
-        selectedEvent as any,
-        'urls',
-        newChips.map(c => c.url),
-        wrappedUpdateEventField
-      )
+      handlePropertyChange('urls', newChips.map(c => c.url))
     }
   }
 
@@ -395,25 +305,26 @@ shadow-lg border border-neutral-100
               onChange={handleUrlInputChange}
               onKeyDown={handleUrlInputKeyDown}
               className="flex-1 min-w-[80px] bg-transparent
-                         text-xl text-neutral-500
-                         placeholder:text-neutral-400
+                          text-xl text-neutral-500
+                          placeholder:text-neutral-400
              
                    font-semibold
-                         focus:outline-none"
+                          focus:outline-none"
             />
           </div>
         </div>
       </div>
 
-      {showEditDialog && pendingEdit && (
-        <RecurringEditDialog
-          open={showEditDialog}
-          onClose={cancelDialog}
-          onChoice={handleEditChoice}
-          event={pendingEdit.event}
-          field={pendingEdit.field}
-          newValue={pendingEdit.newValue}
-          oldValue={pendingEdit.oldValue}
+      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
+        <RecurringActionDialog
+          open={recurringDialogOpen}
+          onClose={closeRecurringDialog}
+          onChoice={(choice) => {
+            const callback = useEventsStore.getState().recurringDialogCallback
+            if (callback) callback(choice)
+          }}
+          actionType={recurringDialogActionType}
+          eventTitle={recurringDialogEvent?.title || ""}
         />
       )}
     </>

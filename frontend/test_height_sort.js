@@ -30,12 +30,7 @@ function newSortThreeEvents(events) {
   });
 }
 
-console.log('Old sort (by height first):');
-console.log(oldSortThreeEvents(events).map(e => e.id));
 
-console.log('\nNew sort (by slot only):');
-console.log(newSortThreeEvents(events).map(e => e.id));
 
-console.log('\nAre they different?', 
   JSON.stringify(oldSortThreeEvents(events).map(e => e.id)) !== 
   JSON.stringify(newSortThreeEvents(events).map(e => e.id)));

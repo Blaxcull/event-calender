@@ -14,9 +14,8 @@ const RepeatRow: React.FC<RepeatRowProps> = ({ value, onChange }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const validValue = REPEAT_OPTIONS.includes(value as any) ? value : REPEAT_OPTIONS[0]
-  const selectedIndex = REPEAT_OPTIONS.indexOf(validValue as any)
-  console.log('RepeatRow: value=', value, 'validValue=', validValue, 'selectedIndex=', selectedIndex)
+  const validValue = REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number]) ? value : REPEAT_OPTIONS[0]
+  const selectedIndex = REPEAT_OPTIONS.indexOf(validValue as typeof REPEAT_OPTIONS[number])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -45,7 +44,6 @@ const RepeatRow: React.FC<RepeatRowProps> = ({ value, onChange }) => {
   }, [isOpen, selectedIndex])
 
   const handleSelect = (option: string) => {
-    console.log('RepeatRow: handleSelect called with option=', option)
     onChange(option)
     setIsOpen(false)
     setHoveredIndex(null)

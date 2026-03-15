@@ -1,10 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { useEventsStore, formatDate } from '@/store/eventsStore'
+import { useEventsStore, formatDate, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
 import { Calendar } from '@/components/ui/calendar'
-import { useRecurringEvents } from '@/hooks/useRecurringEvents'
-import RecurringEditDialog from '@/components/RecurringEditDialog'
-import RepeatChangeDialog from '@/components/RepeatChangeDialog'
-import { uiEventToStoreEvent } from '@/lib/eventUtils'
+import RecurringActionDialog from '@/components/RecurringActionDialog'
 
 /* ================= TIME OPTIONS ================= */
 
@@ -312,17 +309,11 @@ const DatePickerButton: React.FC<{
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const selectedDate = value
-    ? new Date(value + 'T00:00:00')
-    : undefined
+  const selectedDate = useMemo(() => {
+    return value ? new Date(value + 'T00:00:00') : undefined
+  }, [value])
 
-  const [month, setMonth] = useState<Date | undefined>(selectedDate)
-
-  useEffect(() => {
-    if (isOpen) {
-      setMonth(selectedDate)
-    }
-  }, [isOpen, selectedDate])
+  const [month, setMonth] = useState<Date | undefined>(() => selectedDate)
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -349,7 +340,12 @@ const DatePickerButton: React.FC<{
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen && selectedDate) {
+            setMonth(selectedDate)
+          }
+          setIsOpen(!isOpen)
+        }}
         className="bg-neutral-100 hover:bg-neutral-200 rounded px-2 py-1.5 text-neutral-800 text-lg focus:outline-none ring-2 ring-neutral-400 focus:ring-red-500"
       >
         {selectedDate
@@ -392,161 +388,67 @@ const DatePickerButton: React.FC<{
 /* ================= MAIN EDITOR ================= */
 
 const DateTimeEditor: React.FC = () => {
-  const selectedEventId = useEventsStore(
-    (state) => state.selectedEventId
-  )
+  const selectedEventId = useEventsStore((state) => state.selectedEventId)
+  const updateEventField = useEventsStore((state) => state.updateEventField)
+  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
+  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
+  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
+  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
+  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
 
-  const updateEventField = useEventsStore(
-    (state) => state.updateEventField
-  )
-  const addEventOptimistic = useEventsStore(
-    (state) => state.addEventOptimistic
-  )
-
-
-  const {
-    showEditDialog,
-    showRepeatDialog,
-    pendingEdit,
-    pendingRepeatChange,
-    getMasterEventId,
-    handleFieldChange,
-    cancelDialog
-  } = useRecurringEvents()
-
+  // Find event - check both caches and also check if it's a recurring master
   const selectedEvent = useEventsStore((state) => {
     if (!selectedEventId) return null
-    return state.getEventById(selectedEventId)
+    // Access caches to ensure this selector re-runs when they change
+    void state.eventsCache
+    void state.computedEventsCache
+    // Search through all dates in eventsCache
+    for (const dateKey in state.eventsCache) {
+      const event = state.eventsCache[dateKey].find(e => e.id === selectedEventId)
+      if (event) return event as CalendarEvent
+    }
+    // Also check computedEventsCache
+    for (const dateKey in state.computedEventsCache) {
+      const event = state.computedEventsCache[dateKey].find(e => e.id === selectedEventId)
+      if (event) return event as CalendarEvent
+    }
+    return null
   })
 
-  // Wrap updateEventField to match the expected signature
-  const wrappedUpdateEventField = useCallback((id: string, field: string, value: any) => {
-    updateEventField(id, field as any, value)
-  }, [updateEventField])
+  // Check if this is a recurring event (virtual instance OR master with repeat AND series dates)
+  // Don't show dialog for new/temp events
+  const isRecurring = selectedEvent && 
+                      !selectedEvent.isTemp &&
+                      selectedEvent.title !== "New Event" &&
+                      (selectedEvent.isRecurringInstance || 
+                       (selectedEvent.repeat && 
+                        selectedEvent.repeat !== "None" &&
+                        (selectedEvent.series_start_date || selectedEvent.series_end_date)))
 
-  const handleEditChoice = (choice: 'only-this' | 'all-events' | 'this-and-following') => {
-    if (!pendingEdit) return
+  const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
+    if (!selectedEvent || !selectedEventId) return
 
-    const { event, field, newValue } = pendingEdit
-    const isVirtual = event.isRecurringInstance
-    const dateStr = formatDate(event.date)
-
-    switch (choice) {
-      case 'only-this':
-        if (isVirtual) {
-          // For virtual events, create a standalone copy
-          const storeEvent = uiEventToStoreEvent(event, dateStr)
-          const standaloneEvent = {
-            ...storeEvent,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          } as any
-          addEventOptimistic(standaloneEvent)
-          updateEventField(standaloneEvent.id, field as any, newValue)
-        } else {
-          // For master events, create a break in the series
-          const storeEvent = uiEventToStoreEvent(event, dateStr)
-          const breakEvent = {
-            ...storeEvent,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          } as any
-          addEventOptimistic(breakEvent)
-          updateEventField(breakEvent.id, field as any, newValue)
+    if (isRecurring) {
+      showRecurringDialog(
+        selectedEvent as CalendarEvent,
+        "edit",
+        (choice: string) => {
+          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
+          // TODO: Implement the actual action based on choice
+          closeRecurringDialog()
         }
-        break
-
-      case 'all-events':
-        // Update the master event
-        const masterId = getMasterEventId(event)
-        updateEventField(masterId, field as any, newValue)
-        break
-
-      case 'this-and-following':
-        // Split the series at this point
-        const storeEvent = uiEventToStoreEvent(event, dateStr)
-        const newMasterId = crypto.randomUUID()
-        const splitEvent = {
-          ...storeEvent,
-          id: newMasterId,
-          series_id: newMasterId,
-          is_series_master: true,
-          series_position: 0,
-          isRecurringInstance: false
-        } as any
-        addEventOptimistic(splitEvent)
-        updateEventField(newMasterId, field as any, newValue)
-        break
+      )
+    } else {
+      updateEventField(selectedEventId, field, value)
+      if (extraFields) {
+        Object.entries(extraFields).forEach(([key, val]) => {
+          if (val !== undefined) {
+            updateEventField(selectedEventId, key as keyof NewEvent, val)
+          }
+        })
+      }
     }
-
-    cancelDialog()
-  }
-
-  const handleRepeatChoice = (choice: 'only-this' | 'this-and-following') => {
-    if (!pendingRepeatChange) return
-
-    const { event } = pendingRepeatChange
-    const isVirtual = event.isRecurringInstance
-    const dateStr = formatDate(event.date)
-
-    switch (choice) {
-      case 'only-this':
-        if (isVirtual) {
-          // Create standalone event
-          const storeEvent = uiEventToStoreEvent(event, dateStr)
-          const standaloneEvent = {
-            ...storeEvent,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          } as any
-          addEventOptimistic(standaloneEvent)
-        } else {
-          // Break the series at this point
-          const storeEvent = uiEventToStoreEvent(event, dateStr)
-          const breakEvent = {
-            ...storeEvent,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          } as any
-          addEventOptimistic(breakEvent)
-        }
-        break
-
-      case 'this-and-following':
-        // Split series and stop recurrence from this point
-        const storeEvent = uiEventToStoreEvent(event, dateStr)
-        const newMasterId = crypto.randomUUID()
-        const splitEvent = {
-          ...storeEvent,
-          id: newMasterId,
-          series_id: newMasterId,
-          is_series_master: true,
-          series_position: 0,
-          isRecurringInstance: false,
-          repeat: 'None'
-        } as any
-        addEventOptimistic(splitEvent)
-        break
-    }
-
-    cancelDialog()
-  }
+  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
 
   if (!selectedEvent) return null
 
@@ -564,15 +466,7 @@ const DateTimeEditor: React.FC = () => {
             value={selectedEvent.date}
             onChange={(date) => {
               const newDate = formatDate(date)
-              handleFieldChange(
-                selectedEvent as any,
-                'date',
-                newDate,
-                (id: string, field: string, value: any) => {
-                  wrappedUpdateEventField(id, field, value)
-                  wrappedUpdateEventField(id, 'end_date', value)
-                }
-              )
+              handlePropertyChange('date', newDate, { end_date: newDate })
             }}
           />
           <span className="text-neutral-600">-</span>
@@ -580,12 +474,7 @@ const DateTimeEditor: React.FC = () => {
             value={selectedEvent.end_date || selectedEvent.date}
             onChange={(date) => {
               const newDate = formatDate(date)
-              handleFieldChange(
-                selectedEvent as any,
-                'end_date',
-                newDate,
-                wrappedUpdateEventField
-              )
+              handlePropertyChange('end_date', newDate)
             }}
             alignRight
           />
@@ -600,13 +489,7 @@ const DateTimeEditor: React.FC = () => {
           <TimePicker
             value={selectedEvent.start_time}
             onChange={(mins) => {
-              console.log('DateTimeEditor: start_time onChange called with:', mins, 'current:', selectedEvent.start_time)
-              handleFieldChange(
-                selectedEvent as any,
-                'start_time',
-                mins,
-                wrappedUpdateEventField
-              )
+              handlePropertyChange('start_time', mins)
             }}
             disabled={isAllDay}
           />
@@ -614,13 +497,7 @@ const DateTimeEditor: React.FC = () => {
           <TimePicker
             value={selectedEvent.end_time}
             onChange={(mins) => {
-              console.log('DateTimeEditor: end_time onChange called with:', mins, 'current:', selectedEvent.end_time, 'minValue:', selectedEvent.start_time)
-              handleFieldChange(
-                selectedEvent as any,
-                'end_time',
-                mins,
-                wrappedUpdateEventField
-              )
+              handlePropertyChange('end_time', mins)
             }}
             disabled={isAllDay}
             minValue={selectedEvent.start_time}
@@ -628,25 +505,16 @@ const DateTimeEditor: React.FC = () => {
         </div>
       </div>
 
-      {showEditDialog && pendingEdit && (
-        <RecurringEditDialog
-          open={showEditDialog}
-          onClose={cancelDialog}
-          onChoice={handleEditChoice}
-          event={pendingEdit.event}
-          field={pendingEdit.field}
-          newValue={pendingEdit.newValue}
-          oldValue={pendingEdit.oldValue}
-        />
-      )}
-
-      {showRepeatDialog && pendingRepeatChange && (
-        <RepeatChangeDialog
-          open={showRepeatDialog}
-          onClose={cancelDialog}
-          onChoice={handleRepeatChoice}
-          event={pendingRepeatChange.event}
-          newRepeat={pendingRepeatChange.newRepeat}
+      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
+        <RecurringActionDialog
+          open={recurringDialogOpen}
+          onClose={closeRecurringDialog}
+          onChoice={(choice) => {
+            const callback = useEventsStore.getState().recurringDialogCallback
+            if (callback) callback(choice)
+          }}
+          actionType={recurringDialogActionType}
+          eventTitle={recurringDialogEvent?.title || ""}
         />
       )}
     </>

@@ -1,146 +1,98 @@
 import React, { useCallback } from "react"
-import { useEventsStore } from "@/store/eventsStore"
-import { useTimeStore } from "@/store/timeStore"
+import { useEventsStore, type CalendarEvent } from "@/store/eventsStore"
 import GoalTypeRow from "./GoalTypeRow"
 import GoalRow from "./GoalRow"
-import { useRecurringEvents } from "@/hooks/useRecurringEvents"
-import RecurringEditDialog from "@/components/RecurringEditDialog"
+import RecurringActionDialog from "@/components/RecurringActionDialog"
 
 const GoalPanel: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
-  const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const updateEventField = useEventsStore((state) => state.updateEventField)
-  const addEventOptimistic = useEventsStore((state) => state.addEventOptimistic)
-  const selectedDate = useTimeStore((state) => state.selectedDate)
+  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
+  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
+  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
+  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
+  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
 
-  const {
-    showEditDialog,
-    pendingEdit,
-    getMasterEventId,
-    handleFieldChange,
-    cancelDialog
-  } = useRecurringEvents()
-
-  // Get selected event
-  const selectedEvent = React.useMemo(() => {
-    if (!selectedEventId || !selectedDate) return null
-    const events = getEventsForDate(selectedDate)
-    return events.find((e) => e.id === selectedEventId) || null
-  }, [selectedEventId, selectedDate, getEventsForDate])
-
-  // If no event selected → don't render
-  if (!selectedEvent) return null
-
-  // Wrap updateEventField to match the expected signature
-  const wrappedUpdateEventField = useCallback((id: string, field: string, value: any) => {
-    updateEventField(id, field as any, value)
-  }, [updateEventField])
-
-  const handleEditChoice = (choice: 'only-this' | 'all-events' | 'this-and-following') => {
-    if (!pendingEdit) return
-
-    const { event, field, newValue } = pendingEdit
-    const isVirtual = event.isRecurringInstance
-
-    switch (choice) {
-      case 'only-this':
-        if (isVirtual) {
-          // For virtual events, create a standalone copy
-          const standaloneEvent = {
-            ...event,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          }
-          addEventOptimistic(standaloneEvent as any)
-          updateEventField(standaloneEvent.id, field as any, newValue)
-        } else {
-          // For master events, create a break in the series
-          const breakEvent = {
-            ...event,
-            id: crypto.randomUUID(),
-            series_id: undefined,
-            is_series_master: true,
-            series_position: 0,
-            isRecurringInstance: false,
-            repeat: 'None'
-          }
-          addEventOptimistic(breakEvent as any)
-          updateEventField(breakEvent.id, field as any, newValue)
-        }
-        break
-
-      case 'all-events':
-        // Update the master event
-        const masterId = getMasterEventId(event)
-        updateEventField(masterId, field as any, newValue)
-        break
-
-      case 'this-and-following':
-        // Split the series at this point
-        const newMasterId = crypto.randomUUID()
-        const splitEvent = {
-          ...event,
-          id: newMasterId,
-          series_id: newMasterId,
-          is_series_master: true,
-          series_position: 0,
-          isRecurringInstance: false
-        }
-        addEventOptimistic(splitEvent as any)
-        updateEventField(newMasterId, field as any, newValue)
-        break
+  // Use selector that subscribes to both caches for reactivity
+  const selectedEvent = useEventsStore((state) => {
+    if (!selectedEventId) return null
+    // Access caches to ensure this selector re-runs when they change
+    void state.eventsCache
+    void state.computedEventsCache
+    // Search through all dates in eventsCache
+    for (const dateKey in state.eventsCache) {
+      const event = state.eventsCache[dateKey].find(e => e.id === selectedEventId)
+      if (event) return event as CalendarEvent
     }
+    // Also check computedEventsCache for virtual events
+    for (const dateKey in state.computedEventsCache) {
+      const event = state.computedEventsCache[dateKey].find(e => e.id === selectedEventId)
+      if (event) return event as CalendarEvent
+    }
+    return null
+  })
 
-    cancelDialog()
-  }
+  const isRecurring = selectedEvent && 
+                      !selectedEvent.isTemp &&
+                      selectedEvent.title !== "New Event" &&
+                      (selectedEvent.isRecurringInstance || 
+                       (selectedEvent.repeat && 
+                        selectedEvent.repeat !== "None" &&
+                        (selectedEvent.series_start_date || selectedEvent.series_end_date)))
 
-  const handleGoalTypeChange = (value: string) => {
-    handleFieldChange(
-      selectedEvent as any,
-      "goalType",
-      value,
-      wrappedUpdateEventField
-    )
-  }
+  const handlePropertyChange = useCallback((field: string, value: string) => {
+    if (!selectedEvent || !selectedEventId) return
 
-  const handleGoalChange = (value: string) => {
-    handleFieldChange(
-      selectedEvent as any,
-      "goal",
-      value,
-      wrappedUpdateEventField
-    )
-  }
+    if (isRecurring) {
+      showRecurringDialog(
+        selectedEvent as CalendarEvent,
+        "edit",
+        (choice: string) => {
+          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
+          closeRecurringDialog()
+        }
+      )
+    } else {
+      updateEventField(selectedEventId, field as any, value)
+    }
+  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
+
+  const handleGoalTypeChange = useCallback((value: string) => {
+    handlePropertyChange("goalType", value)
+  }, [handlePropertyChange])
+
+  const handleGoalChange = useCallback((value: string) => {
+    handlePropertyChange("goal", value)
+  }, [handlePropertyChange])
+
+  if (!selectedEvent) return null
 
   return (
     <>
-      <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] p-4 border-20 space-y-3 shadow-none">
+      <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] pl-5 pr-6 py-6 border-20 space-y-3 shadow-none">
         <GoalTypeRow
-          value={selectedEvent.goalType || "a"}
+          value={selectedEvent.goalType || "None"}
           onChange={handleGoalTypeChange}
         />
 
         <hr className="border-neutral-300 border-t-[2px]" />
 
         <GoalRow
-          value={selectedEvent.goal || "dummy"}
+          value={selectedEvent.goal || "None"}
           onChange={handleGoalChange}
         />
       </div>
 
-      {showEditDialog && pendingEdit && (
-        <RecurringEditDialog
-          open={showEditDialog}
-          onClose={cancelDialog}
-          onChoice={handleEditChoice}
-          event={pendingEdit.event}
-          field={pendingEdit.field}
-          newValue={pendingEdit.newValue}
-          oldValue={pendingEdit.oldValue}
+      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
+        <RecurringActionDialog
+          open={recurringDialogOpen}
+          onClose={closeRecurringDialog}
+          onChoice={(choice) => {
+            const callback = useEventsStore.getState().recurringDialogCallback
+            if (callback) callback(choice)
+          }}
+          actionType={recurringDialogActionType}
+          eventTitle={recurringDialogEvent?.title || ""}
         />
       )}
     </>

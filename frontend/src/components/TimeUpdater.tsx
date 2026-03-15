@@ -33,15 +33,12 @@ export default function TimeUpdater() {
   // Listen for auth state changes
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      console.log('Auth state changed:', event);
       
       if (event === 'SIGNED_OUT') {
         // Clear cache when user signs out
-        console.log('User signed out, clearing event cache');
         clearCache();
       } else if (event === 'SIGNED_IN') {
         // Fetch events for the new user
-        console.log('User signed in, fetching events');
         const today = new Date();
         fetchEventsWindow(today);
       }

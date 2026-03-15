@@ -6,22 +6,22 @@ import DateTimeEditor from './DateTimeEditor'
 import GoalPanel from './GoalSetter'
 import RepeatReminderPanel from './RepeatReminderPanel'
 
-const EventTitle: React.FC = React.memo(() => {
+const EventTitle: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
-  const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedDate = useTimeStore((state) => state.selectedDate)
+  
+  // Subscribe to the entire store state to ensure reactivity
+  const storeState = useEventsStore()
 
-  // Get events for selected date
+  // Get events for selected date - use useMemo with selectedDate as key
   const todaysEvents = React.useMemo(() => {
     if (!selectedDate) return []
-    return getEventsForDate(selectedDate)
-  }, [selectedDate, getEventsForDate])
+    return storeState.getEventsForDate(selectedDate)
+  }, [selectedDate, storeState.eventsCache, storeState.computedEventsCache])
 
   // Sort events by start time
-  const sortedEvents = React.useMemo(() => {
-    return [...todaysEvents].sort((a, b) => a.start_time - b.start_time)
-  }, [todaysEvents])
+  const sortedEvents = [...todaysEvents].sort((a, b) => a.start_time - b.start_time)
 
   const formatTime = (minutes: number): string => {
     const hours = Math.floor(minutes / 60)
@@ -72,7 +72,7 @@ const EventTitle: React.FC = React.memo(() => {
             {sortedEvents.map((event) => (
               <div
                 key={event.id}
-                 onClick={() => handleEventClick(event.id)}
+                onClick={() => handleEventClick(event.id)}
                 className="p-2.5 bg-gray-200/50 hover:bg-gray-200 rounded-lg cursor-pointer transition-colors"
               >
                 <div className="font-medium text-slate-800 text-sm">{event.title}</div>
@@ -89,6 +89,6 @@ const EventTitle: React.FC = React.memo(() => {
       )}
     </div>
   )
-})
+}
 
 export default EventTitle
