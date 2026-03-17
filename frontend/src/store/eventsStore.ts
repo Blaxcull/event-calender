@@ -909,13 +909,6 @@ export const useEventsStore = create<EventsState>()(
           
           // Cache the recurring events for this month
           recurringEvents = generatedRecurring.filter(e => e.date === dateKey)
-          
-          set(state => ({
-            recurringEventsCache: {
-              ...state.recurringEventsCache,
-              [monthKey]: generatedRecurring
-            }
-          }))
         }
         
         // Combine real and recurring events
@@ -928,14 +921,6 @@ export const useEventsStore = create<EventsState>()(
         
         // Sort by start time
         uniqueEvents.sort((a, b) => a.start_time - b.start_time)
-        
-        // Cache the result
-        set(state => ({
-          computedEventsCache: {
-            ...state.computedEventsCache,
-            [dateKey]: uniqueEvents
-          }
-        }))
         
         return uniqueEvents
       },
@@ -1101,6 +1086,9 @@ export const useEventsStore = create<EventsState>()(
             return
           }
 
+          // Use the event's actual ID (could be real ID even if selectedEventId is stale temp ID)
+          const eventIdToUpdate = event.id
+
           // Prepare updates from the event in cache
           const updates: Partial<NewEvent> = {
             title: event.title,
@@ -1124,17 +1112,19 @@ export const useEventsStore = create<EventsState>()(
             return
           }
 
+          // Clear selectedEventId FIRST, then do DB update
+          set({ selectedEventId: null, saveTrigger: 0 })
+
           // Background database update (non-blocking)
           setTimeout(async () => {
             try {
               const { error } = await supabase
                 .from('events')
                 .update(updates)
-                .eq('id', selectedEventId)
+                .eq('id', eventIdToUpdate)
 
               if (error) {
                 console.error('saveSelectedEvent: Background: Database update failed:', error)
-              } else {
               }
             } catch (err) {
               console.error('saveSelectedEvent: Background: Unexpected error during database save:', err)

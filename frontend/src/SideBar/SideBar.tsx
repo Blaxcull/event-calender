@@ -87,7 +87,6 @@ export function SideBar() {
           closeRecurringDialog()
           try {
             await saveSelectedEvent()
-            setSelectedEvent(null)
           } catch (error) {
             console.error('Error in handleSave:', error)
           }
@@ -96,7 +95,6 @@ export function SideBar() {
     } else {
       try {
         await saveSelectedEvent()
-        setSelectedEvent(null)
       } catch (error) {
         console.error('Error in handleSave:', error)
       }

@@ -156,12 +156,14 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const addEventOptimistic = useEventsStore((state) => state.addEventOptimistic)
   const updateEvent = useEventsStore((state) => state.updateEvent)
   const deleteEvent = useEventsStore((state) => state.deleteEvent)
-  const eventsCache = useEventsStore((state) => state.eventsCache)
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+
+  // Subscribe to entire store for reactivity
+  const storeState = useEventsStore()
 
   // Local state for events - this is the key to performance!
   // We work with local events during drag/resize for instant feedback
@@ -275,7 +277,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         idMapping.current.delete(tempId)
       }
     }
-  }, [selectedDate, eventsCache, getEventsForDate])
+  }, [selectedDate, storeState.eventsCache, getEventsForDate])
   
   // UI state
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -672,8 +674,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
       if (event) {
         // For recurring events, use the master event ID for selection
-        const eventIdToSelect = event.seriesMasterId || event.id
-        setSelectedEvent(eventIdToSelect)
+          setSelectedEvent(event.id)
       }
       mouseDownPosRef.current = null
       return

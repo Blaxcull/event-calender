@@ -110,7 +110,7 @@ const EventEditor: React.FC = () => {
       updateEventField(selectedEventId, 'notes', notesRef.current)
       updateEventField(selectedEventId, 'urls', urlChipsRef.current.map(c => c.url))
     }
-  }, [saveTrigger, selectedEventId, updateEventField])
+  }, [saveTrigger, updateEventField])
 
   // Clear title on blur without Enter
   useEffect(() => {
