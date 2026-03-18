@@ -20,21 +20,32 @@ const RepeatReminderPanel: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const updateEventField = useEventsStore((state) => state.updateEventField)
   const eventsCache = useEventsStore((state) => state.eventsCache)
+  const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
   const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
 
-  // Find event by searching through all dates
+  // Find event by searching through all dates (both real and virtual events)
   const selectedEvent = React.useMemo(() => {
-    if (!selectedEventId || !eventsCache) return null
-    for (const dateKey in eventsCache) {
-      const event = eventsCache[dateKey].find(e => e.id === selectedEventId)
-      if (event) return event as CalendarEvent
+    if (!selectedEventId) return null
+    // First check eventsCache (real events)
+    if (eventsCache) {
+      for (const dateKey in eventsCache) {
+        const event = eventsCache[dateKey].find(e => e.id === selectedEventId)
+        if (event) return event as CalendarEvent
+      }
+    }
+    // Then check computedEventsCache (includes virtual events)
+    if (computedEventsCache) {
+      for (const dateKey in computedEventsCache) {
+        const event = computedEventsCache[dateKey].find(e => e.id === selectedEventId)
+        if (event) return event as CalendarEvent
+      }
     }
     return null
-  }, [selectedEventId, eventsCache])
+  }, [selectedEventId, eventsCache, computedEventsCache])
 
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
@@ -48,12 +59,27 @@ const RepeatReminderPanel: React.FC = () => {
     if (!selectedEvent || !selectedEventId) return
 
     if (isRecurring) {
+      // Capture values at this moment
+      const eventId = selectedEvent.id
+      const eventDate = selectedEvent.date
+
       showRecurringDialog(
         selectedEvent as CalendarEvent,
         "edit",
-        (choice: string) => {
-          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
-          // TODO: Implement the actual action based on choice
+        async (choice: string) => {
+          if (choice === "only-this") {
+            // Use splitRecurringEvent to split the series
+            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+            await splitRecurringEvent(
+              selectedEvent as any,
+              eventDate,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              { [field]: value } as any
+            )
+          } else if (choice === "all-events") {
+            await updateEventField(eventId, field, value)
+          }
           closeRecurringDialog()
         }
       )
@@ -66,11 +92,29 @@ const RepeatReminderPanel: React.FC = () => {
     if (!selectedEvent || !selectedEventId) return
 
     if (isRecurring) {
+      // Capture values at this moment
+      const eventId = selectedEvent.id
+
       showRecurringDialog(
         selectedEvent as CalendarEvent,
         "edit",
-        (choice: string) => {
-          console.log(`Edit repeat: ${value}, choice: ${choice}`)
+        async (choice: string) => {
+          if (choice === "only-this") {
+            // For repeat changes on "only this", just update this occurrence to not repeat
+            await updateEventField(eventId, "repeat", value)
+            if (value === "None") {
+              updateEventField(eventId, "series_start_date", undefined)
+              updateEventField(eventId, "series_end_date", undefined)
+            }
+          } else if (choice === "all-events") {
+            await updateEventField(eventId, "repeat", value)
+            if (value !== "None" && REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number])) {
+              const eventDate = selectedEvent.date
+              const seriesEndDate = addYears(eventDate, 10)
+              updateEventField(eventId, "series_start_date", eventDate)
+              updateEventField(eventId, "series_end_date", seriesEndDate)
+            }
+          }
           closeRecurringDialog()
         }
       )

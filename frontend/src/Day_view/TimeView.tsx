@@ -2,7 +2,7 @@ import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react
 import type { EventType } from '../lib/eventUtils'
 import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, restoreEventWidths, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
-import { useEventsStore, formatDate, type NewEvent } from "@/store/eventsStore"
+import { useEventsStore, formatDate } from "@/store/eventsStore"
 import RecurringActionDialog from "@/components/RecurringActionDialog"
 
 interface TimeViewProps {
@@ -673,8 +673,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     if (mouseDownPosRef.current && !wasDragging && !wasResizing) {
       const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
       if (event) {
-        // For recurring events, use the master event ID for selection
-          setSelectedEvent(event.id)
+        setSelectedEvent(event.id)
       }
       mouseDownPosRef.current = null
       return
@@ -760,7 +759,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
             showRecurringDialog(
               draggedEvent as any,
               "edit",
-              (choice: string) => {
+              async (choice: string) => {
                 console.log(`Drag recurring event, choice: ${choice}`)
                 
                 // Cleanup after dialog closes
@@ -777,16 +776,14 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   restoreOriginalPosition()
                   setSelectedEvent(null)
                 } else if (choice === "only-this") {
-                  // Create standalone copy for this occurrence
-                  const standaloneEvent: NewEvent = {
-                    title: draggedEvent.title,
-                    date: dateStr,
-                    end_date: dateStr,
-                    start_time: start.hour * 60 + start.min,
-                    end_time: end.hour * 60 + end.min,
-                    repeat: 'None'
-                  }
-                  addEventOptimistic(standaloneEvent)
+                  // Split the recurring event into 3 events
+                  const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+                  await splitRecurringEvent(
+                    draggedEvent as any,
+                    dateStr,
+                    start.hour * 60 + start.min,
+                    end.hour * 60 + end.min
+                  )
                   originalEventRef.current = null
                   setSelectedEvent(null)
                 } else if (choice === "all-events" && draggedEvent.seriesMasterId) {
@@ -860,7 +857,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
             showRecurringDialog(
               resizedEvent as any,
               "edit",
-              (choice: string) => {
+              async (choice: string) => {
                 console.log(`Resize recurring event, choice: ${choice}`)
                 
                 // Cleanup after dialog closes
@@ -876,16 +873,14 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   restoreOriginalPosition()
                   setSelectedEvent(null)
                 } else if (choice === "only-this") {
-                  // Create standalone copy for this occurrence
-                  const standaloneEvent = {
-                    title: resizedEvent.title,
-                    date: dateStr,
-                    end_date: dateStr,
-                    start_time: resizedEvent.startHour * 60 + resizedEvent.startMin,
-                    end_time: end.hour * 60 + end.min,
-                    repeat: 'None'
-                  }
-                  addEventOptimistic(standaloneEvent)
+                  // Split the recurring event into 3 events
+                  const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+                  await splitRecurringEvent(
+                    resizedEvent as any,
+                    dateStr,
+                    resizedEvent.startHour * 60 + resizedEvent.startMin,
+                    end.hour * 60 + end.min
+                  )
                   originalEventRef.current = null
                   setSelectedEvent(null)
                 } else if (choice === "all-events" && resizedEvent.seriesMasterId) {

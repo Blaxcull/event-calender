@@ -144,6 +144,7 @@ interface EventsState {
   saveSelectedEvent: () => Promise<void>
   showRecurringDialog: (event: CalendarEvent, actionType: "edit" | "delete", callback: (choice: string) => void) => void
   closeRecurringDialog: () => void
+  splitRecurringEvent: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
 }
 
 const CACHE_WINDOW_DAYS = 17 // Days before and after
@@ -907,7 +908,15 @@ export const useEventsStore = create<EventsState>()(
             })
           })
           
-          // Cache the recurring events for this month
+          // Cache recurring events for the month
+          set(state => ({
+            recurringEventsCache: {
+              ...state.recurringEventsCache,
+              [monthKey]: generatedRecurring
+            }
+          }))
+          
+          // Filter to only events for this date
           recurringEvents = generatedRecurring.filter(e => e.date === dateKey)
         }
         
@@ -921,6 +930,14 @@ export const useEventsStore = create<EventsState>()(
         
         // Sort by start time
         uniqueEvents.sort((a, b) => a.start_time - b.start_time)
+        
+        // Cache the computed events for this date
+        set(state => ({
+          computedEventsCache: {
+            ...state.computedEventsCache,
+            [dateKey]: uniqueEvents
+          }
+        }))
         
         return uniqueEvents
       },
@@ -941,6 +958,49 @@ export const useEventsStore = create<EventsState>()(
           const event = computedEventsCache[dateKey].find(e => e.id === id)
           if (event) {
             return event
+          }
+        }
+        
+        // Virtual event not in cache - try to generate it on-demand
+        // Virtual event IDs look like: "masterEventId-YYYY-MM-DD"
+        const datePattern = /-(\d{4}-\d{2}-\d{2})$/
+        const match = id.match(datePattern)
+        
+        if (match) {
+          const virtualDate = match[1]
+          const masterEventId = id.replace(datePattern, '')
+          
+          // Find the master event in eventsCache
+          let masterEvent: Event | null = null
+          for (const dateKey in eventsCache) {
+            const found = eventsCache[dateKey].find(e => e.id === masterEventId)
+            if (found) {
+              masterEvent = found
+              break
+            }
+          }
+          
+          if (masterEvent) {
+            // Generate the virtual event
+            const virtualEvent: CalendarEvent = {
+              ...masterEvent,
+              id: id,
+              date: virtualDate,
+              end_date: virtualDate,
+              isRecurringInstance: true,
+              seriesMasterId: masterEventId,
+              occurrenceDate: virtualDate,
+            }
+            
+            // Cache it for future lookups
+            set(state => ({
+              computedEventsCache: {
+                ...state.computedEventsCache,
+                [virtualDate]: [...(state.computedEventsCache[virtualDate] || []), virtualEvent]
+              }
+            }))
+            
+            return virtualEvent
           }
         }
         
@@ -1151,6 +1211,189 @@ export const useEventsStore = create<EventsState>()(
           recurringDialogActionType: null,
           recurringDialogCallback: null,
         })
+      },
+
+      splitRecurringEvent: async (
+        event: CalendarEvent, 
+        selectedDate: string, 
+        newStartTime?: number, 
+        newEndTime?: number, 
+        updates?: Partial<NewEvent>
+      ) => {
+        const originalSeriesEndDate = event.series_end_date || event.date
+        const originalRepeat = event.repeat || 'None'
+        
+        const prevDay = addDaysToDateStr(selectedDate, -1)
+        const nextDay = addDaysToDateStr(selectedDate, 1)
+        
+        const startTime = newStartTime ?? event.start_time
+        const endTime = newEndTime ?? event.end_time
+        
+        const { computedEventsCache, eventsCache } = get()
+        
+        // Determine the master event ID
+        let masterEventId: string
+        
+        if (event.seriesMasterId) {
+          masterEventId = event.seriesMasterId
+        } else if (event.repeat && event.repeat !== 'None' && (event.series_start_date || event.series_end_date)) {
+          masterEventId = event.id
+        } else {
+          console.error('splitRecurringEvent: Event is not part of a recurring series')
+          return
+        }
+        
+        // Get the ORIGINAL title from the master event in cache
+        let originalTitle = event.title
+        
+        // Try to get original title from eventsCache first
+        for (const dateKey in eventsCache) {
+          const masterEvent = eventsCache[dateKey].find(e => e.id === masterEventId)
+          if (masterEvent) {
+            originalTitle = masterEvent.title
+            break
+          }
+        }
+        
+        // If not found in eventsCache, try computedEventsCache
+        if (originalTitle === event.title) {
+          for (const dateKey in computedEventsCache) {
+            const masterEvent = computedEventsCache[dateKey].find(e => e.id === masterEventId)
+            if (masterEvent) {
+              originalTitle = masterEvent.title
+              break
+            }
+          }
+        }
+        
+        // Titles for the split
+        const event2Title = updates?.title ?? event.title // NEW title (from updates) or original
+        const originalEventTitle = originalTitle // ORIGINAL title
+        
+        // Check if selected date is the first occurrence
+        const isFirstOccurrence = selectedDate === (event.series_start_date || event.date)
+        
+        if (isFirstOccurrence) {
+          // If selected date is the first occurrence, make it non-recurring with updates
+          await get().updateEvent(masterEventId, {
+            series_end_date: undefined,
+            series_start_date: undefined,
+            repeat: 'None',
+            ...updates,
+          })
+        } else {
+          // Normal case: shorten original series (Event 1) - keeps ORIGINAL title
+          await get().updateEvent(masterEventId, {
+            series_end_date: prevDay,
+          })
+          
+          // Create Event 2 (standalone on selected date) - uses NEW title and updates
+          const event2Data: NewEvent = {
+            title: event2Title,
+            description: event.description,
+            notes: event.notes,
+            urls: event.urls,
+            date: selectedDate,
+            end_date: selectedDate,
+            start_time: startTime,
+            end_time: endTime,
+            color: event.color,
+            is_all_day: event.is_all_day,
+            location: event.location,
+            repeat: 'None',
+            goal: event.goal,
+            goalType: event.goalType,
+            reminder: event.reminder,
+            earlyReminder: event.earlyReminder,
+            allDay: event.allDay,
+            // Apply any additional updates (except title, date, start_time, end_time which are set above)
+            ...updates,
+            // Ensure these are always set for Event 2
+            title: event2Title,
+            date: selectedDate,
+            end_date: selectedDate,
+            start_time: startTime,
+            end_time: endTime,
+          }
+          await get().addEventOptimistic(event2Data)
+        }
+        
+        // Event 3: Create new series from nextDay - uses ORIGINAL title
+        if (nextDay <= originalSeriesEndDate) {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) {
+            console.error('User not authenticated for database save')
+            return
+          }
+          
+          // Insert Event 3 master to database
+          const event3MasterData: Record<string, any> = {
+            title: originalEventTitle,
+            description: event.description,
+            notes: event.notes,
+            urls: event.urls,
+            date: nextDay,
+            end_date: nextDay,
+            start_time: startTime,
+            end_time: endTime,
+            color: event.color,
+            is_all_day: event.is_all_day,
+            location: event.location,
+            repeat: originalRepeat,
+            series_start_date: nextDay,
+            series_end_date: originalSeriesEndDate,
+            user_id: user.id,
+          }
+          
+          const { data: event3MasterResult, error: masterError } = await supabase
+            .from('events')
+            .insert([event3MasterData])
+            .select()
+            .single()
+          
+          if (masterError || !event3MasterResult) {
+            console.error('Failed to create Event 3 master:', masterError)
+            return
+          }
+          
+          // Add Event 3 master to cache
+          const event3Cached: Event = {
+            id: event3MasterResult.id,
+            user_id: user.id,
+            title: event3MasterResult.title,
+            date: event3MasterResult.date,
+            end_date: event3MasterResult.end_date,
+            start_time: event3MasterResult.start_time,
+            end_time: event3MasterResult.end_time,
+            description: event3MasterResult.description,
+            notes: event3MasterResult.notes,
+            urls: event3MasterResult.urls,
+            color: event3MasterResult.color,
+            is_all_day: event3MasterResult.is_all_day,
+            location: event3MasterResult.location,
+            repeat: event3MasterResult.repeat,
+            series_start_date: event3MasterResult.series_start_date,
+            series_end_date: event3MasterResult.series_end_date,
+            created_at: event3MasterResult.created_at,
+            updated_at: event3MasterResult.updated_at,
+          }
+          
+          // Get fresh events cache and add Event 3
+          const { eventsCache: currentEventsCache } = get()
+          const event3DateKey = event3MasterResult.date
+          const updatedEventsCache = {
+            ...currentEventsCache,
+            [event3DateKey]: [...(currentEventsCache[event3DateKey] || []), event3Cached],
+          }
+          
+          // Clear caches to force fresh rebuild
+          set({
+            eventsCache: updatedEventsCache,
+            computedEventsCache: {},
+            recurringEventsCache: {},
+            eventExceptionsCache: {},
+          })
+        }
       },
 
       clearCache: () => {

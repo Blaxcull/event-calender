@@ -26,6 +26,10 @@ export function SideBar() {
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
+  
+  // Track if the event was already recurring when selected
+  const wasRecurringWhenSelectedRef = React.useRef(false)
+  const previousEventIdRef = React.useRef<string | null>(null)
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -63,22 +67,50 @@ export function SideBar() {
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   const getEventById = useEventsStore((state) => state.getEventById)
+  const eventsCache = useEventsStore((state) => state.eventsCache)
+  const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
+
+  // Track when the selected event changes and update the recurring status
+  React.useEffect(() => {
+    if (selectedEventId && selectedEventId !== previousEventIdRef.current) {
+      previousEventIdRef.current = selectedEventId
+      // Check if the event was recurring when it was selected
+      let wasRecurring = false
+      // Check eventsCache
+      for (const dateKey in eventsCache) {
+        const event = eventsCache[dateKey].find(e => e.id === selectedEventId)
+        if (event) {
+          wasRecurring = !!(event.isRecurringInstance || 
+            (event.repeat && event.repeat !== "None" && (event.series_start_date || event.series_end_date)))
+          break
+        }
+      }
+      // Check computedEventsCache if not found
+      if (!wasRecurring) {
+        for (const dateKey in computedEventsCache) {
+          const event = computedEventsCache[dateKey].find(e => e.id === selectedEventId)
+          if (event) {
+            wasRecurring = !!(event.isRecurringInstance || 
+              (event.repeat && event.repeat !== "None" && (event.series_start_date || event.series_end_date)))
+            break
+          }
+        }
+      }
+      wasRecurringWhenSelectedRef.current = wasRecurring
+      console.log('Event selected:', { id: selectedEventId, wasRecurringWhenSelected: wasRecurring })
+    }
+  }, [selectedEventId, eventsCache, computedEventsCache])
 
   const handleSave = React.useCallback(async () => {
     if (!selectedEventId) return
     
     const selectedEvent = getEventById(selectedEventId)
     
-    // Don't show dialog for new events or non-recurring events
-    // Check: isTemp, title is "New Event", or no series dates
-    const isRecurring = selectedEvent && 
-                       !selectedEvent.isTemp &&
-                       selectedEvent.title !== "New Event" &&
-                       selectedEvent.repeat && 
-                       selectedEvent.repeat !== "None" &&
-                       (selectedEvent.series_start_date || selectedEvent.series_end_date)
+    // Only show recurring dialog if the event was ALREADY recurring when selected
+    // Don't show if it's just being made recurring (changing from None to Daily/Weekly/etc.)
+    const shouldShowDialog = wasRecurringWhenSelectedRef.current
 
-    if (isRecurring) {
+    if (shouldShowDialog) {
       showRecurringDialog(
         selectedEvent as CalendarEvent,
         "edit",

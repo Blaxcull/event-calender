@@ -64,11 +64,54 @@ const EventEditor: React.FC = () => {
     if (!selectedEvent || !selectedEventId) return
 
     if (isRecurring) {
+      // Capture values at this moment
+      const eventId = selectedEvent.id
+      const eventDate = selectedEvent.date
+      const currentField = field
+      const currentValue = value
+      const currentExtraFields = extraFields
+
       showRecurringDialog(
         selectedEvent as CalendarEvent,
         "edit",
-        (choice: string) => {
-          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
+        async (choice: string) => {
+          if (choice === "only-this") {
+            // Use splitRecurringEvent to split the series
+            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+            const setSelectedEvent = useEventsStore.getState().setSelectedEvent
+            
+            // Build updates object with current field and any extra fields
+            const updates: Record<string, EventFieldValue> = {}
+            if (currentField && currentValue !== undefined) {
+              updates[currentField] = currentValue
+            }
+            if (currentExtraFields) {
+              Object.entries(currentExtraFields).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  updates[key] = val
+                }
+              })
+            }
+            
+            await splitRecurringEvent(
+              selectedEvent as any,
+              eventDate,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              updates as any
+            )
+            // Clear selection to force fresh render
+            setSelectedEvent(null)
+          } else if (choice === "all-events") {
+            await updateEventField(eventId, currentField, currentValue)
+            if (currentExtraFields) {
+              Object.entries(currentExtraFields).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  updateEventField(eventId, key as keyof NewEvent, val)
+                }
+              })
+            }
+          }
           closeRecurringDialog()
         }
       )

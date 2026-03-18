@@ -44,11 +44,26 @@ const GoalPanel: React.FC = () => {
     if (!selectedEvent || !selectedEventId) return
 
     if (isRecurring) {
+      // Capture values at this moment
+      const eventId = selectedEvent.id
+
       showRecurringDialog(
         selectedEvent as CalendarEvent,
         "edit",
-        (choice: string) => {
-          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
+        async (choice: string) => {
+          if (choice === "only-this") {
+            // Use splitRecurringEvent to split the series
+            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+            await splitRecurringEvent(
+              selectedEvent as any,
+              selectedEvent.date,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              { [field]: value } as any
+            )
+          } else if (choice === "all-events") {
+            await updateEventField(eventId, field as any, value)
+          }
           closeRecurringDialog()
         }
       )

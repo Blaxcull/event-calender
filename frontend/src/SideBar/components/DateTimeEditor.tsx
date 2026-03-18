@@ -429,12 +429,47 @@ const DateTimeEditor: React.FC = () => {
     if (!selectedEvent || !selectedEventId) return
 
     if (isRecurring) {
+      // Capture values at this moment
+      const eventId = selectedEvent.id
+
       showRecurringDialog(
         selectedEvent as CalendarEvent,
         "edit",
-        (choice: string) => {
-          console.log(`Edit ${field}: ${value}, choice: ${choice}`)
-          // TODO: Implement the actual action based on choice
+        async (choice: string) => {
+          if (choice === "only-this") {
+            // Use splitRecurringEvent to split the series
+            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+            
+            // Build updates object with current field and any extra fields
+            const updates: Record<string, EventFieldValue> = {}
+            if (field && value !== undefined) {
+              updates[field] = value
+            }
+            if (extraFields) {
+              Object.entries(extraFields).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  updates[key] = val
+                }
+              })
+            }
+            
+            await splitRecurringEvent(
+              selectedEvent as any,
+              selectedEvent.date,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              updates as any
+            )
+          } else if (choice === "all-events") {
+            await updateEventField(eventId, field, value)
+            if (extraFields) {
+              Object.entries(extraFields).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  updateEventField(eventId, key as keyof NewEvent, val)
+                }
+              })
+            }
+          }
           closeRecurringDialog()
         }
       )
