@@ -396,34 +396,30 @@ const DateTimeEditor: React.FC = () => {
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
 
-  // Find event - check both caches and also check if it's a recurring master
-  const selectedEvent = useEventsStore((state) => {
-    if (!selectedEventId) return null
-    // Access caches to ensure this selector re-runs when they change
-    void state.eventsCache
-    void state.computedEventsCache
-    // Search through all dates in eventsCache
-    for (const dateKey in state.eventsCache) {
-      const event = state.eventsCache[dateKey].find(e => e.id === selectedEventId)
-      if (event) return event as CalendarEvent
-    }
-    // Also check computedEventsCache
-    for (const dateKey in state.computedEventsCache) {
-      const event = state.computedEventsCache[dateKey].find(e => e.id === selectedEventId)
-      if (event) return event as CalendarEvent
-    }
-    return null
-  })
+  // Subscribe to cache changes and trigger re-render
+  const [, setEventVersion] = useState(0)
+  const getEventById = useEventsStore((state) => state.getEventById)
+  
+  // Subscribe to cache changes
+  useEffect(() => {
+    const unsubscribe = useEventsStore.subscribe(
+      () => {
+        setEventVersion(v => v + 1)
+      }
+    )
+    return unsubscribe
+  }, [])
 
-  // Check if this is a recurring event (virtual instance OR master with repeat AND series dates)
-  // Don't show dialog for new/temp events
+  // Get the selected event
+  const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
+
+  // Check if this is a recurring event INSTANCE (not the base master event)
+  // Only show dialog for virtual instances (isRecurringInstance = true)
+  // Don't show dialog for base recurring events (they have repeat but isRecurringInstance is false)
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
                       selectedEvent.title !== "New Event" &&
-                      (selectedEvent.isRecurringInstance || 
-                       (selectedEvent.repeat && 
-                        selectedEvent.repeat !== "None" &&
-                        (selectedEvent.series_start_date || selectedEvent.series_end_date)))
+                      selectedEvent.isRecurringInstance === true
 
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
     if (!selectedEvent || !selectedEventId) return

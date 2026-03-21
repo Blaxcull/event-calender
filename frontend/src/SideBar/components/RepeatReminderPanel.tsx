@@ -27,18 +27,20 @@ const RepeatReminderPanel: React.FC = () => {
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
 
-  // Find event by searching through all dates (both real and virtual events)
+  // Find event by searching through all dates
+  // Priority: eventsCache (real events) > computedEventsCache (virtual instances)
+  // This ensures master recurring events return isRecurringInstance: false
   const selectedEvent = React.useMemo(() => {
     if (!selectedEventId) return null
-    // First check eventsCache (real events)
+    // First check eventsCache (real events) - these are always accurate
     if (eventsCache) {
       for (const dateKey in eventsCache) {
         const event = eventsCache[dateKey].find(e => e.id === selectedEventId)
         if (event) return event as CalendarEvent
       }
     }
-    // Then check computedEventsCache (includes virtual events)
-    if (computedEventsCache) {
+    // Only check computedEventsCache for virtual instances (IDs with date suffix like "eventId-2024-01-15")
+    if (computedEventsCache && selectedEventId.includes('-') && /\d{4}-\d{2}-\d{2}$/.test(selectedEventId)) {
       for (const dateKey in computedEventsCache) {
         const event = computedEventsCache[dateKey].find(e => e.id === selectedEventId)
         if (event) return event as CalendarEvent
@@ -47,13 +49,12 @@ const RepeatReminderPanel: React.FC = () => {
     return null
   }, [selectedEventId, eventsCache, computedEventsCache])
 
+  // Check if this is a recurring event INSTANCE (not the base master event)
+  // Only show dialog for virtual instances (isRecurringInstance = true)
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
                       selectedEvent.title !== "New Event" &&
-                      (selectedEvent.isRecurringInstance || 
-                       (selectedEvent.repeat && 
-                        selectedEvent.repeat !== "None" &&
-                        (selectedEvent.series_start_date || selectedEvent.series_end_date)))
+                      selectedEvent.isRecurringInstance === true
 
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue) => {
     if (!selectedEvent || !selectedEventId) return
@@ -119,18 +120,9 @@ const RepeatReminderPanel: React.FC = () => {
         }
       )
     } else {
+      // Just update the repeat field immediately
+      // series_start_date and series_end_date will be set when user clicks Save
       updateEventField(selectedEventId, "repeat", value)
-      
-      // Set series dates for recurring events
-      if (value !== "None" && REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number])) {
-        const eventDate = selectedEvent.date
-        const seriesEndDate = addYears(eventDate, 10)
-        updateEventField(selectedEventId, "series_start_date", eventDate)
-        updateEventField(selectedEventId, "series_end_date", seriesEndDate)
-      } else if (value === "None") {
-        updateEventField(selectedEventId, "series_start_date", undefined)
-        updateEventField(selectedEventId, "series_end_date", undefined)
-      }
     }
   }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
 

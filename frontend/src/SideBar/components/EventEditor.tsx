@@ -16,38 +16,35 @@ const EventEditor: React.FC = () => {
   const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+  const setHasEditsEventId = useEventsStore((state) => state.setHasEditsEventId)
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [urlChips, setUrlChips] = useState<URLChip[]>([])
+  const [hasEdits, setHasEdits] = useState(false)
   const urlInputRef = useRef<HTMLInputElement>(null)
   const prevSelectedEventIdRef = useRef<string | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   const urlSectionRef = useRef<HTMLDivElement>(null)
 
-  // Subscribe to caches to trigger re-renders when events change
-  const eventsCache = useEventsStore((state) => state.eventsCache)
-  const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
-
-  // Get the selected event - depends on caches to update when events change
-  const selectedEvent = useEventsStore((state) => {
-    if (!selectedEventId) return null
-    // Access caches to ensure this selector re-runs when they change
-    void eventsCache
-    void computedEventsCache
-    return state.getEventById(selectedEventId)
-  })
-
-  // Check if this is a recurring event (virtual instance OR master with repeat AND series dates)
-  // Don't show dialog for new/temp events
-  const isRecurring = selectedEvent && 
-                      !selectedEvent.isTemp &&
-                      selectedEvent.title !== "New Event" &&
-                      (selectedEvent.isRecurringInstance || 
-                       (selectedEvent.repeat && 
-                        selectedEvent.repeat !== "None" &&
-                        (selectedEvent.series_start_date || selectedEvent.series_end_date)))
+  // Subscribe to cache changes and trigger re-render
+  const [, setEventVersion] = useState(0)
+  const getEventById = useEventsStore((state) => state.getEventById)
+  
+  // Get the selected event - this will update when eventVersion changes
+  const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
+  
+  // Subscribe to cache changes and trigger re-render
+  useEffect(() => {
+    const unsubscribe = useEventsStore.subscribe(
+      () => {
+        // Trigger re-render when caches change
+        setEventVersion(v => v + 1)
+      }
+    )
+    return unsubscribe
+  }, [])
 
   // Load event data when selected event changes
   useEffect(() => {
@@ -55,24 +52,42 @@ const EventEditor: React.FC = () => {
       setTitle(selectedEvent.title === 'New Event' ? '' : selectedEvent.title)
       setNotes(selectedEvent.notes || '')
       const urls = selectedEvent.urls || []
-      setUrlChips(urls.map((url, index) => ({ url, id: `${index}-${url}` })))
+      setUrlChips(urls.map((url: string, index: number) => ({ url, id: `${index}-${url}` })))
+      setHasEdits(false)
+      setHasEditsEventId(null)
     }
   }, [selectedEvent?.id])
 
   // Handle property change with recurring dialog
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
-    if (!selectedEvent || !selectedEventId) return
+    console.log('handlePropertyChange CALLED:', { field, value, extraFields })
+    // Get current values from store to handle ID changes (temp → real)
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
+    console.log('handlePropertyChange: currentSelectedEventId =', currentSelectedEventId, 'currentEvent =', currentEvent)
+    
+    if (!currentEvent || !currentSelectedEventId) {
+      console.log('handlePropertyChange: early return - no event or id')
+      return
+    }
+    
+    // Check if this is a recurring event INSTANCE using current event data
+    // Only show dialog for virtual instances (isRecurringInstance = true)
+    const eventIsRecurring = currentEvent && 
+                        !currentEvent.isTemp &&
+                        currentEvent.title !== "New Event" &&
+                        (currentEvent as any).isRecurringInstance === true
 
-    if (isRecurring) {
+    if (eventIsRecurring) {
       // Capture values at this moment
-      const eventId = selectedEvent.id
-      const eventDate = selectedEvent.date
+      const eventId = currentEvent.id
+      const eventDate = (currentEvent as any).date
       const currentField = field
       const currentValue = value
       const currentExtraFields = extraFields
 
       showRecurringDialog(
-        selectedEvent as CalendarEvent,
+        currentEvent as CalendarEvent,
         "edit",
         async (choice: string) => {
           if (choice === "only-this") {
@@ -94,10 +109,10 @@ const EventEditor: React.FC = () => {
             }
             
             await splitRecurringEvent(
-              selectedEvent as any,
+              currentEvent as any,
               eventDate,
-              selectedEvent.start_time,
-              selectedEvent.end_time,
+              (currentEvent as any).start_time,
+              (currentEvent as any).end_time,
               updates as any
             )
             // Clear selection to force fresh render
@@ -116,16 +131,16 @@ const EventEditor: React.FC = () => {
         }
       )
     } else {
-      updateEventField(selectedEventId, field, value)
+      updateEventField(currentSelectedEventId, field, value)
       if (extraFields) {
         Object.entries(extraFields).forEach(([key, val]) => {
           if (val !== undefined) {
-            updateEventField(selectedEventId, key as keyof NewEvent, val)
+            updateEventField(currentSelectedEventId, key as keyof NewEvent, val)
           }
         })
       }
     }
-  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
+  }, [updateEventField, showRecurringDialog, closeRecurringDialog])
 
   // Save local state to cache when saveTrigger changes
   const titleRef = useRef(title)
@@ -146,14 +161,78 @@ const EventEditor: React.FC = () => {
   }, [urlChips])
   
   useEffect(() => {
-    if (selectedEventId && saveTrigger > 0) {
-      // For recurring events, we need to handle through the dialog
-      // But for saveTrigger, we'll update directly since user already made choice
-      updateEventField(selectedEventId, 'title', titleRef.current || 'New Event')
-      updateEventField(selectedEventId, 'notes', notesRef.current)
-      updateEventField(selectedEventId, 'urls', urlChipsRef.current.map(c => c.url))
+    console.log('saveTrigger useEffect: saveTrigger =', saveTrigger, 'selectedEventId =', selectedEventId)
+    if (saveTrigger === 0) {
+      console.log('saveTrigger useEffect: saveTrigger is 0, returning')
+      return
     }
-  }, [saveTrigger, updateEventField])
+    
+    const currentEventId = selectedEventId
+    if (!currentEventId) {
+      console.log('saveTrigger useEffect: no currentEventId, returning')
+      return
+    }
+    
+    const currentEvent = getEventById(currentEventId)
+    console.log('saveTrigger useEffect: currentEvent =', currentEvent)
+    if (!currentEvent) {
+      console.log('saveTrigger useEffect: no currentEvent, returning')
+      return
+    }
+    
+    // Check if recurring
+    const eventIsRecurring = !currentEvent.isTemp &&
+                        currentEvent.title !== "New Event" &&
+                        (currentEvent as any).isRecurringInstance === true
+    
+    if (eventIsRecurring) {
+      showRecurringDialog(
+        currentEvent as CalendarEvent,
+        "edit",
+        async (choice: string) => {
+          if (choice === "only-this") {
+            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+            await splitRecurringEvent(
+              currentEvent as any,
+              (currentEvent as any).date,
+              (currentEvent as any).start_time,
+              (currentEvent as any).end_time,
+              {
+                title: titleRef.current || 'New Event',
+                notes: notesRef.current,
+                urls: urlChipsRef.current.map(c => c.url)
+              }
+            )
+          } else if (choice === "all-events" || choice === "this-and-following") {
+            updateEventField(currentEventId, 'title', titleRef.current || 'New Event')
+            updateEventField(currentEventId, 'notes', notesRef.current)
+            updateEventField(currentEventId, 'urls', urlChipsRef.current.map(c => c.url))
+          }
+          setHasEdits(false)
+          setHasEditsEventId(null)
+          closeRecurringDialog()
+        }
+      )
+    } else {
+      updateEventField(currentEventId, 'title', titleRef.current || 'New Event')
+      updateEventField(currentEventId, 'notes', notesRef.current)
+      updateEventField(currentEventId, 'urls', urlChipsRef.current.map(c => c.url))
+      
+      // If repeat is set but series dates are missing, add them now
+      const repeat = (currentEvent as any).repeat
+      if (repeat && repeat !== 'None' && !(currentEvent as any).series_start_date) {
+        const eventDate = (currentEvent as any).date
+        const addYearsFn = (dateStr: string, years: number): string => {
+          const date = new Date(dateStr + 'T00:00:00')
+          date.setFullYear(date.getFullYear() + years)
+          return date.toISOString().split('T')[0]
+        }
+        const seriesEndDate = addYearsFn(eventDate, 10)
+        updateEventField(currentEventId, 'series_start_date', eventDate)
+        updateEventField(currentEventId, 'series_end_date', seriesEndDate)
+      }
+    }
+  }, [saveTrigger, selectedEventId, getEventById, updateEventField, showRecurringDialog, closeRecurringDialog])
 
   // Clear title on blur without Enter
   useEffect(() => {
@@ -164,6 +243,8 @@ const EventEditor: React.FC = () => {
       setTitle('')
       setNotes('')
       setUrlChips([])
+      setHasEdits(false)
+      setHasEditsEventId(null)
     }
 
     prevSelectedEventIdRef.current = currentId
@@ -180,29 +261,52 @@ const EventEditor: React.FC = () => {
   }
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(e.target.value)
+    const newTitle = e.target.value
+    setTitle(newTitle)
+    titleRef.current = newTitle
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    if (currentSelectedEventId) {
+      setHasEdits(true)
+      setHasEditsEventId(currentSelectedEventId)
+    }
   }
 
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && selectedEventId && selectedEvent) {
+    console.log('handleTitleKeyDown: key =', e.key)
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
+    console.log('handleTitleKeyDown: currentSelectedEventId =', currentSelectedEventId, 'currentEvent =', currentEvent)
+    if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
+      console.log('handleTitleKeyDown: ENTER PRESSED, calling handlePropertyChange with title:', titleRef.current)
       e.preventDefault()
-      handlePropertyChange('title', title || 'New Event', {
-        notes,
-        urls: urlChips.map(c => c.url)
+      setHasEdits(false)
+      setHasEditsEventId(null)
+      handlePropertyChange('title', titleRef.current || 'New Event', {
+        notes: notesRef.current,
+        urls: urlChipsRef.current.map(c => c.url)
       })
     }
   }
 
   const handleNotesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setNotes(e.target.value)
+    const newNotes = e.target.value
+    setNotes(newNotes)
+    notesRef.current = newNotes
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    if (currentSelectedEventId) {
+      setHasEdits(true)
+      setHasEditsEventId(currentSelectedEventId)
+    }
   }
 
   const handleNotesKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && selectedEventId && selectedEvent) {
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
+    if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
       e.preventDefault()
-      handlePropertyChange('title', title || 'New Event', {
-        notes,
-        urls: urlChips.map(c => c.url)
+      handlePropertyChange('title', titleRef.current || 'New Event', {
+        notes: notesRef.current,
+        urls: urlChipsRef.current.map(c => c.url)
       })
     }
   }
@@ -227,15 +331,17 @@ const EventEditor: React.FC = () => {
       setUrlChips(newChips)
     }
 
-    if (e.key === 'Enter' && selectedEventId && selectedEvent) {
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
+    if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
       e.preventDefault()
       if (urlInput.trim()) {
         addUrlChip(urlInput.trim())
         setUrlInput('')
       }
-      handlePropertyChange('title', title || 'New Event', {
-        notes,
-        urls: urlChips.map(c => c.url)
+      handlePropertyChange('title', titleRef.current || 'New Event', {
+        notes: notesRef.current,
+        urls: urlChipsRef.current.map(c => c.url)
       })
     }
   }
@@ -247,7 +353,12 @@ const EventEditor: React.FC = () => {
     }
     const newChips = [...urlChips, newChip]
     setUrlChips(newChips)
-    if (selectedEventId && selectedEvent) {
+    urlChipsRef.current = newChips
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
+    if (currentSelectedEventId && currentEvent) {
+      setHasEdits(true)
+      setHasEditsEventId(currentSelectedEventId)
       handlePropertyChange('urls', newChips.map(c => c.url))
     }
   }
@@ -255,7 +366,12 @@ const EventEditor: React.FC = () => {
   const removeUrlChip = (chipId: string) => {
     const newChips = urlChips.filter(chip => chip.id !== chipId)
     setUrlChips(newChips)
-    if (selectedEventId && selectedEvent) {
+    urlChipsRef.current = newChips
+    const currentSelectedEventId = useEventsStore.getState().selectedEventId
+    const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
+    if (currentSelectedEventId && currentEvent) {
+      setHasEdits(true)
+      setHasEditsEventId(currentSelectedEventId)
       handlePropertyChange('urls', newChips.map(c => c.url))
     }
   }

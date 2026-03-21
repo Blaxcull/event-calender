@@ -102,36 +102,15 @@ export function SideBar() {
   }, [selectedEventId, eventsCache, computedEventsCache])
 
   const handleSave = React.useCallback(async () => {
+    console.log('handleSave clicked, selectedEventId:', selectedEventId)
     if (!selectedEventId) return
     
-    const selectedEvent = getEventById(selectedEventId)
-    
-    // Only show recurring dialog if the event was ALREADY recurring when selected
-    // Don't show if it's just being made recurring (changing from None to Daily/Weekly/etc.)
-    const shouldShowDialog = wasRecurringWhenSelectedRef.current
-
-    if (shouldShowDialog) {
-      showRecurringDialog(
-        selectedEvent as CalendarEvent,
-        "edit",
-        async (choice: string) => {
-          console.log(`Save clicked, choice: ${choice}`)
-          closeRecurringDialog()
-          try {
-            await saveSelectedEvent()
-          } catch (error) {
-            console.error('Error in handleSave:', error)
-          }
-        }
-      )
-    } else {
-      try {
-        await saveSelectedEvent()
-      } catch (error) {
-        console.error('Error in handleSave:', error)
-      }
+    try {
+      await saveSelectedEvent()
+    } catch (error) {
+      console.error('Error in handleSave:', error)
     }
-  }, [selectedEventId, getEventById, showRecurringDialog, closeRecurringDialog, saveSelectedEvent, setSelectedEvent])
+  }, [selectedEventId, saveSelectedEvent])
 
   return (
       <>

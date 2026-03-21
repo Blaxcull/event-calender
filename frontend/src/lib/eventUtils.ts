@@ -33,6 +33,16 @@ export interface EventType {
   repeat?: string
 }
 
+export interface EventPosition {
+  left: string
+  width: string
+  zIndex: number
+}
+
+export interface EventPositions {
+  [eventId: string]: EventPosition
+}
+
 /* ================= INTERACTION LOCK ================= */
 
 let interactionLocked = false
@@ -287,7 +297,7 @@ export function resizeEvent(event: EventType, deltaY: number): EventType {
 
 /* ================= LAYOUT ENGINE ================= */
 
-interface PositionedEvent extends EventType {
+interface InternalPositionedEvent extends EventType {
   col: number
   colSpan: number
 }
@@ -321,9 +331,9 @@ function buildClusters(events: EventType[]): EventType[][] {
   return clusters
 }
 
-function assignColumns(events: EventType[]): PositionedEvent[] {
-  const columns: PositionedEvent[][] = []
-  const positioned: PositionedEvent[] = []
+function assignColumns(events: EventType[]): InternalPositionedEvent[] {
+  const columns: InternalPositionedEvent[][] = []
+  const positioned: InternalPositionedEvent[] = []
   const sorted = [...events].sort((a, b) => a.slot - b.slot)
 
   for (const ev of sorted) {
@@ -350,7 +360,7 @@ function assignColumns(events: EventType[]): PositionedEvent[] {
   return positioned
 }
 
-function expandSpans(events: PositionedEvent[]) {
+function expandSpans(events: InternalPositionedEvent[]) {
   const maxCol = Math.max(...events.map(e => e.col)) + 1
 
   for (const ev of events) {
@@ -365,6 +375,47 @@ function expandSpans(events: PositionedEvent[]) {
     }
     ev.colSpan = span
   }
+}
+
+export function calculateEventPositions(events: EventType[], selectedEventId: string | null = null): EventPositions {
+  const positions: EventPositions = {}
+  
+  if (events.length === 0) return positions
+  
+  const clusters = buildClusters(events)
+
+  for (const cluster of clusters) {
+    const positioned = assignColumns(cluster)
+    expandSpans(positioned)
+
+    const maxCol = Math.max(...positioned.map(e => e.col + e.colSpan))
+
+    for (const ev of positioned) {
+      const isSelected = ev.id === selectedEventId
+      
+      if (isSelected) {
+        positions[ev.id] = {
+          left: "0",
+          width: "100%",
+          zIndex: 20
+        }
+      } else {
+        const leftPercent = (ev.col / maxCol) * 100
+        const widthPercent = (ev.colSpan / maxCol) * 100
+
+        const left = leftPercent === 0 ? "0" : `calc(${leftPercent}%)`
+        const width = widthPercent === 100 ? "100%" : `calc(${widthPercent}%)`
+        
+        positions[ev.id] = {
+          left,
+          width,
+          zIndex: 2
+        }
+      }
+    }
+  }
+  
+  return positions
 }
 
 export function restoreEventWidths(events: EventType[], animate: boolean = true, skipEventId: string | null = null, selectedEventId: string | null = null) {
