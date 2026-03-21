@@ -31,21 +31,65 @@ const RepeatReminderPanel: React.FC = () => {
   // Priority: eventsCache (real events) > computedEventsCache (virtual instances)
   // This ensures master recurring events return isRecurringInstance: false
   const selectedEvent = React.useMemo(() => {
-    if (!selectedEventId) return null
-    // First check eventsCache (real events) - these are always accurate
+    if (!selectedEventId) {
+      return null
+    }
+    
+    // Check if this is a virtual event ID (format: "masterEventId-YYYY-MM-DD")
+    const datePattern = /-(\d{4}-\d{2}-\d{2})$/
+    const isVirtualEventId = datePattern.test(selectedEventId)
+    
+    if (isVirtualEventId) {
+      // First check computedEventsCache for virtual events
+      if (computedEventsCache) {
+        for (const dateKey in computedEventsCache) {
+          const event = computedEventsCache[dateKey].find(e => e.id === selectedEventId)
+          if (event) {
+            console.log('RepeatReminderPanel: Found VIRTUAL event, title =', event.title)
+            return event as CalendarEvent
+          }
+        }
+      }
+      
+      // Not in cache - try to generate it on-demand
+      const match = selectedEventId.match(datePattern)
+      if (match) {
+        const virtualDate = match[1]
+        const masterEventId = selectedEventId.replace(datePattern, '')
+        
+        // Find master event in eventsCache
+        for (const events of Object.values(eventsCache)) {
+          const masterEvent = events.find(e => e.id === masterEventId)
+          if (masterEvent) {
+            console.log('RepeatReminderPanel: Generated VIRTUAL from master, master title =', masterEvent.title)
+            // Generate virtual event
+            return {
+              ...masterEvent,
+              id: selectedEventId,
+              date: virtualDate,
+              end_date: virtualDate,
+              isRecurringInstance: true,
+              seriesMasterId: masterEventId,
+              occurrenceDate: virtualDate,
+            } as CalendarEvent
+          }
+        }
+      }
+      
+      return null
+    }
+    
+    // Real event - search in eventsCache
     if (eventsCache) {
       for (const dateKey in eventsCache) {
         const event = eventsCache[dateKey].find(e => e.id === selectedEventId)
-        if (event) return event as CalendarEvent
+        if (event) {
+          console.log('RepeatReminderPanel: Found REAL event, title =', event.title)
+          return event as CalendarEvent
+        }
       }
     }
-    // Only check computedEventsCache for virtual instances (IDs with date suffix like "eventId-2024-01-15")
-    if (computedEventsCache && selectedEventId.includes('-') && /\d{4}-\d{2}-\d{2}$/.test(selectedEventId)) {
-      for (const dateKey in computedEventsCache) {
-        const event = computedEventsCache[dateKey].find(e => e.id === selectedEventId)
-        if (event) return event as CalendarEvent
-      }
-    }
+    
     return null
   }, [selectedEventId, eventsCache, computedEventsCache])
 
@@ -54,7 +98,8 @@ const RepeatReminderPanel: React.FC = () => {
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
                       selectedEvent.title !== "New Event" &&
-                      selectedEvent.isRecurringInstance === true
+                      (selectedEvent as any).isRecurringInstance === true
+  console.log('RepeatReminderPanel: isRecurring =', isRecurring, 'selectedEvent =', selectedEvent)
 
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue) => {
     if (!selectedEvent || !selectedEventId) return
@@ -79,7 +124,9 @@ const RepeatReminderPanel: React.FC = () => {
               { [field]: value } as any
             )
           } else if (choice === "all-events") {
-            await updateEventField(eventId, field, value)
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
+            await updateAllInSeries(seriesMasterId, { [field]: value } as Partial<NewEvent>)
           }
           closeRecurringDialog()
         }
@@ -108,13 +155,17 @@ const RepeatReminderPanel: React.FC = () => {
               updateEventField(eventId, "series_end_date", undefined)
             }
           } else if (choice === "all-events") {
-            await updateEventField(eventId, "repeat", value)
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
+            
+            const updates: Partial<NewEvent> = { repeat: value }
             if (value !== "None" && REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number])) {
               const eventDate = selectedEvent.date
               const seriesEndDate = addYears(eventDate, 10)
-              updateEventField(eventId, "series_start_date", eventDate)
-              updateEventField(eventId, "series_end_date", seriesEndDate)
+              updates.series_start_date = eventDate
+              updates.series_end_date = seriesEndDate
             }
+            await updateAllInSeries(seriesMasterId, updates)
           }
           closeRecurringDialog()
         }
@@ -164,7 +215,6 @@ const RepeatReminderPanel: React.FC = () => {
       {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
         <RecurringActionDialog
           open={recurringDialogOpen}
-          onClose={closeRecurringDialog}
           onChoice={(choice) => {
             const callback = useEventsStore.getState().recurringDialogCallback
             if (callback) callback(choice)

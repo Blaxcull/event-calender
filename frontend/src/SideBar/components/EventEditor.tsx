@@ -48,6 +48,7 @@ const EventEditor: React.FC = () => {
 
   // Load event data when selected event changes
   useEffect(() => {
+    console.log('EventEditor: selected event changed, id =', selectedEvent?.id, 'title =', selectedEvent?.title)
     if (selectedEvent) {
       setTitle(selectedEvent.title === 'New Event' ? '' : selectedEvent.title)
       setNotes(selectedEvent.notes || '')
@@ -60,7 +61,7 @@ const EventEditor: React.FC = () => {
 
   // Handle property change with recurring dialog
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
-    console.log('handlePropertyChange CALLED:', { field, value, extraFields })
+    console.log('handlePropertyChange CALLED:', { field, value, extraFields, stack: new Error().stack })
     // Get current values from store to handle ID changes (temp → real)
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
@@ -118,14 +119,23 @@ const EventEditor: React.FC = () => {
             // Clear selection to force fresh render
             setSelectedEvent(null)
           } else if (choice === "all-events") {
-            await updateEventField(eventId, currentField, currentValue)
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (currentEvent as any).seriesMasterId || eventId
+            
+            // Build updates object with all fields
+            const allUpdates: Record<string, EventFieldValue> = {}
+            if (currentField && currentValue !== undefined) {
+              allUpdates[currentField] = currentValue
+            }
             if (currentExtraFields) {
               Object.entries(currentExtraFields).forEach(([key, val]) => {
                 if (val !== undefined) {
-                  updateEventField(eventId, key as keyof NewEvent, val)
+                  allUpdates[key] = val
                 }
               })
             }
+            
+            await updateAllInSeries(seriesMasterId, allUpdates as Partial<NewEvent>)
           }
           closeRecurringDialog()
         }
@@ -169,21 +179,68 @@ const EventEditor: React.FC = () => {
     
     const currentEventId = selectedEventId
     if (!currentEventId) {
-      console.log('saveTrigger useEffect: no currentEventId, returning')
       return
     }
     
-    const currentEvent = getEventById(currentEventId)
-    console.log('saveTrigger useEffect: currentEvent =', currentEvent)
+    // Check if this is a virtual event ID (format: "masterEventId-YYYY-MM-DD")
+    const datePattern = /-(\d{4}-\d{2}-\d{2})$/
+    const isVirtualEventId = datePattern.test(currentEventId)
+    
+    // Get caches
+    const { computedEventsCache, eventsCache } = useEventsStore.getState()
+    let currentEvent: any = null
+    
+    if (isVirtualEventId) {
+      // First check computedEventsCache for virtual events
+      if (computedEventsCache) {
+        for (const events of Object.values(computedEventsCache)) {
+          const found = events.find((e: any) => e.id === currentEventId)
+          if (found) {
+            currentEvent = found
+            break
+          }
+        }
+      }
+      
+      // Not in cache - try to generate it on-demand
+      if (!currentEvent) {
+        const match = currentEventId.match(datePattern)
+        if (match) {
+          const virtualDate = match[1]
+          const masterEventId = currentEventId.replace(datePattern, '')
+          
+          // Find master event in eventsCache
+          for (const events of Object.values(eventsCache)) {
+            const found = events.find((e: any) => e.id === masterEventId)
+            if (found) {
+              currentEvent = {
+                ...found,
+                id: currentEventId,
+                date: virtualDate,
+                end_date: virtualDate,
+                isRecurringInstance: true,
+                seriesMasterId: masterEventId,
+                occurrenceDate: virtualDate,
+              }
+              break
+            }
+          }
+        }
+      }
+    } else {
+      // Real event
+      currentEvent = getEventById(currentEventId)
+    }
+    
     if (!currentEvent) {
-      console.log('saveTrigger useEffect: no currentEvent, returning')
+      console.log('saveTrigger: Event not found:', currentEventId)
       return
     }
     
-    // Check if recurring
-    const eventIsRecurring = !currentEvent.isTemp &&
-                        currentEvent.title !== "New Event" &&
-                        (currentEvent as any).isRecurringInstance === true
+    // Check if recurring - virtual instances have isRecurringInstance = true
+    const eventIsRecurring = currentEvent.title !== "New Event" &&
+                        currentEvent.isRecurringInstance === true
+    console.log('saveTrigger useEffect: checking recurring, eventIsRecurring =', eventIsRecurring, 'title =', currentEvent.title, 'isRecurringInstance =', currentEvent.isRecurringInstance)
     
     if (eventIsRecurring) {
       showRecurringDialog(
@@ -204,9 +261,14 @@ const EventEditor: React.FC = () => {
               }
             )
           } else if (choice === "all-events" || choice === "this-and-following") {
-            updateEventField(currentEventId, 'title', titleRef.current || 'New Event')
-            updateEventField(currentEventId, 'notes', notesRef.current)
-            updateEventField(currentEventId, 'urls', urlChipsRef.current.map(c => c.url))
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (currentEvent as any).seriesMasterId || currentEventId
+            
+            await updateAllInSeries(seriesMasterId, {
+              title: titleRef.current || 'New Event',
+              notes: notesRef.current,
+              urls: urlChipsRef.current.map(c => c.url)
+            })
           }
           setHasEdits(false)
           setHasEditsEventId(null)
@@ -477,7 +539,6 @@ shadow-lg border border-neutral-100
       {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
         <RecurringActionDialog
           open={recurringDialogOpen}
-          onClose={closeRecurringDialog}
           onChoice={(choice) => {
             const callback = useEventsStore.getState().recurringDialogCallback
             if (callback) callback(choice)

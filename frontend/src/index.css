@@ -1,5 +1,31 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* Disable dialog transitions for instant close */
+[data-state="open"] > div {
+  animation: none !important;
+  transition: none !important;
+}
+
+[data-state="closed"] > div {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Override Radix Dialog animations */
+[data-radix-portal] {
+  animation: none !important;
+}
+
+/* Force instant transitions */
+[role="dialog"],
+[role="dialog"] * {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+  animation-delay: 0ms !important;
+  transition-delay: 0ms !important;
+}
+
 /* Hide scrollbar for Chrome, Safari and Opera */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

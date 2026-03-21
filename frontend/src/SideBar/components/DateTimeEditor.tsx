@@ -457,14 +457,22 @@ const DateTimeEditor: React.FC = () => {
               updates as any
             )
           } else if (choice === "all-events") {
-            await updateEventField(eventId, field, value)
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
+            
+            const allUpdates: Record<string, EventFieldValue> = {}
+            if (field && value !== undefined) {
+              allUpdates[field] = value
+            }
             if (extraFields) {
               Object.entries(extraFields).forEach(([key, val]) => {
                 if (val !== undefined) {
-                  updateEventField(eventId, key as keyof NewEvent, val)
+                  allUpdates[key] = val
                 }
               })
             }
+            
+            await updateAllInSeries(seriesMasterId, allUpdates as Partial<NewEvent>)
           }
           closeRecurringDialog()
         }
@@ -539,7 +547,6 @@ const DateTimeEditor: React.FC = () => {
       {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
         <RecurringActionDialog
           open={recurringDialogOpen}
-          onClose={closeRecurringDialog}
           onChoice={(choice) => {
             const callback = useEventsStore.getState().recurringDialogCallback
             if (callback) callback(choice)

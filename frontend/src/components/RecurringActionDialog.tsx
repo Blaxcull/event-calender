@@ -8,7 +8,6 @@ export type RecurringActionType = "edit" | "delete"
 
 interface RecurringActionDialogProps {
   open: boolean
-  onClose: () => void
   onChoice: (choice: RecurringActionChoice) => void
   actionType: RecurringActionType
   eventTitle: string
@@ -16,7 +15,6 @@ interface RecurringActionDialogProps {
 
 const RecurringActionDialog: React.FC<RecurringActionDialogProps> = ({
   open,
-  onClose,
   onChoice,
   actionType,
   eventTitle,
@@ -29,8 +27,8 @@ const RecurringActionDialog: React.FC<RecurringActionDialogProps> = ({
     : `Delete "${eventTitle}"`
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[400px] p-6" onClose={onClose}>
+    <Dialog open={open} onOpenChange={() => onChoice("cancel")}>
+      <DialogContent className="w-[400px] p-6 dialog-no-transition" onClose={() => onChoice("cancel")}>
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-neutral-800">{title}</h2>
           <p className="text-neutral-600">

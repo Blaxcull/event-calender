@@ -228,7 +228,6 @@ hover:scale-110 hover:shadow-xl"
       {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
         <RecurringActionDialog
           open={recurringDialogOpen}
-          onClose={closeRecurringDialog}
           onChoice={(choice) => {
             const callback = useEventsStore.getState().recurringDialogCallback
             if (callback) callback(choice)

@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect } from "react"
-import { useEventsStore, type CalendarEvent } from "@/store/eventsStore"
+import { useEventsStore, type CalendarEvent, type NewEvent } from "@/store/eventsStore"
 import GoalTypeRow from "./GoalTypeRow"
 import GoalRow from "./GoalRow"
 import RecurringActionDialog from "@/components/RecurringActionDialog"
@@ -59,7 +59,9 @@ const GoalPanel: React.FC = () => {
               { [field]: value } as any
             )
           } else if (choice === "all-events") {
-            await updateEventField(eventId, field as any, value)
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
+            await updateAllInSeries(seriesMasterId, { [field]: value } as Partial<NewEvent>)
           }
           closeRecurringDialog()
         }
@@ -98,7 +100,6 @@ const GoalPanel: React.FC = () => {
       {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
         <RecurringActionDialog
           open={recurringDialogOpen}
-          onClose={closeRecurringDialog}
           onChoice={(choice) => {
             const callback = useEventsStore.getState().recurringDialogCallback
             if (callback) callback(choice)

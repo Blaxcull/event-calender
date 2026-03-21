@@ -136,7 +136,9 @@ interface EventsState {
   addEvent: (event: NewEvent) => Promise<Event>
   addEventOptimistic: (event: NewEvent) => Promise<Event>
   addEventLocal: (event: NewEvent) => Event
+  saveTempEvent: (tempEventId: string) => Promise<void>
   updateEvent: (id: string, updates: Partial<NewEvent>) => Promise<Event | null>
+  updateAllInSeries: (seriesMasterId: string, updates: Partial<NewEvent>) => Promise<void>
   deleteEvent: (id: string) => Promise<boolean>
   getEventsForDate: (date: Date) => CalendarEvent[]
   getEventById: (id: string) => CalendarEvent | null
@@ -722,6 +724,106 @@ export const useEventsStore = create<EventsState>()(
         return tempEvent
       },
 
+      saveTempEvent: async (tempEventId: string) => {
+        console.log('saveTempEvent CALLED:', tempEventId)
+        
+        // Find the temp event in cache and get pending updates
+        const { eventsCache, pendingSyncs, pendingUpdates } = get()
+        let tempEvent: Event | null = null
+        let dateKey: string | null = null
+        
+        for (const key in eventsCache) {
+          const event = eventsCache[key].find(e => e.id === tempEventId)
+          if (event) {
+            tempEvent = event
+            dateKey = key
+            break
+          }
+        }
+        
+        if (!tempEvent || !dateKey) {
+          console.error('saveTempEvent: Temp event not found')
+          return
+        }
+        
+        // Apply pending updates to temp event before saving
+        const queuedUpdates = pendingUpdates.get(tempEventId) || []
+        console.log('saveTempEvent: Applying', queuedUpdates.length, 'queued updates')
+        let updatedTempEvent = { ...tempEvent }
+        queuedUpdates.forEach(update => {
+          updatedTempEvent = { ...updatedTempEvent, ...update }
+        })
+        
+        // Get current user
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          console.error('saveTempEvent: User not authenticated')
+          return
+        }
+        
+        // Create event object for DB with all fields including queued updates
+        const eventForDb: Record<string, any> = {
+          title: updatedTempEvent.title || 'Untitled',
+          date: updatedTempEvent.date,
+          end_date: updatedTempEvent.end_date || updatedTempEvent.date,
+          start_time: updatedTempEvent.start_time,
+          end_time: updatedTempEvent.end_time,
+          user_id: user.id,
+          description: updatedTempEvent.description,
+          notes: updatedTempEvent.notes,
+          urls: updatedTempEvent.urls,
+          color: updatedTempEvent.color,
+          is_all_day: updatedTempEvent.is_all_day,
+          location: updatedTempEvent.location,
+          repeat: updatedTempEvent.repeat,
+          series_start_date: updatedTempEvent.series_start_date,
+          series_end_date: updatedTempEvent.series_end_date,
+        }
+        
+        console.log('saveTempEvent: Saving with repeat:', eventForDb.repeat, 'series_start_date:', eventForDb.series_start_date)
+        
+        // Insert to database
+        const { data: savedEvent, error } = await supabase
+          .from('events')
+          .insert([eventForDb])
+          .select()
+          .single()
+        
+        if (error || !savedEvent) {
+          console.error('saveTempEvent: Failed to save to DB:', error)
+          return
+        }
+        
+        console.log('saveTempEvent: Saved to DB, id:', savedEvent.id)
+        
+        // Update cache: replace temp event with real event (with applied updates)
+        const { eventsCache: currentCache } = get()
+        const newCache = { ...currentCache }
+        
+        if (newCache[dateKey]) {
+          newCache[dateKey] = newCache[dateKey].map(e =>
+            e.id === tempEventId ? { ...updatedTempEvent, ...savedEvent, id: savedEvent.id, isTemp: false } : e
+          )
+        }
+        
+        // Remove from pendingSyncs and pendingUpdates
+        const newPendingSyncs = new Set(pendingSyncs)
+        newPendingSyncs.delete(tempEventId)
+        const newPendingUpdates = new Map(pendingUpdates)
+        newPendingUpdates.delete(tempEventId)
+        
+        // Clear ALL computed cache so virtual events are regenerated with correct data
+        set({
+          eventsCache: newCache,
+          computedEventsCache: {},
+          recurringEventsCache: {},
+          pendingSyncs: newPendingSyncs,
+          pendingUpdates: newPendingUpdates,
+        })
+        
+        console.log('saveTempEvent: Done, temp event replaced with real event, cleared all computed cache')
+      },
+
        updateEvent: async (id: string, updates: Partial<NewEvent>) => {
          const { eventsCache, computedEventsCache, pendingSyncs, pendingUpdates } = get()
          const oldDate = Object.keys(eventsCache).find(date =>
@@ -771,8 +873,8 @@ export const useEventsStore = create<EventsState>()(
 
               set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
              
-             // Check if this is a temp event still syncing
-             if (pendingSyncs.has(id)) {
+             // Check if this is a temp event (not yet saved to DB)
+             if (updatedEvent.isTemp === true || pendingSyncs.has(id)) {
                // Queue the update to be applied after sync completes
                const newPendingUpdates = new Map(pendingUpdates)
                const existing = newPendingUpdates.get(id) || []
@@ -817,14 +919,31 @@ export const useEventsStore = create<EventsState>()(
                }
              }, 0)
              
-             return updatedEvent
-           }
-         }
-         
-         return null
-       },
+              return updatedEvent
+            }
+          }
+          
+          return null
+        },
 
-       deleteEvent: async (id: string) => {
+        updateAllInSeries: async (seriesMasterId: string, updates: Partial<NewEvent>) => {
+          console.log('updateAllInSeries CALLED:', { seriesMasterId, updates })
+          
+          // 1. Update the master event in cache and database
+          await get().updateEvent(seriesMasterId, updates)
+          
+          // 2. Clear recurring cache so virtual events will be regenerated with new values
+          // 3. Clear selectedEventId to close the sidebar
+          set({
+            recurringEventsCache: {},
+            computedEventsCache: {},
+            selectedEventId: null,
+          })
+          
+          console.log('updateAllInSeries: Cleared caches and deselected event')
+        },
+
+        deleteEvent: async (id: string) => {
          // Update cache immediately
          const { eventsCache, computedEventsCache } = get()
          const newCache = { ...eventsCache }
@@ -898,6 +1017,7 @@ export const useEventsStore = create<EventsState>()(
         // Check if recurring events are cached for this month
         if (recurringEventsCache[monthKey]) {
           recurringEvents = recurringEventsCache[monthKey].filter(e => e.date === dateKey)
+          console.log('getEventsForDate:', dateKey, 'Found', recurringEvents.length, 'recurring events from cache')
         } else {
           // Generate recurring events for the entire month
           const { monthStart, monthEnd } = getMonthRange(date)
@@ -912,11 +1032,14 @@ export const useEventsStore = create<EventsState>()(
                   // Avoid duplicates
                   if (!allMasterEvents.find(e => e.id === event.id)) {
                     allMasterEvents.push(event)
+                    console.log('getEventsForDate: Found master recurring event:', event.id, event.title, event.repeat)
                   }
                 }
               }
             })
           })
+          
+          console.log('getEventsForDate:', dateKey, 'Found', allMasterEvents.length, 'master events')
           
           // Generate recurring dates for each master event
           const generatedRecurring: CalendarEvent[] = []
@@ -1013,24 +1136,18 @@ export const useEventsStore = create<EventsState>()(
       getEventById: (id: string): CalendarEvent | null => {
         const { eventsCache, computedEventsCache } = get()
         
-        // First search through all dates in eventsCache (real events)
-        for (const dateKey in eventsCache) {
-          const event = eventsCache[dateKey].find(e => e.id === id)
-          if (event) {
-            return event as CalendarEvent
-          }
-        }
-        
-        // Only search computedEventsCache for virtual event IDs (format: "masterEventId-YYYY-MM-DD")
-        // This prevents returning stale virtual events when the real event was just made recurring
+        // Check if this is a virtual event ID (format: "masterEventId-YYYY-MM-DD")
         const datePattern = /-(\d{4}-\d{2}-\d{2})$/
         const isVirtualEventId = datePattern.test(id)
         
         if (isVirtualEventId) {
+          console.log('getEventById: Searching for virtual event:', id)
+          
           // Search through computedEventsCache for virtual events
           for (const dateKey in computedEventsCache) {
             const event = computedEventsCache[dateKey].find(e => e.id === id)
             if (event) {
+              console.log('getEventById: Found virtual event in computedEventsCache:', event.isRecurringInstance)
               return event
             }
           }
@@ -1040,6 +1157,7 @@ export const useEventsStore = create<EventsState>()(
           if (match) {
             const virtualDate = match[1]
             const masterEventId = id.replace(datePattern, '')
+            console.log('getEventById: Generating virtual event on-demand:', { virtualDate, masterEventId })
             
             // Find the master event in eventsCache
             let masterEvent: Event | null = null
@@ -1062,6 +1180,7 @@ export const useEventsStore = create<EventsState>()(
                 seriesMasterId: masterEventId,
                 occurrenceDate: virtualDate,
               }
+              console.log('getEventById: Generated virtual event:', virtualEvent.isRecurringInstance)
               
               // Cache it for future lookups (deferred to avoid setState during render)
               setTimeout(() => {
@@ -1074,10 +1193,21 @@ export const useEventsStore = create<EventsState>()(
               }, 0)
               
               return virtualEvent
+            } else {
+              console.log('getEventById: Master event not found for:', masterEventId)
             }
           }
         }
         
+        // Search through eventsCache for real events
+        for (const dateKey in eventsCache) {
+          const event = eventsCache[dateKey].find(e => e.id === id)
+          if (event) {
+            return event as CalendarEvent
+          }
+        }
+        
+        console.log('getEventById: Event not found:', id)
         return null
       },
 
@@ -1102,6 +1232,25 @@ export const useEventsStore = create<EventsState>()(
         
         const { eventsCache, computedEventsCache, pendingSyncs, pendingUpdates } = get()
         console.log('updateEventField: searching for id', id, 'in cache')
+        
+        // Check if this is a virtual event ID (format: "masterEventId-YYYY-MM-DD")
+        const datePattern = /-(\d{4}-\d{2}-\d{2})$/
+        const isVirtualEventId = datePattern.test(id)
+        
+        if (isVirtualEventId) {
+          console.log('updateEventField: Virtual event detected, redirecting to updateAllInSeries')
+          // For virtual events, we need to update the master event
+          // Find the master event ID from the virtual event ID
+          const match = id.match(datePattern)
+          if (match) {
+            const seriesMasterId = id.replace(datePattern, '')
+            console.log('updateEventField: Calling updateAllInSeries for master:', seriesMasterId)
+            get().updateAllInSeries(seriesMasterId, { [field]: value })
+          }
+          return
+        }
+        
+        // Real event - search in eventsCache
         const dateKey = Object.keys(eventsCache).find(date =>
           eventsCache[date].some(e => e.id === id)
         )
@@ -1171,8 +1320,8 @@ export const useEventsStore = create<EventsState>()(
 
         set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
 
-        // Check if this is a temp event still syncing
-        if (pendingSyncs.has(id)) {
+        // Check if this is a temp event (not yet saved to DB)
+        if (currentEvent.isTemp === true || pendingSyncs.has(id)) {
           console.log('updateEventField: Event is temp, queueing update for later')
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
@@ -1248,24 +1397,9 @@ export const useEventsStore = create<EventsState>()(
           set({ selectedEventId: null, saveTrigger: 0 })
 
           if (isTempEvent) {
-            // Save temp event to database
+            // Save temp event to database - replaces temp event with real event in cache
             console.log('saveSelectedEvent: Saving temp event to database')
-            await get().addEventOptimistic({
-              title: event.title || 'Untitled',
-              date: event.date,
-              end_date: event.end_date,
-              start_time: event.start_time,
-              end_time: event.end_time,
-              description: event.description,
-              notes: event.notes,
-              urls: event.urls,
-              color: event.color,
-              is_all_day: event.is_all_day,
-              location: event.location,
-            })
-            
-            // Delete the temp event since we created a new one
-            get().deleteEvent(selectedEventId)
+            await get().saveTempEvent(selectedEventId)
           } else {
             // Existing event - update it
             const eventIdToUpdate = event.id
@@ -1400,6 +1534,7 @@ export const useEventsStore = create<EventsState>()(
         }
         
         const originalEventTitle = originalTitle // ORIGINAL title
+        console.log('splitRecurringEvent: originalEventTitle =', originalEventTitle)
         
         // Check if selected date is the first occurrence
         const isFirstOccurrence = selectedDate === (event.series_start_date || event.date)
@@ -1418,25 +1553,24 @@ export const useEventsStore = create<EventsState>()(
             series_end_date: prevDay,
           })
           
-          // Check if there are updates (drag/resize) - create Event 2 at selectedDate
-          if (updates || startTimeForNewEvent !== undefined || endTimeForNewEvent !== undefined) {
-            // Create standalone event at selectedDate with updates
-            const event2Data: NewEvent = {
-              title: updates?.title ?? event.title,
-              description: event.description,
-              notes: event.notes,
-              urls: event.urls,
-              date: selectedDate,
-              end_date: selectedDate,
-              start_time: startTimeForNewEvent ?? event.start_time,
-              end_time: endTimeForNewEvent ?? event.end_time,
-              color: event.color,
-              is_all_day: event.is_all_day,
-              location: event.location,
-              repeat: 'None', // Make it standalone
-            }
-            await get().addEventOptimistic(event2Data)
+          // Create Event 2: standalone event at selectedDate with original title
+          // Use originalEventTitle to ensure we get the correct title from master
+          console.log('splitRecurringEvent: Creating event2 with title =', originalEventTitle)
+          const event2Data: NewEvent = {
+            title: originalEventTitle,
+            description: masterEvent?.description ?? event.description,
+            notes: masterEvent?.notes ?? event.notes,
+            urls: masterEvent?.urls ?? event.urls,
+            date: selectedDate,
+            end_date: selectedDate,
+            start_time: startTimeForNewEvent ?? event.start_time,
+            end_time: endTimeForNewEvent ?? event.end_time,
+            color: masterEvent?.color ?? event.color,
+            is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
+            location: masterEvent?.location ?? event.location,
+            repeat: 'None', // Make it standalone
           }
+          await get().addEventOptimistic(event2Data)
         }
           
           // Event 3: Create new series from nextDay - uses ORIGINAL title
