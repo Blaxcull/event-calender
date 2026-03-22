@@ -1553,14 +1553,15 @@ export const useEventsStore = create<EventsState>()(
             series_end_date: prevDay,
           })
           
-          // Create Event 2: standalone event at selectedDate with original title
-          // Use originalEventTitle to ensure we get the correct title from master
-          console.log('splitRecurringEvent: Creating event2 with title =', originalEventTitle)
+          // Create Event 2: standalone event at selectedDate
+          // Use event's current values (which include pendingUpdates) as primary source
+          // Only fall back to master/original if event values are undefined
+          console.log('splitRecurringEvent: Creating event2 with title =', updates?.title ?? event.title ?? originalEventTitle)
           const event2Data: NewEvent = {
-            title: originalEventTitle,
-            description: masterEvent?.description ?? event.description,
-            notes: masterEvent?.notes ?? event.notes,
-            urls: masterEvent?.urls ?? event.urls,
+            title: updates?.title ?? event.title ?? originalEventTitle,
+            description: updates?.description ?? event.description ?? masterEvent?.description,
+            notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
+            urls: updates?.urls ?? event.urls ?? masterEvent?.urls,
             date: selectedDate,
             end_date: selectedDate,
             start_time: startTimeForNewEvent ?? event.start_time,
