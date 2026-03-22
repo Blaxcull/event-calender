@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import TimeUpdater from "./components/TimeUpdater"
 import { ViewSwitcher } from "./components/ViewSwitcher"
@@ -7,11 +7,17 @@ import {SideBar} from "./SideBar/SideBar.tsx"
 import { DayViewRoute, TodayRedirect } from "./components/DayViewRoute"
 import { Login } from "./pages/Login"
 import { Signup } from "./pages/Signup"
+import { startReminderService, stopReminderService } from "./services/reminderService"
 
 function App() {
   const location = useLocation()
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup'
   const [currentView, setCurrentView] = useState<string>('day')
+
+  useEffect(() => {
+    startReminderService()
+    return () => stopReminderService()
+  }, [])
 
   return (
     <>

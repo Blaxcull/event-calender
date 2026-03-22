@@ -3,13 +3,16 @@ import { useEventsStore } from "@/store/eventsStore"
 import TimeLine from "./TimeLine"
 import TimeView from "./TimeView"
 import { useEffect, useRef, useMemo } from "react"
-import { TOP_DEAD_ZONE } from "@/lib/eventUtils"
+import { TOP_DEAD_ZONE, STEP_HEIGHT } from "@/lib/eventUtils"
 
 const DayView = () => {
   const dateInfo = useTimeStore((state) => state.dateInfo)
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
+  const scrollToEventId = useEventsStore((state) => state.scrollToEventId)
+  const getEventById = useEventsStore((state) => state.getEventById)
+  const setScrollToEventId = useEventsStore((state) => state.setScrollToEventId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const hourHeight = 100
 
@@ -59,6 +62,15 @@ const DayView = () => {
 
     scrollRef.current.scrollTop = Math.max(0, scrollPosition)
   }, [selectedDate])
+
+  useEffect(() => {
+    if (!scrollToEventId || !scrollRef.current) return
+    const event = getEventById(scrollToEventId)
+    if (!event) return
+    const scrollPosition = TOP_DEAD_ZONE + event.start_time * (hourHeight / 60) - 100
+    scrollRef.current.scrollTop = Math.max(0, scrollPosition)
+    setScrollToEventId(null)
+  }, [scrollToEventId, getEventById, setScrollToEventId])
 
   // Memoize hour grid arrays to prevent recreation on every render
   const hourSlots = useMemo(() => 

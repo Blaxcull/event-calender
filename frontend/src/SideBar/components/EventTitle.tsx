@@ -9,6 +9,7 @@ import RepeatReminderPanel from './RepeatReminderPanel'
 const EventTitle: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
+  const setScrollToEventId = useEventsStore((state) => state.setScrollToEventId)
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   
@@ -40,6 +41,7 @@ const EventTitle: React.FC = () => {
   }
 
   const handleEventClick = (eventId: string) => {
+    setScrollToEventId(eventId)
     setSelectedEvent(eventId)
   }
 

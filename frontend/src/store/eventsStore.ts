@@ -119,6 +119,9 @@ interface EventsState {
   // Currently selected event ID for editing
   selectedEventId: string | null
 
+  // Trigger to scroll DayView to a specific event by ID
+  scrollToEventId: string | null
+
   // Trigger to force EventEditor to save local state
   saveTrigger: number
 
@@ -146,6 +149,7 @@ interface EventsState {
   isEventSyncing: (eventId: string) => boolean
   isAnyEventSyncing: () => boolean
   setSelectedEvent: (id: string | null) => void
+  setScrollToEventId: (id: string | null) => void
   updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => void
   saveSelectedEvent: () => Promise<void>
   showRecurringDialog: (event: CalendarEvent, actionType: "edit" | "delete", callback: (choice: string) => void) => void
@@ -281,6 +285,7 @@ export const useEventsStore = create<EventsState>()(
       pendingSyncs: new Set<string>(),
       pendingUpdates: new Map<string, Partial<NewEvent>[]>(),
       selectedEventId: null,
+      scrollToEventId: null,
       saveTrigger: 0,
       recurringDialogOpen: false,
       recurringDialogEvent: null,
@@ -463,6 +468,7 @@ export const useEventsStore = create<EventsState>()(
             if (event.color !== undefined) eventForDb.color = event.color
             if (event.is_all_day !== undefined) eventForDb.is_all_day = event.is_all_day
             if (event.location !== undefined) eventForDb.location = event.location
+            if (event.earlyReminder !== undefined) eventForDb.early_reminder = event.earlyReminder
 
 
             const { data, error } = await supabase
@@ -820,6 +826,7 @@ export const useEventsStore = create<EventsState>()(
           repeat: updatedTempEvent.repeat,
           series_start_date: updatedTempEvent.series_start_date,
           series_end_date: updatedTempEvent.series_end_date,
+          early_reminder: updatedTempEvent.earlyReminder,
         }
         
         console.log('saveTempEvent: Saving with repeat:', eventForDb.repeat, 'series_start_date:', eventForDb.series_start_date)
@@ -940,6 +947,9 @@ export const useEventsStore = create<EventsState>()(
                         // Only include end_date and is_all_day if they're explicitly set (not defaults)
                         if ((key === 'end_date' || key === 'is_all_day') && value !== undefined) {
                           filteredUpdates[key] = value
+                        }
+                        if (key === 'earlyReminder' && value !== undefined) {
+                          filteredUpdates['early_reminder'] = value
                         }
                       }
                     })
@@ -1270,6 +1280,10 @@ export const useEventsStore = create<EventsState>()(
 
       setSelectedEvent: (id: string | null) => {
         set({ selectedEventId: id })
+      },
+
+      setScrollToEventId: (id: string | null) => {
+        set({ scrollToEventId: id })
       },
 
       updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => {

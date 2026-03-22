@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS events (
   color TEXT DEFAULT '#3b82f6',        -- Event color (hex code)
   is_all_day BOOLEAN DEFAULT false,    -- All-day event flag
   location TEXT,                       -- Event location
+  early_reminder TEXT,                 -- Early reminder setting (e.g., "5 minutes before")
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   
