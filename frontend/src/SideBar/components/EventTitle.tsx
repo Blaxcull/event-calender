@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef, useEffect } from 'react'
 import { useEventsStore } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import EventEditor from './EventEditor'
@@ -10,9 +10,17 @@ const EventTitle: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedDate = useTimeStore((state) => state.selectedDate)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   
   // Subscribe to the entire store state to ensure reactivity
   const storeState = useEventsStore()
+  
+  // Scroll to top when a new event is selected
+  useEffect(() => {
+    if (selectedEventId && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0
+    }
+  }, [selectedEventId])
 
   // Get events for selected date - use useMemo with selectedDate as key
   const todaysEvents = React.useMemo(() => {
@@ -38,7 +46,7 @@ const EventTitle: React.FC = () => {
   // If an event is selected, show the editor
   if (selectedEventId) {
     return (
-      <div className="px-0 flex-1 overflow-y-auto no-scrollbar">
+      <div ref={scrollContainerRef} className="px-0 flex-1 overflow-y-auto no-scrollbar">
         <EventEditor />
         <DateTimeEditor />
         <GoalPanel />

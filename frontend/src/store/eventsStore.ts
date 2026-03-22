@@ -182,12 +182,36 @@ const addDaysToDateStr = (dateStr: string, days: number): string => {
   return `${year}-${month}-${day}`
 }
 
+// Helper to add months to a date string, clamping day to last day of month if needed
+const addMonthsToDateStr = (dateStr: string, months: number): string => {
+  const date = new Date(dateStr + 'T00:00:00')
+  const originalDay = date.getDate()
+  date.setMonth(date.getMonth() + months)
+  const lastDayOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(originalDay, lastDayOfMonth))
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// Helper to add years to a date string, handling Feb 29 -> Feb 28 for non-leap years
+const addYearsToDateStr = (dateStr: string, years: number): string => {
+  const date = new Date(dateStr + 'T00:00:00')
+  date.setFullYear(date.getFullYear() + years)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 // Generate recurring dates for a month based on series_start_date and series_end_date
 const generateRecurringDatesForMonth = (
   seriesStartDate: string,
   seriesEndDate: string,
   monthStart: string, // YYYY-MM-01
-  monthEnd: string    // YYYY-MM-31 (last day of month)
+  monthEnd: string,   // YYYY-MM-31 (last day of month)
+  repeatType: string  // "Daily" | "Weekly" | "Monthly" | "Yearly"
 ): string[] => {
   const dates: string[] = []
   
@@ -199,11 +223,28 @@ const generateRecurringDatesForMonth = (
     return dates // Series doesn't cover this month
   }
   
-  // Generate all dates from effectiveStart to effectiveEnd (Daily)
+  // Generate recurring dates from effectiveStart to effectiveEnd
   let currentDate = effectiveStart
   while (currentDate <= effectiveEnd) {
     dates.push(currentDate)
-    currentDate = addDaysToDateStr(currentDate, 1)
+    
+    // Calculate next occurrence based on repeat type
+    switch (repeatType) {
+      case 'Daily':
+        currentDate = addDaysToDateStr(currentDate, 1)
+        break
+      case 'Weekly':
+        currentDate = addDaysToDateStr(currentDate, 7)
+        break
+      case 'Monthly':
+        currentDate = addMonthsToDateStr(currentDate, 1)
+        break
+      case 'Yearly':
+        currentDate = addYearsToDateStr(currentDate, 1)
+        break
+      default:
+        currentDate = addDaysToDateStr(currentDate, 1)
+    }
   }
   
   return dates
@@ -1049,7 +1090,8 @@ export const useEventsStore = create<EventsState>()(
               masterEvent.series_start_date!,
               masterEvent.series_end_date!,
               monthStart,
-              monthEnd
+              monthEnd,
+              masterEvent.repeat || 'Daily'
             )
             
             // Get exceptions for this series
@@ -1515,7 +1557,25 @@ export const useEventsStore = create<EventsState>()(
         const originalRepeat = masterEvent?.repeat || event.repeat || 'None'
         
         const prevDay = addDaysToDateStr(selectedDate, -1)
-        const nextDay = addDaysToDateStr(selectedDate, 1)
+        
+        // Calculate next occurrence based on repeat type
+        let nextOccurrence: string
+        switch (originalRepeat) {
+          case 'Daily':
+            nextOccurrence = addDaysToDateStr(selectedDate, 1)
+            break
+          case 'Weekly':
+            nextOccurrence = addDaysToDateStr(selectedDate, 7)
+            break
+          case 'Monthly':
+            nextOccurrence = addMonthsToDateStr(selectedDate, 1)
+            break
+          case 'Yearly':
+            nextOccurrence = addYearsToDateStr(selectedDate, 1)
+            break
+          default:
+            nextOccurrence = addDaysToDateStr(selectedDate, 1)
+        }
         
         // Get the ORIGINAL title from the master event in cache
         let originalTitle = event.title
@@ -1581,8 +1641,8 @@ export const useEventsStore = create<EventsState>()(
           await get().addEventOptimistic(event2Data)
         }
           
-          // Event 3: Create new series from nextDay - uses ORIGINAL title
-          if (nextDay <= originalSeriesEndDate) {
+          // Event 3: Create new series from nextOccurrence - uses ORIGINAL title
+          if (nextOccurrence <= originalSeriesEndDate) {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) {
               console.error('User not authenticated for database save')
@@ -1595,15 +1655,15 @@ export const useEventsStore = create<EventsState>()(
             description: masterEvent?.description ?? event.description,
             notes: masterEvent?.notes ?? event.notes,
             urls: masterEvent?.urls ?? event.urls,
-            date: nextDay,
-            end_date: nextDay,
+            date: nextOccurrence,
+            end_date: nextOccurrence,
             start_time: masterEvent?.start_time ?? event.start_time,
             end_time: masterEvent?.end_time ?? event.end_time,
             color: masterEvent?.color ?? event.color,
             is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
             location: masterEvent?.location ?? event.location,
             repeat: originalRepeat,
-            series_start_date: nextDay,
+            series_start_date: nextOccurrence,
             series_end_date: originalSeriesEndDate,
             user_id: user.id,
           }
