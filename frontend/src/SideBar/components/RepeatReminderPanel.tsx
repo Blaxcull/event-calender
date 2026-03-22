@@ -127,6 +127,15 @@ const RepeatReminderPanel: React.FC = () => {
             const updateAllInSeries = useEventsStore.getState().updateAllInSeries
             const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
             await updateAllInSeries(seriesMasterId, { [field]: value } as Partial<NewEvent>)
+          } else if (choice === "this-and-following") {
+            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+            await updateThisAndFollowing(
+              selectedEvent as any,
+              eventDate,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              { [field]: value } as any
+            )
           }
           closeRecurringDialog()
         }
@@ -166,6 +175,22 @@ const RepeatReminderPanel: React.FC = () => {
               updates.series_end_date = seriesEndDate
             }
             await updateAllInSeries(seriesMasterId, updates)
+          } else if (choice === "this-and-following") {
+            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+            const updates: Partial<NewEvent> = { repeat: value }
+            if (value !== "None" && REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number])) {
+              const eventDate = selectedEvent.date
+              const seriesEndDate = addYears(eventDate, 10)
+              updates.series_start_date = eventDate
+              updates.series_end_date = seriesEndDate
+            }
+            await updateThisAndFollowing(
+              selectedEvent as any,
+              selectedEvent.date,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              updates
+            )
           }
           closeRecurringDialog()
         }

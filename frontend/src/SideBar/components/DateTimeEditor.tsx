@@ -473,6 +473,28 @@ const DateTimeEditor: React.FC = () => {
             }
             
             await updateAllInSeries(seriesMasterId, allUpdates as Partial<NewEvent>)
+          } else if (choice === "this-and-following") {
+            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+            
+            const followingUpdates: Record<string, EventFieldValue> = {}
+            if (field && value !== undefined) {
+              followingUpdates[field] = value
+            }
+            if (extraFields) {
+              Object.entries(extraFields).forEach(([key, val]) => {
+                if (val !== undefined) {
+                  followingUpdates[key] = val
+                }
+              })
+            }
+            
+            await updateThisAndFollowing(
+              selectedEvent as any,
+              selectedEvent.date,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              followingUpdates as Partial<NewEvent>
+            )
           }
           closeRecurringDialog()
         }

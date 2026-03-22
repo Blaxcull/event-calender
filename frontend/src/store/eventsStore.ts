@@ -152,6 +152,7 @@ interface EventsState {
   closeRecurringDialog: () => void
   setHasEditsEventId: (id: string | null) => void
   splitRecurringEvent: (event: CalendarEvent, selectedDate: string, _newStartTime?: number, _newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
+  updateThisAndFollowing: (event: CalendarEvent, selectedDate: string, _newStartTime?: number, _newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
 }
 
 const CACHE_WINDOW_DAYS = 17 // Days before and after
@@ -1140,6 +1141,8 @@ export const useEventsStore = create<EventsState>()(
         const datePattern = /-(\d{4}-\d{2}-\d{2})$/
         const isVirtualEventId = datePattern.test(id)
         
+        console.log('getEventById called:', { id, isVirtualEventId, eventsCacheKeys: Object.keys(eventsCache) })
+        
         if (isVirtualEventId) {
           console.log('getEventById: Searching for virtual event:', id)
           
@@ -1200,9 +1203,13 @@ export const useEventsStore = create<EventsState>()(
         }
         
         // Search through eventsCache for real events
+        console.log('getEventById: Searching eventsCache, keys:', Object.keys(eventsCache))
         for (const dateKey in eventsCache) {
-          const event = eventsCache[dateKey].find(e => e.id === id)
+          const events = eventsCache[dateKey]
+          console.log('getEventById: Checking dateKey:', dateKey, 'events:', events.map(e => ({ id: e.id, title: e.title })))
+          const event = events.find(e => e.id === id)
           if (event) {
+            console.log('getEventById: Found event:', event.id, event.title)
             return event as CalendarEvent
           }
         }
@@ -1650,6 +1657,211 @@ export const useEventsStore = create<EventsState>()(
             eventExceptionsCache: {},
           })
         }
+      },
+
+      updateThisAndFollowing: async (
+        event: CalendarEvent,
+        selectedDate: string,
+        newStartTime?: number,
+        newEndTime?: number,
+        updates?: Partial<NewEvent>
+      ) => {
+        const startTimeForNewEvent = newStartTime ?? updates?.start_time
+        const endTimeForNewEvent = newEndTime ?? updates?.end_time
+        const { computedEventsCache, eventsCache } = get()
+        
+        // Determine the master event ID
+        let masterEventId: string
+        
+        if (event.seriesMasterId) {
+          masterEventId = event.seriesMasterId
+        } else if (event.repeat && event.repeat !== 'None' && (event.series_start_date || event.series_end_date)) {
+          masterEventId = event.id
+        } else {
+          console.error('updateThisAndFollowing: Event is not part of a recurring series')
+          return
+        }
+        
+        // Find the master event to get original series properties
+        let masterEvent: Event | null = null
+        for (const dateKey in eventsCache) {
+          const found = eventsCache[dateKey].find(e => e.id === masterEventId)
+          if (found) {
+            masterEvent = found
+            break
+          }
+        }
+        
+        // Get original series properties from master event (or fall back to event)
+        const originalSeriesEndDate = masterEvent?.series_end_date || event.series_end_date || event.date
+        const originalRepeat = masterEvent?.repeat || event.repeat || 'None'
+        const prevDay = addDaysToDateStr(selectedDate, -1)
+        
+        // Get the ORIGINAL title from the master event
+        let originalTitle = event.title
+        for (const dateKey in eventsCache) {
+          const masterEventForTitle = eventsCache[dateKey].find(e => e.id === masterEventId)
+          if (masterEventForTitle) {
+            originalTitle = masterEventForTitle.title
+            break
+          }
+        }
+        
+        // If not found in eventsCache, try computedEventsCache
+        if (originalTitle === event.title) {
+          for (const dateKey in computedEventsCache) {
+            const masterEventForTitle = computedEventsCache[dateKey].find(e => e.id === masterEventId)
+            if (masterEventForTitle) {
+              originalTitle = masterEventForTitle.title
+              break
+            }
+          }
+        }
+        
+        // Step 1: Shorten original master series to end before selectedDate
+        await get().updateEvent(masterEventId, {
+          series_end_date: prevDay,
+        })
+        
+        // Step 2: Create new recurring series from selectedDate to original end
+        // Apply updates to this new series
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          console.error('User not authenticated for database save')
+          return
+        }
+        
+        const newSeriesData: Record<string, any> = {
+          title: updates?.title ?? event.title ?? originalTitle,
+          description: updates?.description ?? masterEvent?.description ?? event.description,
+          notes: updates?.notes ?? masterEvent?.notes ?? event.notes,
+          urls: updates?.urls ?? masterEvent?.urls ?? event.urls,
+          date: selectedDate,
+          end_date: selectedDate,
+          start_time: startTimeForNewEvent ?? masterEvent?.start_time ?? event.start_time,
+          end_time: endTimeForNewEvent ?? masterEvent?.end_time ?? event.end_time,
+          color: updates?.color ?? masterEvent?.color ?? event.color,
+          is_all_day: updates?.is_all_day ?? masterEvent?.is_all_day ?? event.is_all_day,
+          location: updates?.location ?? masterEvent?.location ?? event.location,
+          repeat: originalRepeat,
+          series_start_date: selectedDate,
+          series_end_date: originalSeriesEndDate,
+          user_id: user.id,
+        }
+        
+        console.log('updateThisAndFollowing: event.title =', event.title)
+        console.log('updateThisAndFollowing: updates =', JSON.stringify(updates))
+        console.log('updateThisAndFollowing: updates?.title =', updates?.title)
+        console.log('updateThisAndFollowing: event.title =', event.title)
+        console.log('updateThisAndFollowing: originalTitle =', originalTitle)
+        console.log('updateThisAndFollowing: newSeriesData.title =', newSeriesData.title)
+        
+        // Add new series to eventsCache IMMEDIATELY (optimistic update) with temp ID
+        const tempSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        const { eventsCache: currentEventsCache } = get()
+        const tempSeriesCached: Event = {
+          id: tempSeriesId,
+          user_id: user.id,
+          title: newSeriesData.title,
+          date: newSeriesData.date,
+          end_date: newSeriesData.end_date,
+          start_time: newSeriesData.start_time,
+          end_time: newSeriesData.end_time,
+          description: newSeriesData.description,
+          notes: newSeriesData.notes,
+          urls: newSeriesData.urls,
+          color: newSeriesData.color,
+          is_all_day: newSeriesData.is_all_day,
+          location: newSeriesData.location,
+          repeat: newSeriesData.repeat,
+          series_start_date: newSeriesData.series_start_date,
+          series_end_date: newSeriesData.series_end_date,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          isTemp: true,
+        }
+        
+        const optimisticEventsCache = {
+          ...currentEventsCache,
+          [selectedDate]: [...(currentEventsCache[selectedDate] || []), tempSeriesCached],
+        }
+        
+        // Update store immediately for UI
+        set({
+          eventsCache: optimisticEventsCache,
+          computedEventsCache: {},
+          recurringEventsCache: {},
+          eventExceptionsCache: {},
+        })
+        
+        // Now insert to database
+        const { data: newSeriesResult, error: newSeriesError } = await supabase
+          .from('events')
+          .insert([newSeriesData])
+          .select()
+          .single()
+        
+        if (newSeriesError || !newSeriesResult) {
+          console.error('Failed to create new series:', newSeriesError)
+          // Remove temp event on failure
+          const { eventsCache: cacheAfterError } = get()
+          const cleanedCache = {
+            ...cacheAfterError,
+            [selectedDate]: cacheAfterError[selectedDate].filter(e => e.id !== tempSeriesId),
+          }
+          set({ eventsCache: cleanedCache, computedEventsCache: {}, recurringEventsCache: {}, eventExceptionsCache: {} })
+          return
+        }
+        
+        // Replace temp event with real event in cache
+        const { eventsCache: finalEventsCache } = get()
+        // Use title from newSeriesData (the intended value) as fallback if DB returns unexpected value
+        const finalTitle = newSeriesResult.title || newSeriesData.title
+        const realSeriesCached: Event = {
+          id: newSeriesResult.id,
+          user_id: user.id,
+          title: finalTitle,
+          date: newSeriesResult.date,
+          end_date: newSeriesResult.end_date,
+          start_time: newSeriesResult.start_time,
+          end_time: newSeriesResult.end_time,
+          description: newSeriesResult.description,
+          notes: newSeriesResult.notes,
+          urls: newSeriesResult.urls,
+          color: newSeriesResult.color,
+          is_all_day: newSeriesResult.is_all_day,
+          location: newSeriesResult.location,
+          repeat: newSeriesResult.repeat,
+          series_start_date: newSeriesResult.series_start_date,
+          series_end_date: newSeriesResult.series_end_date,
+          created_at: newSeriesResult.created_at,
+          updated_at: newSeriesResult.updated_at,
+        }
+        
+        const finalCache = {
+          ...finalEventsCache,
+          [selectedDate]: finalEventsCache[selectedDate].map(e => 
+            e.id === tempSeriesId ? realSeriesCached : e
+          ),
+        }
+        
+        set({
+          eventsCache: finalCache,
+          computedEventsCache: {},
+          recurringEventsCache: {},
+          eventExceptionsCache: {},
+        })
+        
+        // Log the new series master to verify it's in cache
+        console.log('updateThisAndFollowing: New series master in cache:', {
+          id: realSeriesCached.id,
+          title: realSeriesCached.title,
+          date: realSeriesCached.date,
+          series_start_date: realSeriesCached.series_start_date,
+          series_end_date: realSeriesCached.series_end_date,
+          repeat: realSeriesCached.repeat,
+        })
+        console.log('updateThisAndFollowing: Created new series from', selectedDate, 'to', originalSeriesEndDate)
       },
 
       clearCache: () => {

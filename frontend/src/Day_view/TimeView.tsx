@@ -312,8 +312,24 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   endTime,
                   {}
                 )
+              } else if (choice === "all-events" && selectedEvent.seriesMasterId) {
+                // Delete all events in the series
+                const deleteEvent = useEventsStore.getState().deleteEvent
+                await deleteEvent(selectedEvent.seriesMasterId)
+              } else if (choice === "this-and-following" && selectedEvent.seriesMasterId) {
+                // Delete from this event onwards
+                // Shorten original series to end before this event
+                const prevDay = (() => {
+                  const d = new Date(eventDateStr)
+                  d.setDate(d.getDate() - 1)
+                  return d.toISOString().split('T')[0]
+                })()
+                
+                const updateEvent = useEventsStore.getState().updateEvent
+                await updateEvent(selectedEvent.seriesMasterId, {
+                  series_end_date: prevDay,
+                })
               }
-              // "all-events" and "this-and-following" are placeholders for now
               setSelectedEvent(null)
               closeRecurringDialog()
             })
@@ -838,6 +854,39 @@ const TimeView: React.FC<TimeViewProps> = () => {
                     setSelectedEvent(null)
                   })
                   resetInteraction()
+                } else if (choice === "only-this") {
+                  // Split the recurring event into 3 events
+                  const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+                  await splitRecurringEvent(
+                    draggedEvent as any,
+                    dateStr,
+                    start.hour * 60 + start.min,
+                    end.hour * 60 + end.min
+                  )
+                  originalEventRef.current = null
+                  setSelectedEvent(null)
+                  resetInteraction()
+                } else if (choice === "all-events" && draggedEvent.seriesMasterId) {
+                  // Update all events in the series
+                  const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+                  await updateAllInSeries(draggedEvent.seriesMasterId, {
+                    start_time: start.hour * 60 + start.min,
+                    end_time: end.hour * 60 + end.min,
+                  })
+                  originalEventRef.current = null
+                  resetInteraction()
+                } else if (choice === "this-and-following" && draggedEvent.seriesMasterId) {
+                  // Split into 2 recurring series
+                  const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+                  await updateThisAndFollowing(
+                    draggedEvent as any,
+                    dateStr,
+                    start.hour * 60 + start.min,
+                    end.hour * 60 + end.min
+                  )
+                  originalEventRef.current = null
+                  setSelectedEvent(null)
+                  resetInteraction()
                 }
                 
                 closeRecurringDialog()
@@ -939,12 +988,16 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   originalEventRef.current = null
                   resetInteraction()
                 } else if (choice === "this-and-following" && resizedEvent.seriesMasterId && selectedDate) {
-                  // Update this and following
-                  const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-                  await updateAllInSeries(resizedEvent.seriesMasterId, {
-                    end_time: end.hour * 60 + end.min,
-                  })
+                  // Split into 2 recurring series
+                  const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+                  await updateThisAndFollowing(
+                    resizedEvent as any,
+                    dateStr,
+                    resizedEvent.startHour * 60 + resizedEvent.startMin,
+                    end.hour * 60 + end.min
+                  )
                   originalEventRef.current = null
+                  setSelectedEvent(null)
                   resetInteraction()
                 } else {
                   // Fallback - reset interaction

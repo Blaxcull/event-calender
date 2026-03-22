@@ -62,6 +62,15 @@ const GoalPanel: React.FC = () => {
             const updateAllInSeries = useEventsStore.getState().updateAllInSeries
             const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
             await updateAllInSeries(seriesMasterId, { [field]: value } as Partial<NewEvent>)
+          } else if (choice === "this-and-following") {
+            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+            await updateThisAndFollowing(
+              selectedEvent as any,
+              selectedEvent.date,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              { [field]: value } as any
+            )
           }
           closeRecurringDialog()
         }
