@@ -208,6 +208,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     }
     
     const storeEvents = getEventsForDate(selectedDate)
+    console.log('Syncing events from store, count:', storeEvents.length, 'events:', storeEvents.map(e => ({ id: e.id, title: e.title })))
     const uiEvents = storeEvents.map(event => storeEventToUIEvent(event, selectedDate))
     
     // Check if any temp events were replaced with real ones (ID swap detection)
@@ -731,7 +732,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     if (mouseDownPosRef.current && !wasDragging && !wasResizing) {
       const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
       if (event) {
-        console.log('TimeView click: selecting event:', event.id, 'isRecurringInstance:', event.isRecurringInstance)
+        console.log('TimeView click: selecting event:', event.id, 'title:', event.title, 'isRecurringInstance:', event.isRecurringInstance)
         // Check if there's a temp event selected that needs to be deleted
         if (selectedEventId && selectedEventId !== event.id) {
           // Check if previous selected event is unsaved temp event
@@ -809,8 +810,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
           
           // Check if this is a recurring event INSTANCE (not the base master event)
           // Only show dialog for virtual instances (isRecurringInstance = true)
-          const isNewEvent = draggedEvent.title === "New Event"
-          const isRecurring = !isNewEvent && draggedEvent.isRecurringInstance === true
+          const isRecurring = draggedEvent.isRecurringInstance === true
           
           console.log('Drag ended, isRecurring:', isRecurring, 'event:', draggedEvent.title)
           if (isRecurring) {
@@ -924,8 +924,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
           
           // Check if this is a recurring event INSTANCE (not the base master event)
           // Only show dialog for virtual instances (isRecurringInstance = true)
-          const isNewEvent = resizedEvent.title === "New Event"
-          const isRecurring = !isNewEvent && resizedEvent.isRecurringInstance === true
+          const isRecurring = resizedEvent.isRecurringInstance === true
           
           console.log('Resize ended, isRecurring:', isRecurring, 'event:', resizedEvent.title)
           if (isRecurring) {

@@ -22,7 +22,7 @@ const EventEditor: React.FC = () => {
   const [notes, setNotes] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [urlChips, setUrlChips] = useState<URLChip[]>([])
-  const [hasEdits, setHasEdits] = useState(false)
+  const [, setHasEdits] = useState(false)
   const urlInputRef = useRef<HTMLInputElement>(null)
   const prevSelectedEventIdRef = useRef<string | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
@@ -47,16 +47,24 @@ const EventEditor: React.FC = () => {
   }, [])
 
   // Load event data when selected event changes
+  const prevEventIdRef = useRef<string | null>(null)
   useEffect(() => {
-    console.log('EventEditor: selected event changed, id =', selectedEvent?.id, 'title =', selectedEvent?.title, 'seriesMasterId =', (selectedEvent as any)?.seriesMasterId)
-    if (selectedEvent) {
-      console.log('EventEditor: loading title =', selectedEvent.title)
-      setTitle(selectedEvent.title === 'New Event' ? '' : selectedEvent.title)
-      setNotes(selectedEvent.notes || '')
-      const urls = selectedEvent.urls || []
-      setUrlChips(urls.map((url: string, index: number) => ({ url, id: `${index}-${url}` })))
-      setHasEdits(false)
-      setHasEditsEventId(null)
+    const currentId = selectedEvent?.id
+    const prevId = prevEventIdRef.current
+    
+    // Only run if the ID actually changed
+    if (currentId !== prevId) {
+      console.log('EventEditor: selected event changed, id =', currentId, 'title =', selectedEvent?.title, 'seriesMasterId =', (selectedEvent as any)?.seriesMasterId, 'isRecurringInstance =', (selectedEvent as any)?.isRecurringInstance)
+      if (selectedEvent) {
+        console.log('EventEditor: loading title =', selectedEvent.title, 'from event object')
+        setTitle(selectedEvent.title === 'New Event' ? '' : selectedEvent.title)
+        setNotes(selectedEvent.notes || '')
+        const urls = selectedEvent.urls || []
+        setUrlChips(urls.map((url: string, index: number) => ({ url, id: `${index}-${url}` })))
+        setHasEdits(false)
+        setHasEditsEventId(null)
+      }
+      prevEventIdRef.current = currentId ?? null
     }
   }, [selectedEvent?.id])
 
@@ -77,8 +85,9 @@ const EventEditor: React.FC = () => {
     // Only show dialog for virtual instances (isRecurringInstance = true)
     const eventIsRecurring = currentEvent && 
                         !currentEvent.isTemp &&
-                        currentEvent.title !== "New Event" &&
                         (currentEvent as any).isRecurringInstance === true
+
+    console.log('handlePropertyChange: eventIsRecurring =', eventIsRecurring, 'currentEvent.isRecurringInstance =', currentEvent.isRecurringInstance, 'currentEvent.isTemp =', currentEvent.isTemp)
 
     if (eventIsRecurring) {
       // Capture values at this moment
@@ -252,16 +261,20 @@ const EventEditor: React.FC = () => {
     }
     
     // Check if recurring - virtual instances have isRecurringInstance = true
-    const eventIsRecurring = currentEvent.title !== "New Event" &&
+    const eventIsRecurring = currentEvent && 
+                        !currentEvent.isTemp &&
                         currentEvent.isRecurringInstance === true
-    console.log('saveTrigger useEffect: checking recurring, eventIsRecurring =', eventIsRecurring, 'title =', currentEvent.title, 'isRecurringInstance =', currentEvent.isRecurringInstance)
+    console.log('saveTrigger useEffect: checking recurring, eventIsRecurring =', eventIsRecurring, 'title =', currentEvent.title, 'isRecurringInstance =', currentEvent.isRecurringInstance, 'isTemp =', currentEvent.isTemp)
     
     // Capture current title/notes/urls from refs for use in dialog callback
     const capturedTitle = titleRef.current || 'New Event'
     const capturedNotes = notesRef.current
     const capturedUrls = urlChipsRef.current.map(c => c.url)
     
+    console.log('saveTrigger useEffect: before if eventIsRecurring, currentEvent id/title/isRecurringInstance/isTemp =', currentEvent.id, currentEvent.title, currentEvent.isRecurringInstance, currentEvent.isTemp)
+    
     if (eventIsRecurring) {
+      console.log('saveTrigger useEffect: SHOWING RECURRING DIALOG for:', currentEvent.title)
       showRecurringDialog(
         currentEvent as CalendarEvent,
         "edit",

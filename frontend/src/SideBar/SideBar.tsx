@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/sidebarCalendar"
 import { Card, CardContent } from "@/components/ui/card"
 import { useTimeStore } from "@/store/timeStore"
-import { useEventsStore, type CalendarEvent } from "@/store/eventsStore"
+import { useEventsStore } from "@/store/eventsStore"
 import { supabase } from "@/lib/supabase"
 import EventTitle from "./components/EventTitle"
 import RecurringActionDialog from "@/components/RecurringActionDialog"
@@ -25,7 +25,6 @@ export function SideBar() {
   const navigate = useNavigate()
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
-  const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   
   // Track if the event was already recurring when selected
   const wasRecurringWhenSelectedRef = React.useRef(false)
@@ -61,14 +60,17 @@ export function SideBar() {
   }
 
   const saveSelectedEvent = useEventsStore((state) => state.saveSelectedEvent)
-  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
+  const getEventById = useEventsStore((state) => state.getEventById)
   const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
   const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
-  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
-  const getEventById = useEventsStore((state) => state.getEventById)
   const eventsCache = useEventsStore((state) => state.eventsCache)
   const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
+
+  // Get the currently selected event to check its title
+  const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
+  // Allow saving if: has a title (temp events can be saved with any title)
+  const isTitleInvalid = !selectedEvent?.title || (selectedEvent?.isTemp !== true && selectedEvent.title === 'New Event')
 
   // Track when the selected event changes and update the recurring status
   React.useEffect(() => {
@@ -80,7 +82,7 @@ export function SideBar() {
       for (const dateKey in eventsCache) {
         const event = eventsCache[dateKey].find(e => e.id === selectedEventId)
         if (event) {
-          wasRecurring = !!(event.isRecurringInstance || 
+          wasRecurring = !!((event as any).isRecurringInstance || 
             (event.repeat && event.repeat !== "None" && (event.series_start_date || event.series_end_date)))
           break
         }
@@ -90,7 +92,7 @@ export function SideBar() {
         for (const dateKey in computedEventsCache) {
           const event = computedEventsCache[dateKey].find(e => e.id === selectedEventId)
           if (event) {
-            wasRecurring = !!(event.isRecurringInstance || 
+            wasRecurring = !!((event as any).isRecurringInstance || 
               (event.repeat && event.repeat !== "None" && (event.series_start_date || event.series_end_date)))
             break
           }
@@ -218,7 +220,7 @@ hover:scale-110 hover:shadow-xl"
         <Button
           variant="secondary"
           onClick={handleSave}
-          className="bg-red-600 text-white hover:bg-red-700 px-8 py-6 text-lg rounded-full"
+          className="bg-red-600 text-white hover:bg-red-700 px-8 py-6 text-lg rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
           Save
         </Button>

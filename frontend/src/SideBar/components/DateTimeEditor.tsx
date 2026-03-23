@@ -66,6 +66,7 @@ const TimePicker: React.FC<{
 
   /* Sync external value */
   useEffect(() => {
+    console.log('TimePicker: syncing value =', value, 'current inputValue =', inputValue)
     setInputValue(formatTimeValue(value))
   }, [value])
 
@@ -395,41 +396,54 @@ const DateTimeEditor: React.FC = () => {
   const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
-
-  // Subscribe to cache changes and trigger re-render
-  const [, setEventVersion] = useState(0)
-  const getEventById = useEventsStore((state) => state.getEventById)
   
-  // Subscribe to cache changes
-  useEffect(() => {
-    const unsubscribe = useEventsStore.subscribe(
-      () => {
-        setEventVersion(v => v + 1)
-      }
+  // Subscribe to entire store for reactivity
+  const storeState = useEventsStore()
+  
+  // Get selected event directly from cache
+  const selectedEvent = React.useMemo(() => {
+    if (!selectedEventId) return null
+    const dateKey = Object.keys(storeState.eventsCache).find(d => 
+      storeState.eventsCache[d].some(e => e.id === selectedEventId)
     )
-    return unsubscribe
-  }, [])
-
-  // Get the selected event
-  const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
+    if (!dateKey) return null
+    return storeState.eventsCache[dateKey].find(e => e.id === selectedEventId) || null
+  }, [selectedEventId, storeState.eventsCache])
+  
+  console.log('DateTimeEditor RENDER: selectedEventId =', selectedEventId, 'start_time =', selectedEvent?.start_time, 'end_time =', selectedEvent?.end_time)
 
   // Check if this is a recurring event INSTANCE (not the base master event)
   // Only show dialog for virtual instances (isRecurringInstance = true)
   // Don't show dialog for base recurring events (they have repeat but isRecurringInstance is false)
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
-                      selectedEvent.title !== "New Event" &&
-                      selectedEvent.isRecurringInstance === true
+                      (selectedEvent as any).isRecurringInstance === true
 
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
-    if (!selectedEvent || !selectedEventId) return
+    // Get fresh event from store to ensure we have latest values
+    const currentEventId = useEventsStore.getState().selectedEventId
+    console.log('handlePropertyChange: field =', field, 'value =', value, 'currentEventId =', currentEventId)
+    if (!currentEventId) return
+    
+    // Get fresh event for recurring check
+    const freshEvent = (() => {
+      const dateKey = Object.keys(useEventsStore.getState().eventsCache).find(d => 
+        useEventsStore.getState().eventsCache[d].some(e => e.id === currentEventId)
+      )
+      if (!dateKey) return null
+      return useEventsStore.getState().eventsCache[dateKey].find(e => e.id === currentEventId) || null
+    })()
+    
+    if (!freshEvent) return
+    
+    const isRecurring = !freshEvent.isTemp && (freshEvent as any).isRecurringInstance === true
 
     if (isRecurring) {
       // Capture values at this moment
-      const eventId = selectedEvent.id
+      const eventId = freshEvent.id
 
       showRecurringDialog(
-        selectedEvent as CalendarEvent,
+        freshEvent as CalendarEvent,
         "edit",
         async (choice: string) => {
           if (choice === "only-this") {
@@ -450,15 +464,15 @@ const DateTimeEditor: React.FC = () => {
             }
             
             await splitRecurringEvent(
-              selectedEvent as any,
-              selectedEvent.date,
-              selectedEvent.start_time,
-              selectedEvent.end_time,
+              freshEvent as any,
+              freshEvent.date,
+              freshEvent.start_time,
+              freshEvent.end_time,
               updates as any
             )
           } else if (choice === "all-events") {
             const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-            const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
+            const seriesMasterId = (freshEvent as any).seriesMasterId || eventId
             
             const allUpdates: Record<string, EventFieldValue> = {}
             if (field && value !== undefined) {
@@ -489,10 +503,10 @@ const DateTimeEditor: React.FC = () => {
             }
             
             await updateThisAndFollowing(
-              selectedEvent as any,
-              selectedEvent.date,
-              selectedEvent.start_time,
-              selectedEvent.end_time,
+              freshEvent as any,
+              freshEvent.date,
+              freshEvent.start_time,
+              freshEvent.end_time,
               followingUpdates as Partial<NewEvent>
             )
           }
@@ -500,11 +514,11 @@ const DateTimeEditor: React.FC = () => {
         }
       )
     } else {
-      updateEventField(selectedEventId, field, value)
+      updateEventField(currentEventId!, field, value)
       if (extraFields) {
         Object.entries(extraFields).forEach(([key, val]) => {
           if (val !== undefined) {
-            updateEventField(selectedEventId, key as keyof NewEvent, val)
+            updateEventField(currentEventId!, key as keyof NewEvent, val)
           }
         })
       }
@@ -524,6 +538,7 @@ const DateTimeEditor: React.FC = () => {
             Date
           </span>
           <DatePickerButton
+            key={`date-${selectedEvent.id}`}
             value={selectedEvent.date}
             onChange={(date) => {
               const newDate = formatDate(date)
@@ -532,6 +547,7 @@ const DateTimeEditor: React.FC = () => {
           />
           <span className="text-neutral-600">-</span>
           <DatePickerButton
+            key={`enddate-${selectedEvent.id}`}
             value={selectedEvent.end_date || selectedEvent.date}
             onChange={(date) => {
               const newDate = formatDate(date)
@@ -548,6 +564,7 @@ const DateTimeEditor: React.FC = () => {
             Time
           </span>
           <TimePicker
+            key={`start-${selectedEvent.id}`}
             value={selectedEvent.start_time}
             onChange={(mins) => {
               handlePropertyChange('start_time', mins)
@@ -556,6 +573,7 @@ const DateTimeEditor: React.FC = () => {
           />
           <span className="text-neutral-600">-</span>
           <TimePicker
+            key={`end-${selectedEvent.id}`}
             value={selectedEvent.end_time}
             onChange={(mins) => {
               handlePropertyChange('end_time', mins)

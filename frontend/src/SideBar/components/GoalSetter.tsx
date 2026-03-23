@@ -34,7 +34,6 @@ const GoalPanel: React.FC = () => {
   // Only show dialog for virtual instances (isRecurringInstance = true)
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
-                      selectedEvent.title !== "New Event" &&
                       selectedEvent.isRecurringInstance === true
 
   const handlePropertyChange = useCallback((field: string, value: string) => {

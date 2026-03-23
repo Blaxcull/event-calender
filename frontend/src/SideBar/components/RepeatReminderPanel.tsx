@@ -1,4 +1,4 @@
-import React, { useCallback } from "react"
+import React, { useCallback, useState, useEffect } from "react"
 import { useEventsStore, type CalendarEvent, type NewEvent, type EventFieldValue } from "@/store/eventsStore"
 import RepeatRow from "./RepeatRow"
 import EarlyReminderRow from "./EarlyReminderRow"
@@ -26,6 +26,9 @@ const RepeatReminderPanel: React.FC = () => {
   const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+  const saveTrigger = useEventsStore((state) => state.saveTrigger)
+
+  const [pendingRepeat, setPendingRepeat] = useState<string | null>(null)
 
   // Find event by searching through all dates
   // Priority: eventsCache (real events) > computedEventsCache (virtual instances)
@@ -93,11 +96,87 @@ const RepeatReminderPanel: React.FC = () => {
     return null
   }, [selectedEventId, eventsCache, computedEventsCache])
 
+  // Sync pendingRepeat when selected event changes
+  useEffect(() => {
+    if (selectedEvent) {
+      setPendingRepeat(null)
+    }
+  }, [selectedEvent?.id])
+
+  // Apply pending repeat on save
+  useEffect(() => {
+    if (saveTrigger === 0 || !selectedEventId || pendingRepeat === null) {
+      return
+    }
+
+    const currentEvent = selectedEvent
+    if (!currentEvent) return
+
+    const eventIsRecurring = currentEvent && 
+                        !currentEvent.isTemp &&
+                        (currentEvent as any).isRecurringInstance === true
+
+    if (eventIsRecurring) {
+      const eventId = currentEvent.id
+      const eventDate = (currentEvent as any).date
+
+      showRecurringDialog(
+        currentEvent as CalendarEvent,
+        "edit",
+        async (choice: string) => {
+          if (choice === "only-this") {
+            await updateEventField(eventId, "repeat", pendingRepeat)
+            if (pendingRepeat === "None") {
+              updateEventField(eventId, "series_start_date", undefined)
+              updateEventField(eventId, "series_end_date", undefined)
+            }
+          } else if (choice === "all-events") {
+            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+            const seriesMasterId = (currentEvent as any).seriesMasterId || eventId
+            
+            const updates: Partial<NewEvent> = { repeat: pendingRepeat }
+            if (pendingRepeat !== "None" && REPEAT_OPTIONS.includes(pendingRepeat as typeof REPEAT_OPTIONS[number])) {
+              const seriesEndDate = addYears(eventDate, 10)
+              updates.series_start_date = eventDate
+              updates.series_end_date = seriesEndDate
+            }
+            await updateAllInSeries(seriesMasterId, updates)
+          } else if (choice === "this-and-following") {
+            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
+            const updates: Partial<NewEvent> = { repeat: pendingRepeat }
+            if (pendingRepeat !== "None" && REPEAT_OPTIONS.includes(pendingRepeat as typeof REPEAT_OPTIONS[number])) {
+              const seriesEndDate = addYears(eventDate, 10)
+              updates.series_start_date = eventDate
+              updates.series_end_date = seriesEndDate
+            }
+            await updateThisAndFollowing(
+              currentEvent as any,
+              eventDate,
+              currentEvent.start_time,
+              currentEvent.end_time,
+              updates
+            )
+          }
+          setPendingRepeat(null)
+          closeRecurringDialog()
+        }
+      )
+    } else {
+      updateEventField(selectedEventId, "repeat", pendingRepeat)
+      if (pendingRepeat !== "None" && REPEAT_OPTIONS.includes(pendingRepeat as typeof REPEAT_OPTIONS[number])) {
+        const eventDate = currentEvent.date
+        const seriesEndDate = addYears(eventDate, 10)
+        updateEventField(selectedEventId, "series_start_date", eventDate)
+        updateEventField(selectedEventId, "series_end_date", seriesEndDate)
+      }
+      setPendingRepeat(null)
+    }
+  }, [saveTrigger, selectedEventId, pendingRepeat, selectedEvent, updateEventField, showRecurringDialog, closeRecurringDialog])
+
   // Check if this is a recurring event INSTANCE (not the base master event)
   // Only show dialog for virtual instances (isRecurringInstance = true)
   const isRecurring = selectedEvent && 
                       !selectedEvent.isTemp &&
-                      selectedEvent.title !== "New Event" &&
                       (selectedEvent as any).isRecurringInstance === true
   console.log('RepeatReminderPanel: isRecurring =', isRecurring, 'selectedEvent =', selectedEvent)
 
@@ -148,59 +227,8 @@ const RepeatReminderPanel: React.FC = () => {
   const handleRepeatChange = useCallback((value: string) => {
     if (!selectedEvent || !selectedEventId) return
 
-    if (isRecurring) {
-      // Capture values at this moment
-      const eventId = selectedEvent.id
-
-      showRecurringDialog(
-        selectedEvent as CalendarEvent,
-        "edit",
-        async (choice: string) => {
-          if (choice === "only-this") {
-            // For repeat changes on "only this", just update this occurrence to not repeat
-            await updateEventField(eventId, "repeat", value)
-            if (value === "None") {
-              updateEventField(eventId, "series_start_date", undefined)
-              updateEventField(eventId, "series_end_date", undefined)
-            }
-          } else if (choice === "all-events") {
-            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-            const seriesMasterId = (selectedEvent as any).seriesMasterId || eventId
-            
-            const updates: Partial<NewEvent> = { repeat: value }
-            if (value !== "None" && REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number])) {
-              const eventDate = selectedEvent.date
-              const seriesEndDate = addYears(eventDate, 10)
-              updates.series_start_date = eventDate
-              updates.series_end_date = seriesEndDate
-            }
-            await updateAllInSeries(seriesMasterId, updates)
-          } else if (choice === "this-and-following") {
-            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
-            const updates: Partial<NewEvent> = { repeat: value }
-            if (value !== "None" && REPEAT_OPTIONS.includes(value as typeof REPEAT_OPTIONS[number])) {
-              const eventDate = selectedEvent.date
-              const seriesEndDate = addYears(eventDate, 10)
-              updates.series_start_date = eventDate
-              updates.series_end_date = seriesEndDate
-            }
-            await updateThisAndFollowing(
-              selectedEvent as any,
-              selectedEvent.date,
-              selectedEvent.start_time,
-              selectedEvent.end_time,
-              updates
-            )
-          }
-          closeRecurringDialog()
-        }
-      )
-    } else {
-      // Just update the repeat field immediately
-      // series_start_date and series_end_date will be set when user clicks Save
-      updateEventField(selectedEventId, "repeat", value)
-    }
-  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
+    setPendingRepeat(value)
+  }, [selectedEvent, selectedEventId])
 
   const handleEarlyReminderChange = useCallback((value: string) => {
     handlePropertyChange("earlyReminder", value)
@@ -217,7 +245,7 @@ const RepeatReminderPanel: React.FC = () => {
       <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] pl-5 pr-6 py-6 border-20 space-y-3 shadow-none">
 
         <RepeatRow
-          value={selectedEvent.repeat || "None"}
+          value={pendingRepeat ?? (selectedEvent.repeat || "None")}
           onChange={handleRepeatChange}
         />
 

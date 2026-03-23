@@ -15,6 +15,7 @@ const EventTitle: React.FC = () => {
   
   // Subscribe to the entire store state to ensure reactivity
   const storeState = useEventsStore()
+  console.log('EventTitle: re-rendered, selectedEventId =', selectedEventId, 'eventsCache keys =', Object.keys(storeState.eventsCache))
   
   // Scroll to top when a new event is selected
   useEffect(() => {

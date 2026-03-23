@@ -1,5 +1,5 @@
 import { useEventsStore } from '@/store/eventsStore'
-import { addMinutes, isWithinInterval, subMinutes, isSameDay, parseISO, isBefore, isAfter } from 'date-fns'
+import { subMinutes } from 'date-fns'
 
 const REMINDER_MINUTES: Record<string, number> = {
   '5 minutes before': 5,
@@ -20,7 +20,7 @@ function checkAndAlert() {
   console.log('[Reminder] Checking at', now.toISOString())
   console.log('[Reminder] Events in cache:', Object.keys(eventsCache).length, 'dates')
 
-  Object.entries(eventsCache).forEach(([dateStr, events]) => {
+  Object.entries(eventsCache).forEach(([, events]) => {
     events.forEach(event => {
       console.log('[Reminder] Event:', event.title, 'date:', event.date, 'time:', event.start_time, 'reminder:', event.earlyReminder)
       
@@ -34,12 +34,16 @@ function checkAndAlert() {
       const eventDateTime = new Date(`${event.date}T${minutesToTimeString(event.start_time)}:00`)
       const reminderTime = subMinutes(eventDateTime, reminderMinutes)
 
-      console.log('[Reminder] Event time:', eventDateTime.toISOString(), 'Reminder time:', reminderTime.toISOString())
+      const nowMs = now.getTime()
+      const reminderMs = reminderTime.getTime()
+      const eventMs = eventDateTime.getTime()
 
-      const windowStart = subMinutes(reminderTime, 30)
-      const windowEnd = addMinutes(reminderTime, 30)
+      // Only trigger when reminder time has passed AND event hasn't happened yet
+      const isAfterReminder = nowMs >= reminderMs
+      const isBeforeEvent = nowMs <= eventMs
+      const shouldAlert = isAfterReminder && isBeforeEvent
 
-      if (isWithinInterval(now, { start: windowStart, end: windowEnd })) {
+      if (shouldAlert) {
         console.log('[Reminder] TRIGGERED for:', event.title)
         window.alert(`Reminder: "${event.title}" is ${event.earlyReminder}!`)
         alertedEvents.add(event.id)

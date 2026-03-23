@@ -3,7 +3,7 @@ import { useEventsStore } from "@/store/eventsStore"
 import TimeLine from "./TimeLine"
 import TimeView from "./TimeView"
 import { useEffect, useRef, useMemo } from "react"
-import { TOP_DEAD_ZONE, STEP_HEIGHT } from "@/lib/eventUtils"
+import { TOP_DEAD_ZONE } from "@/lib/eventUtils"
 
 const DayView = () => {
   const dateInfo = useTimeStore((state) => state.dateInfo)

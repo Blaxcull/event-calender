@@ -1005,6 +1005,9 @@ export const useEventsStore = create<EventsState>()(
          const event = Object.values(eventsCache).flat().find(e => e.id === id)
          const isTempEvent = event?.isTemp === true
          
+         // Check if this is a recurring event (need to clear all computed cache if so)
+         const isRecurringEvent = event?.repeat && event.repeat !== 'None'
+         
          // Find which dates this event affects
          const affectedDates: string[] = []
          Object.keys(newCache).forEach(date => {
@@ -1015,12 +1018,18 @@ export const useEventsStore = create<EventsState>()(
            }
          })
 
-         // Invalidate computed cache for affected dates
-         affectedDates.forEach(date => {
-           delete newComputedCache[date]
-         })
-
-         set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
+         // For recurring events, clear entire computed cache since instances span multiple dates
+         // For regular events, only clear affected dates
+         if (isRecurringEvent) {
+           // Clear all computed cache for recurring events
+           set({ eventsCache: newCache, computedEventsCache: {}, recurringEventsCache: {}, eventExceptionsCache: {} })
+         } else {
+           // Invalidate computed cache for affected dates only
+           affectedDates.forEach(date => {
+             delete newComputedCache[date]
+           })
+           set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
+         }
          
          // Skip database delete for temp events (never saved to DB)
          if (isTempEvent) {
@@ -1193,7 +1202,7 @@ export const useEventsStore = create<EventsState>()(
         const datePattern = /-(\d{4}-\d{2}-\d{2})$/
         const isVirtualEventId = datePattern.test(id)
         
-        console.log('getEventById called:', { id, isVirtualEventId, eventsCacheKeys: Object.keys(eventsCache) })
+        console.log('getEventById called:', { id, isVirtualEventId, eventsCacheKeys: Object.keys(eventsCache), computedCacheKeys: Object.keys(computedEventsCache) })
         
         if (isVirtualEventId) {
           console.log('getEventById: Searching for virtual event:', id)
@@ -1226,6 +1235,7 @@ export const useEventsStore = create<EventsState>()(
             
             if (masterEvent) {
               // Generate the virtual event
+              console.log('getEventById: Creating virtual event from master, masterEvent:', { id: masterEvent.id, title: masterEvent.title })
               const virtualEvent: CalendarEvent = {
                 ...masterEvent,
                 id: id,
@@ -1235,7 +1245,7 @@ export const useEventsStore = create<EventsState>()(
                 seriesMasterId: masterEventId,
                 occurrenceDate: virtualDate,
               }
-              console.log('getEventById: Generated virtual event:', virtualEvent.isRecurringInstance)
+              console.log('getEventById: Generated virtual event:', { id: virtualEvent.id, title: virtualEvent.title, isRecurringInstance: virtualEvent.isRecurringInstance })
               
               // Cache it for future lookups (deferred to avoid setState during render)
               setTimeout(() => {
@@ -1279,6 +1289,7 @@ export const useEventsStore = create<EventsState>()(
       },
 
       setSelectedEvent: (id: string | null) => {
+        console.log('setSelectedEvent called:', id)
         set({ selectedEventId: id })
       },
 
@@ -1615,7 +1626,6 @@ export const useEventsStore = create<EventsState>()(
         }
         
         const originalEventTitle = originalTitle // ORIGINAL title
-        console.log('splitRecurringEvent: originalEventTitle =', originalEventTitle)
         
         // Check if selected date is the first occurrence
         const isFirstOccurrence = selectedDate === (event.series_start_date || event.date)
@@ -1635,11 +1645,12 @@ export const useEventsStore = create<EventsState>()(
           })
           
           // Create Event 2: standalone event at selectedDate
-          // Use event's current values (which include pendingUpdates) as primary source
-          // Only fall back to master/original if event values are undefined
-          console.log('splitRecurringEvent: Creating event2 with title =', updates?.title ?? event.title ?? originalEventTitle)
+          // Always use originalEventTitle unless explicitly updated
+          // This prevents "New Event" from being used when event has stale data
+          const event2Title = updates?.title ?? (event.title && event.title !== "New Event" ? event.title : originalEventTitle)
+          console.log('splitRecurringEvent: Creating event2 with title =', event2Title)
           const event2Data: NewEvent = {
-            title: updates?.title ?? event.title ?? originalEventTitle,
+            title: event2Title,
             description: updates?.description ?? event.description ?? masterEvent?.description,
             notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
             urls: updates?.urls ?? event.urls ?? masterEvent?.urls,
