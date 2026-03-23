@@ -17,12 +17,8 @@ function checkAndAlert() {
   const now = new Date()
   const { eventsCache } = useEventsStore.getState()
 
-  console.log('[Reminder] Checking at', now.toISOString())
-  console.log('[Reminder] Events in cache:', Object.keys(eventsCache).length, 'dates')
-
   Object.entries(eventsCache).forEach(([, events]) => {
     events.forEach(event => {
-      console.log('[Reminder] Event:', event.title, 'date:', event.date, 'time:', event.start_time, 'reminder:', event.earlyReminder)
       
       if (!event.earlyReminder || event.earlyReminder === 'None') return
       if (event.is_all_day) return
@@ -44,7 +40,6 @@ function checkAndAlert() {
       const shouldAlert = isAfterReminder && isBeforeEvent
 
       if (shouldAlert) {
-        console.log('[Reminder] TRIGGERED for:', event.title)
         window.alert(`Reminder: "${event.title}" is ${event.earlyReminder}!`)
         alertedEvents.add(event.id)
       }
@@ -63,13 +58,11 @@ export function startReminderService() {
   
   alertedEvents.clear()
   intervalId = window.setInterval(checkAndAlert, 10000)
-  console.log('Reminder service started')
 }
 
 export function stopReminderService() {
   if (intervalId !== null) {
     clearInterval(intervalId)
     intervalId = null
-    console.log('Reminder service stopped')
   }
 }

@@ -66,7 +66,6 @@ const TimePicker: React.FC<{
 
   /* Sync external value */
   useEffect(() => {
-    console.log('TimePicker: syncing value =', value, 'current inputValue =', inputValue)
     setInputValue(formatTimeValue(value))
   }, [value])
 
@@ -410,8 +409,6 @@ const DateTimeEditor: React.FC = () => {
     return storeState.eventsCache[dateKey].find(e => e.id === selectedEventId) || null
   }, [selectedEventId, storeState.eventsCache])
   
-  console.log('DateTimeEditor RENDER: selectedEventId =', selectedEventId, 'start_time =', selectedEvent?.start_time, 'end_time =', selectedEvent?.end_time)
-
   // Check if this is a recurring event INSTANCE (not the base master event)
   // Only show dialog for virtual instances (isRecurringInstance = true)
   // Don't show dialog for base recurring events (they have repeat but isRecurringInstance is false)
@@ -422,7 +419,6 @@ const DateTimeEditor: React.FC = () => {
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
     // Get fresh event from store to ensure we have latest values
     const currentEventId = useEventsStore.getState().selectedEventId
-    console.log('handlePropertyChange: field =', field, 'value =', value, 'currentEventId =', currentEventId)
     if (!currentEventId) return
     
     // Get fresh event for recurring check

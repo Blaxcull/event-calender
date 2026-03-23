@@ -60,17 +60,11 @@ export function SideBar() {
   }
 
   const saveSelectedEvent = useEventsStore((state) => state.saveSelectedEvent)
-  const getEventById = useEventsStore((state) => state.getEventById)
   const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
   const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const eventsCache = useEventsStore((state) => state.eventsCache)
   const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
-
-  // Get the currently selected event to check its title
-  const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
-  // Allow saving if: has a title (temp events can be saved with any title)
-  const isTitleInvalid = !selectedEvent?.title || (selectedEvent?.isTemp !== true && selectedEvent.title === 'New Event')
 
   // Track when the selected event changes and update the recurring status
   React.useEffect(() => {
@@ -99,18 +93,16 @@ export function SideBar() {
         }
       }
       wasRecurringWhenSelectedRef.current = wasRecurring
-      console.log('Event selected:', { id: selectedEventId, wasRecurringWhenSelected: wasRecurring })
     }
   }, [selectedEventId, eventsCache, computedEventsCache])
 
   const handleSave = React.useCallback(async () => {
-    console.log('handleSave clicked, selectedEventId:', selectedEventId)
     if (!selectedEventId) return
     
     try {
       await saveSelectedEvent()
     } catch (error) {
-      console.error('Error in handleSave:', error)
+      // Save failed
     }
   }, [selectedEventId, saveSelectedEvent])
 

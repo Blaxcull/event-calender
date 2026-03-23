@@ -208,7 +208,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
     }
     
     const storeEvents = getEventsForDate(selectedDate)
-    console.log('Syncing events from store, count:', storeEvents.length, 'events:', storeEvents.map(e => ({ id: e.id, title: e.title })))
     const uiEvents = storeEvents.map(event => storeEventToUIEvent(event, selectedDate))
     
     // Check if any temp events were replaced with real ones (ID swap detection)
@@ -482,7 +481,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       justCreatedEventRef.current = newUIEvent.id
       setSelectedEvent(newUIEvent.id)
     } catch (error) {
-      console.error('Failed to create event:', error)
+      // Event creation failed
     }
   }
 
@@ -732,7 +731,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
     if (mouseDownPosRef.current && !wasDragging && !wasResizing) {
       const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
       if (event) {
-        console.log('TimeView click: selecting event:', event.id, 'title:', event.title, 'isRecurringInstance:', event.isRecurringInstance)
         // Check if there's a temp event selected that needs to be deleted
         if (selectedEventId && selectedEventId !== event.id) {
           // Check if previous selected event is unsaved temp event
@@ -812,7 +810,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
           // Only show dialog for virtual instances (isRecurringInstance = true)
           const isRecurring = draggedEvent.isRecurringInstance === true
           
-          console.log('Drag ended, isRecurring:', isRecurring, 'event:', draggedEvent.title)
           if (isRecurring) {
             // Show recurring dialog - cleanup drag state immediately
             el.style.boxShadow = "none"
@@ -828,8 +825,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
               draggedEvent as any,
               "edit",
               async (choice: string) => {
-                console.log(`Drag recurring event, choice: ${choice}`)
-                
                 // Cleanup after dialog closes
                 el.style.boxShadow = "none"
                 removePlaceholder(wasDraggingId)
@@ -926,7 +921,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
           // Only show dialog for virtual instances (isRecurringInstance = true)
           const isRecurring = resizedEvent.isRecurringInstance === true
           
-          console.log('Resize ended, isRecurring:', isRecurring, 'event:', resizedEvent.title)
           if (isRecurring) {
             // Show recurring dialog - cleanup resize state immediately
             el.style.boxShadow = "none"
@@ -941,8 +935,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
               resizedEvent as any,
               "edit",
               async (choice: string) => {
-                console.log(`Resize recurring event, choice: ${choice}`)
-                
                 // Cleanup after dialog closes
                 el.style.boxShadow = "none"
                 isDraggingRef.current = false

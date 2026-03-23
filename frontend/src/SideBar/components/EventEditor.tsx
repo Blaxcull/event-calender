@@ -54,9 +54,7 @@ const EventEditor: React.FC = () => {
     
     // Only run if the ID actually changed
     if (currentId !== prevId) {
-      console.log('EventEditor: selected event changed, id =', currentId, 'title =', selectedEvent?.title, 'seriesMasterId =', (selectedEvent as any)?.seriesMasterId, 'isRecurringInstance =', (selectedEvent as any)?.isRecurringInstance)
       if (selectedEvent) {
-        console.log('EventEditor: loading title =', selectedEvent.title, 'from event object')
         setTitle(selectedEvent.title === 'New Event' ? '' : selectedEvent.title)
         setNotes(selectedEvent.notes || '')
         const urls = selectedEvent.urls || []
@@ -70,24 +68,16 @@ const EventEditor: React.FC = () => {
 
   // Handle property change with recurring dialog
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
-    console.log('handlePropertyChange CALLED:', { field, value, extraFields, stack: new Error().stack })
-    // Get current values from store to handle ID changes (temp → real)
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
-    console.log('handlePropertyChange: currentSelectedEventId =', currentSelectedEventId, 'currentEvent =', currentEvent)
     
     if (!currentEvent || !currentSelectedEventId) {
-      console.log('handlePropertyChange: early return - no event or id')
       return
     }
     
-    // Check if this is a recurring event INSTANCE using current event data
-    // Only show dialog for virtual instances (isRecurringInstance = true)
     const eventIsRecurring = currentEvent && 
                         !currentEvent.isTemp &&
                         (currentEvent as any).isRecurringInstance === true
-
-    console.log('handlePropertyChange: eventIsRecurring =', eventIsRecurring, 'currentEvent.isRecurringInstance =', currentEvent.isRecurringInstance, 'currentEvent.isTemp =', currentEvent.isTemp)
 
     if (eventIsRecurring) {
       // Capture values at this moment
@@ -194,9 +184,7 @@ const EventEditor: React.FC = () => {
   }, [urlChips])
   
   useEffect(() => {
-    console.log('saveTrigger useEffect: saveTrigger =', saveTrigger, 'selectedEventId =', selectedEventId)
     if (saveTrigger === 0) {
-      console.log('saveTrigger useEffect: saveTrigger is 0, returning')
       return
     }
     
@@ -256,25 +244,18 @@ const EventEditor: React.FC = () => {
     }
     
     if (!currentEvent) {
-      console.log('saveTrigger: Event not found:', currentEventId)
       return
     }
     
-    // Check if recurring - virtual instances have isRecurringInstance = true
     const eventIsRecurring = currentEvent && 
                         !currentEvent.isTemp &&
                         currentEvent.isRecurringInstance === true
-    console.log('saveTrigger useEffect: checking recurring, eventIsRecurring =', eventIsRecurring, 'title =', currentEvent.title, 'isRecurringInstance =', currentEvent.isRecurringInstance, 'isTemp =', currentEvent.isTemp)
     
-    // Capture current title/notes/urls from refs for use in dialog callback
     const capturedTitle = titleRef.current || 'New Event'
     const capturedNotes = notesRef.current
     const capturedUrls = urlChipsRef.current.map(c => c.url)
     
-    console.log('saveTrigger useEffect: before if eventIsRecurring, currentEvent id/title/isRecurringInstance/isTemp =', currentEvent.id, currentEvent.title, currentEvent.isRecurringInstance, currentEvent.isTemp)
-    
     if (eventIsRecurring) {
-      console.log('saveTrigger useEffect: SHOWING RECURRING DIALOG for:', currentEvent.title)
       showRecurringDialog(
         currentEvent as CalendarEvent,
         "edit",
@@ -302,7 +283,6 @@ const EventEditor: React.FC = () => {
               urls: capturedUrls
             })
           } else if (choice === "this-and-following") {
-            console.log('EventEditor: this-and-following clicked, capturedTitle =', capturedTitle)
             const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
             await updateThisAndFollowing(
               currentEvent as any,
@@ -380,12 +360,9 @@ const EventEditor: React.FC = () => {
   }
 
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    console.log('handleTitleKeyDown: key =', e.key)
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
-    console.log('handleTitleKeyDown: currentSelectedEventId =', currentSelectedEventId, 'currentEvent =', currentEvent)
     if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
-      console.log('handleTitleKeyDown: ENTER PRESSED, calling handlePropertyChange with title:', title)
       e.preventDefault()
       setHasEdits(false)
       setHasEditsEventId(null)
