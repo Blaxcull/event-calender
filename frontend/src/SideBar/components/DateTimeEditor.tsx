@@ -396,18 +396,9 @@ const DateTimeEditor: React.FC = () => {
   const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   
-  // Subscribe to entire store for reactivity
-  const storeState = useEventsStore()
-  
-  // Get selected event directly from cache
-  const selectedEvent = React.useMemo(() => {
-    if (!selectedEventId) return null
-    const dateKey = Object.keys(storeState.eventsCache).find(d => 
-      storeState.eventsCache[d].some(e => e.id === selectedEventId)
-    )
-    if (!dateKey) return null
-    return storeState.eventsCache[dateKey].find(e => e.id === selectedEventId) || null
-  }, [selectedEventId, storeState.eventsCache])
+  // Get selected event - uses getEventById which handles both real and virtual events
+  const getEventById = useEventsStore((state) => state.getEventById)
+  const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
   
   // Check if this is a recurring event INSTANCE (not the base master event)
   // Only show dialog for virtual instances (isRecurringInstance = true)
@@ -422,13 +413,7 @@ const DateTimeEditor: React.FC = () => {
     if (!currentEventId) return
     
     // Get fresh event for recurring check
-    const freshEvent = (() => {
-      const dateKey = Object.keys(useEventsStore.getState().eventsCache).find(d => 
-        useEventsStore.getState().eventsCache[d].some(e => e.id === currentEventId)
-      )
-      if (!dateKey) return null
-      return useEventsStore.getState().eventsCache[dateKey].find(e => e.id === currentEventId) || null
-    })()
+    const freshEvent = useEventsStore.getState().getEventById(currentEventId)
     
     if (!freshEvent) return
     
@@ -523,7 +508,10 @@ const DateTimeEditor: React.FC = () => {
 
   if (!selectedEvent) return null
 
-  const isAllDay = selectedEvent.is_all_day || false
+  const endDate = selectedEvent.end_date || selectedEvent.date
+  const isMultiDay = endDate > selectedEvent.date
+  // Only disable time for true all-day (single-day, 24h+), not for multi-day
+  const disableTime = selectedEvent.is_all_day && !isMultiDay
 
   return (
     <>
@@ -565,7 +553,7 @@ const DateTimeEditor: React.FC = () => {
             onChange={(mins) => {
               handlePropertyChange('start_time', mins)
             }}
-            disabled={isAllDay}
+            disabled={disableTime}
           />
           <span className="text-neutral-600">-</span>
           <TimePicker
@@ -574,7 +562,7 @@ const DateTimeEditor: React.FC = () => {
             onChange={(mins) => {
               handlePropertyChange('end_time', mins)
             }}
-            disabled={isAllDay}
+            disabled={disableTime}
             minValue={selectedEvent.start_time}
           />
         </div>

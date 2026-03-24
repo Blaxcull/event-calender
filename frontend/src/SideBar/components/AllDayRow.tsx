@@ -4,9 +4,10 @@ import { Sun } from "lucide-react"
 interface AllDayRowProps {
   value: boolean
   onChange: (value: boolean) => void
+  disabled?: boolean
 }
 
-const AllDayRow: React.FC<AllDayRowProps> = ({ value, onChange }) => {
+const AllDayRow: React.FC<AllDayRowProps> = ({ value, onChange, disabled }) => {
   return (
     <div className="flex items-center justify-between py-1 px-0">
       
@@ -20,10 +21,10 @@ const AllDayRow: React.FC<AllDayRowProps> = ({ value, onChange }) => {
       {/* Toggle */}
       <button
         type="button"
-        onClick={() => onChange(!value)}
+        onClick={() => !disabled && onChange(!value)}
         className={`
           relative w-17 h-8 rounded-full transition-colors duration-200
-          ${value ? "bg-red-500" : "bg-neutral-300"}
+          ${disabled ? "bg-neutral-200 cursor-not-allowed" : value ? "bg-red-500" : "bg-neutral-300"}
         `}
       >
         <span

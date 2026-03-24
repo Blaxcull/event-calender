@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from "react"
+import React, { useCallback, useState, useEffect, useRef } from "react"
 import { useEventsStore, type CalendarEvent, type NewEvent } from "@/store/eventsStore"
 import { addYearsToDateStr } from "@/store/dateUtils"
 import RepeatRow from "./RepeatRow"
@@ -141,18 +141,51 @@ const RepeatReminderPanel: React.FC = () => {
   const handleAllDayChange = useCallback(
     (value: boolean) => {
       if (!selectedEvent) return
-      handlePropertyChange(selectedEvent, "allDay", value ? "Yes" : "No")
+      handlePropertyChange(selectedEvent, "is_all_day", value)
     },
     [selectedEvent, handlePropertyChange]
   )
 
+  // Compute whether all-day should be forced (24h+ duration or multi-day)
+  const shouldForceAllDay = React.useMemo(() => {
+    if (!selectedEvent) return false
+    const endDate = selectedEvent.end_date || selectedEvent.date
+    if (endDate > selectedEvent.date) return true
+    const duration = selectedEvent.end_time - selectedEvent.start_time
+    return duration >= 1440
+  }, [selectedEvent])
+
+  // Auto-enable all-day when duration is 24h+ or multi-day; disable when reverting
+  const prevForceAllDay = useRef(shouldForceAllDay)
+  useEffect(() => {
+    if (!selectedEvent) return
+    const wasForced = prevForceAllDay.current
+    prevForceAllDay.current = shouldForceAllDay
+
+    if (shouldForceAllDay && !selectedEvent.is_all_day) {
+      handlePropertyChange(selectedEvent, "is_all_day", true)
+    } else if (!shouldForceAllDay && wasForced && selectedEvent.is_all_day) {
+      handlePropertyChange(selectedEvent, "is_all_day", false)
+    }
+  }, [selectedEvent?.id, shouldForceAllDay])
+
+  // Whether the event is multi-day (repeat doesn't make sense for multi-day)
+  const isMultiDay = React.useMemo(() => {
+    if (!selectedEvent) return false
+    const endDate = selectedEvent.end_date || selectedEvent.date
+    return endDate > selectedEvent.date
+  }, [selectedEvent])
+
   if (!selectedEvent) return null
+
+  const allDayDisabled = shouldForceAllDay
 
   return (
     <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] pl-5 pr-6 py-6 border-20 space-y-3 shadow-none">
       <RepeatRow
         value={pendingRepeat ?? (selectedEvent.repeat || "None")}
         onChange={handleRepeatChange}
+        disabled={isMultiDay}
       />
 
       <hr className="border-neutral-300 border-t-[2px]" />
@@ -165,8 +198,9 @@ const RepeatReminderPanel: React.FC = () => {
       <hr className="border-neutral-300 border-t-[2px]" />
 
       <AllDayRow
-        value={selectedEvent.allDay === "Yes"}
+        value={selectedEvent.is_all_day || false}
         onChange={handleAllDayChange}
+        disabled={allDayDisabled}
       />
     </div>
   )

@@ -23,7 +23,6 @@ export interface Event {
   goalType?: string
   goal?: string
   earlyReminder?: string
-  allDay?: string
   created_at?: string
   updated_at?: string
   isTemp?: boolean // Marks optimistic local events not yet persisted
@@ -67,7 +66,6 @@ export interface NewEvent {
   goalType?: string
   goal?: string
   earlyReminder?: string
-  allDay?: string
   id?: string // Optional for optimistic temp events
 }
 

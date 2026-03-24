@@ -1,7 +1,7 @@
 import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
 import type { EventType, EventPositions } from '../lib/eventUtils'
-import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions } from '../lib/eventUtils'
+import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, restoreEventWidths, applyPositionsToDOM } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 import RecurringActionDialog from "@/components/RecurringActionDialog"
@@ -44,7 +44,7 @@ useEffect(() => {
 
 const bgColor = isDragging
   ? 'bg-[#db7fa5]'
-  : 'bg-[#f792bb]'
+  : 'bg-[#f792bb]/[0.5]'
 
  const isActive = isDragging || isResizing || isSelected
 
@@ -57,11 +57,12 @@ const eventStyle: React.CSSProperties = {
       left: position.left,
       width: position.width,
       zIndex: position.zIndex,
+      transition: isDragging || isResizing ? undefined : "left 200ms ease, width 200ms ease",
     }
 
 const leftStrip = isSelected
   ? 'bg-white'
-  : 'bg-pink-500'
+  : 'bg-pink-700'
 
 return (
   <div
@@ -77,69 +78,70 @@ return (
   >
     <div className={`absolute top-1 bottom-1 left-[3px] w-[6px] ${leftStrip} rounded`} />
 
+    {((event.repeat && event.repeat !== 'None') || event.isRecurringInstance) && (
+      <svg className="absolute top-2 right-3 w-4 h-4 opacity-70 z-20" viewBox="0 0 24 24" fill="none" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 13.0399V11C2 7.68629 4.68629 5 8 5H21V5" />
+            <path d="M19 2L22 5L19 8" />
+            <path d="M22 9.98004V12.02C22 15.3337 19.3137 18.02 16 18.02H3V18.02" />
+            <path d="M5 21L2 18L5 15" />
+          </svg>
+    )}
+
+
     {/* Event content - adjust based on event height */}
 <div
-  className={`text-white pl-[18px] pt-0  relative z-10 `}
+  className={`text-pink-700 pl-[18px] pr-3 pt-0  relative z-10 `}
 >
   {calculateEventDuration(event) <= 20 ? (
     // 20 MIN OR LESS (super compact)
-    <div className=" text-base truncate flex pr-2 h-5 items-center ">
-      <span className="truncate font-semibold ">{event.title}</span>
-      {/* Repeat icon for recurring events */}
-      {event.series_id && (
-        <span className="shrink-0 ml-1 text-xs opacity-70">↻</span>
-      )}
-      <span className="shrink-0 ml-1">
-        {`, ${event.startHour.toString().padStart(2, "0")}:${event.startMin
-          .toString()
-          .padStart(2, "0")}`}
-      </span>
+    <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
+      <span className="truncate font-semibold  ">{event.title}</span>
+      <div className="flex items-center shrink-0 gap-1 ml-1">
+        <span className="text-xs opacity-70">
+          {`${event.startHour.toString().padStart(2, "0")}:${event.startMin
+            .toString()
+            .padStart(2, "0")}`}
+        </span>
+      </div>
     </div>
 
   ) : calculateEventDuration(event) <= 30 ? (
     // 21-30 MIN (compact horizontal)
-    <div className=" flex pt-1 items-center pr-2 truncate">
+    <div className=" flex pt-1 items-center pr-2 truncate justify-between">
       <span className="truncate font-semibold text-xl ">{event.title}</span>
-      {/* Repeat icon for recurring events */}
-      {event.series_id && !event.isRecurringInstance && (
-        <span className="shrink-0 ml-1 text-sm opacity-70">↻</span>
-      )}
-      <span className="shrink-0 font-medium text-xl ml-1">
-        {`, ${event.startHour.toString().padStart(2, "0")}:${event.startMin
-          .toString()
-          .padStart(2, "0")}`}
-      </span>
+      <div className="flex items-center shrink-0 gap-1 ml-1">
+        <span className="font-medium text-xl">
+          {`${event.startHour.toString().padStart(2, "0")}:${event.startMin
+            .toString()
+            .padStart(2, "0")}`}
+        </span>
+      </div>
     </div>
 
   ) : (
     // MORE THAN 30 MIN (normal layout)
     <>
-      <div className="font-semibold text-xl pt-1 truncate flex items-center gap-1">
+      <div className="  font-extrabold text-2xl pt-1 truncate flex items-center gap-1">
         {event.title}
-        {/* Repeat icon for recurring events */}
-        {event.series_id && (
-          <span className="shrink-0 text-base opacity-70">↻</span>
-        )}
       </div>
-      <div className="text-lg flex items-center gap-2">
-  <img
-    src="/src/assets/clock.png"
-    alt="clock"
-    className="w-4 h-4  rotate-[270deg] invert"
-  />
-
-  {showEndTime 
-    ? `${event.startHour.toString().padStart(2, "0")}:${event.startMin
-      .toString()
-      .padStart(2, "0")} - ${event.endHour
-      .toString()
-      .padStart(2, "0")}:${event.endMin
-      .toString()
-      .padStart(2, "0")}`
-    : `${event.startHour.toString().padStart(2, "0")}:${event.startMin
-      .toString()
-      .padStart(2, "0")}`}
-</div>
+      <div className="text-xl font-medium flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {showEndTime 
+            ? `${event.startHour.toString().padStart(2, "0")}:${event.startMin
+              .toString()
+              .padStart(2, "0")} - ${event.endHour
+              .toString()
+              .padStart(2, "0")}:${event.endMin
+              .toString()
+              .padStart(2, "0")}`
+            : `${event.startHour.toString().padStart(2, "0")}:${event.startMin
+              .toString()
+              .padStart(2, "0")}`}
+        </div>
+      </div>
     </>
   )}
 </div>
@@ -254,7 +256,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     setLocalEvents(uiEvents)
     
     // Pre-calculate event positions synchronously so events render at correct positions
-    const positions = calculateEventPositions(uiEvents, selectedEventId)
+    const positions = calculateEventPositions(uiEvents.filter(e => !e.isAllDay), selectedEventId)
     setEventPositions(positions)
     
     // Clean up old ID mappings for events that no longer exist
@@ -376,8 +378,8 @@ const TimeView: React.FC<TimeViewProps> = () => {
           }
         }
         
-        if (eventInStore && eventInStore.isTemp === true) {
-          // Delete unsaved temp event immediately
+        if (eventInStore && eventInStore.isTemp === true && eventInStore.created_at === eventInStore.updated_at) {
+          // Delete only untouched temp events (never edited — created_at === updated_at)
           deleteEvent(selectedEventId)
           setSelectedEvent(null)
           justCreatedEventRef.current = null
@@ -393,6 +395,9 @@ const TimeView: React.FC<TimeViewProps> = () => {
       
       // Clicking on empty grid just deselects - doesn't delete
       setSelectedEvent(null)
+      // Recalculate positions so events go back to column layout
+      const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), null)
+      setEventPositions(positions)
       return
     }
     
@@ -413,39 +418,22 @@ const TimeView: React.FC<TimeViewProps> = () => {
     const newUIEvent = addEventOnClick(clickY, localEvents, selectedDate)
     if (!newUIEvent) return
     
-    // Calculate correct width for the new event immediately
-    const overlappingEvents = localEvents.filter(ev =>
-      ev.slot < newUIEvent.slot + newUIEvent.height &&
-      newUIEvent.slot < ev.slot + ev.height
-    )
-    
-    const totalEvents = overlappingEvents.length + 1
-    const widthPercent = 100 / totalEvents
-    
     lastAddedEventId.current = newUIEvent.id
     pendingEventIds.current.add(newUIEvent.id)
     
-    // Pre-position existing overlapping events
-    overlappingEvents.forEach((ev, index) => {
-      const el = document.getElementById(ev.id) as HTMLDivElement | null
-      if (el) {
-        el.style.transition = "left 200ms ease, width 200ms ease"
-        const newLeftPercent = index * widthPercent
-        el.style.left = `calc(${newLeftPercent}%)`
-        el.style.width = `calc(${widthPercent}%)`
-      }
-    })
-    
     // Add to local state immediately
-    setLocalEvents(prev => [...prev, newUIEvent])
+    const allEventsWithNew = [...localEvents, newUIEvent]
+    setLocalEvents(allEventsWithNew)
+
+    // Calculate positions with new event included so existing events reflow
+    const positions = calculateEventPositions(allEventsWithNew.filter(e => !e.isAllDay), newUIEvent.id)
+    applyPositionsToDOM(positions)
+    setEventPositions(positions)
     
-    // Apply correct position and fade-in (full width since selected)
+    // Fade in the new event
     requestAnimationFrame(() => {
       const newEl = document.getElementById(newUIEvent.id) as HTMLDivElement | null
       if (newEl) {
-        newEl.style.left = '0'
-        newEl.style.width = '100%'
-        newEl.style.zIndex = "20"
         newEl.style.opacity = "0"
         
         requestAnimationFrame(() => {
@@ -619,11 +607,12 @@ const TimeView: React.FC<TimeViewProps> = () => {
           // This causes re-render but that's OK - it's local state only!
           const start = yToTimeSnapped(snappedY)
           const end = yToTimeSnapped(snappedY + draggedEvent.height)
-          setLocalEvents(prev => prev.map(ev => 
+          const updatedEvents = localEvents.map(ev => 
             ev.id === draggingId 
               ? { ...ev, slot: snappedY, startHour: start.hour, startMin: start.min, endHour: end.hour, endMin: end.min }
               : ev
-          ))
+          )
+          setLocalEvents(updatedEvents)
         }
       }
 
@@ -642,11 +631,12 @@ const TimeView: React.FC<TimeViewProps> = () => {
           
           // Update local state for real-time overlap adjustments
           const end = yToTimeSnapped(resizedEvent.slot + newHeight)
-          setLocalEvents(prev => prev.map(ev => 
+          const updatedEvents = localEvents.map(ev => 
             ev.id === resizingId 
               ? { ...ev, height: newHeight, endHour: end.hour, endMin: end.min }
               : ev
-          ))
+          )
+          setLocalEvents(updatedEvents)
         }
       }
     }
@@ -721,6 +711,13 @@ const TimeView: React.FC<TimeViewProps> = () => {
     }
   }, [localEvents, draggingId, resizingId])
 
+  // Recalculate positions when selection changes (expand selected, collapse on deselect)
+  useEffect(() => {
+    if (isDraggingRef.current || isResizingRef.current) return
+    const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), selectedEventId)
+    setEventPositions(positions)
+  }, [selectedEventId, localEvents])
+
   // Handle drag/resize end - update state with final positions
   const handleMouseUp = () => {
     const wasDragging = isDraggingRef.current
@@ -741,6 +738,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
           }
         }
         setSelectedEvent(event.id)
+
+        // Recalculate positions so selected event expands to full width
+        const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), event.id)
+        setEventPositions(positions)
       }
       mouseDownPosRef.current = null
       return
@@ -782,7 +783,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       }
       
       // Also recalculate positions for all events to ensure correct widths
-      const positions = calculateEventPositions(localEvents, eventId)
+      const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), eventId)
       setEventPositions(positions)
       
       originalEventRef.current = null
@@ -1026,12 +1027,15 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
     isDraggingRef.current = false
     isResizingRef.current = false
+    const skipId = wasDraggingId || wasResizingId || null
     setDraggingId(null)
     setResizingId(null)
     unlockInteraction()
-    setSelectedEvent(null)
     originalEventRef.current = null
-    
+
+    // Restore event widths so overlapping events re-split into columns
+    restoreEventWidths(localEvents.filter(e => !e.isAllDay), true, skipId, selectedEventId)
+
     setTimeout(() => {
       recentlyInteractedRef.current = false
     }, 100)

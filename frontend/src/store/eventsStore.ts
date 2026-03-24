@@ -72,6 +72,7 @@ interface EventsState {
   // UI state
   selectedEventId: string | null
   scrollToEventId: string | null
+  scrollToTop: boolean
   saveTrigger: number
   hasEditsEventId: string | null
 
@@ -97,6 +98,7 @@ interface EventsState {
   isAnyEventSyncing: () => boolean
   setSelectedEvent: (id: string | null) => void
   setScrollToEventId: (id: string | null) => void
+  setScrollToTop: (value: boolean) => void
   updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => void
   saveSelectedEvent: () => Promise<void>
   showRecurringDialog: (event: CalendarEvent, actionType: 'edit' | 'delete', callback: (choice: string) => void) => void
@@ -155,6 +157,7 @@ export const useEventsStore = create<EventsState>()(
       pendingUpdates: new Map<string, Partial<NewEvent>[]>(),
       selectedEventId: null,
       scrollToEventId: null,
+      scrollToTop: false,
       saveTrigger: 0,
       recurringDialogOpen: false,
       recurringDialogEvent: null,
@@ -667,6 +670,17 @@ export const useEventsStore = create<EventsState>()(
           isRecurringInstance: false,
         }))
 
+        // Include multi-day events that span into this date from other cache dates
+        for (const [otherDateKey, dayEvents] of Object.entries(eventsCache)) {
+          if (otherDateKey === dateKey) continue
+          for (const event of dayEvents) {
+            const eventEndDate = event.end_date || event.date
+            if (event.date <= dateKey && eventEndDate >= dateKey) {
+              realEvents.push({ ...event, isRecurringInstance: false })
+            }
+          }
+        }
+
         // Generate or retrieve recurring instances
         const monthKey = getMonthKey(date)
         let recurringEvents: CalendarEvent[] = []
@@ -803,12 +817,13 @@ export const useEventsStore = create<EventsState>()(
 
       setSelectedEvent: (id) => set({ selectedEventId: id }),
       setScrollToEventId: (id) => set({ scrollToEventId: id }),
+      setScrollToTop: (value) => set({ scrollToTop: value }),
       setHasEditsEventId: (id) => set({ hasEditsEventId: id }),
 
       updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => {
         if (value === undefined) return
 
-        const { eventsCache, computedEventsCache, pendingSyncs, pendingUpdates } = get()
+        const { eventsCache, pendingSyncs, pendingUpdates } = get()
 
         // Virtual events redirect to series update
         if (isVirtualEventId(id)) {
@@ -836,7 +851,6 @@ export const useEventsStore = create<EventsState>()(
         }
 
         const newCache = { ...eventsCache }
-        const newComputedCache = { ...computedEventsCache }
 
         // Handle date changes
         if (field === 'date' && typeof value === 'string' && value !== dateKey) {
@@ -844,16 +858,13 @@ export const useEventsStore = create<EventsState>()(
           if (newCache[dateKey].length === 0) delete newCache[dateKey]
           if (!newCache[value]) newCache[value] = []
           newCache[value] = [...newCache[value], updatedEvent]
-          delete newComputedCache[dateKey]
-          delete newComputedCache[value]
         } else {
           const eventIndex = newCache[dateKey].findIndex(e => e.id === id)
           newCache[dateKey] = [...newCache[dateKey]]
           newCache[dateKey][eventIndex] = updatedEvent
-          delete newComputedCache[dateKey]
         }
 
-        set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
+        set({ eventsCache: newCache, computedEventsCache: {}, recurringEventsCache: {}, eventExceptionsCache: {} })
 
         // Queue update for temp events
         if (currentEvent.isTemp === true || pendingSyncs.has(id)) {

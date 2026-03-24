@@ -238,3 +238,24 @@
     font-family: "SF", -apple-system, BlinkMacSystemFont, sans-serif;
   }
 }
+
+/* add in global CSS */
+.event-start {
+  clip-path: polygon(0 0, 99% 0, 100% 50%, 99% 100%, 0 100%);
+    border-radius: 20px 0 0 20px; /* only left rounded */
+}
+
+.event-end {
+  clip-path: polygon(1% 0, 100% 0, 100% 100%, 1% 100%, 0 50%);
+    border-radius: 0 8px 8px 0; /* only right rounded */
+}
+
+.event-middle {
+
+  clip-path: polygon(1% 0, 99% 0, 100% 50%, 99% 100%, 1% 100%, 0 50%);
+    border-radius: 0 8px 8px 0; /* only right rounded */
+}
+
+.event-same-day {
+  border-radius: 20px;
+}

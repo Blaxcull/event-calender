@@ -2,7 +2,11 @@ import React from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 
-export type RecurringActionChoice = "only-this" | "all-events" | "this-and-following" | "cancel"
+export type RecurringActionChoice =
+  | "only-this"
+  | "all-events"
+  | "this-and-following"
+  | "cancel"
 
 export type RecurringActionType = "edit" | "delete"
 
@@ -21,74 +25,64 @@ const RecurringActionDialog: React.FC<RecurringActionDialogProps> = ({
 }) => {
   if (!open) return null
 
-  const actionText = actionType === "edit" ? "change" : "delete"
-  const title = actionType === "edit" 
-    ? `Edit "${eventTitle}"` 
-    : `Delete "${eventTitle}"`
+  const isDelete = actionType === "delete"
+  const title = isDelete ? "Delete" : "Edit"
 
   return (
     <Dialog open={open} onOpenChange={() => onChoice("cancel")}>
-      <DialogContent className="w-[400px] p-6 dialog-no-transition" onClose={() => onChoice("cancel")}>
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-neutral-800">{title}</h2>
-          <p className="text-neutral-600">
-            This is a recurring event. How would you like to {actionText} it?
+      <DialogContent
+        className="
+          w-[360px] p-0 overflow-hidden rounded-2xl shadow-xl border border-neutral-200
+        "
+      >
+        {/* HEADER */}
+        <div className="px-6 pt-5 pb-3">
+          <h2 className="text-lg font-semibold text-neutral-900">
+            {title} event
+          </h2>
+          <p className="text-sm text-neutral-500 truncate mt-1">
+            "{eventTitle}"
           </p>
-          
-          <div className="space-y-2 pt-2">
-            <Button
-              variant="secondary"
-              className="w-full justify-start text-left h-auto py-3 px-4"
-              onClick={() => onChoice("only-this")}
-            >
-              <div>
-                <span className="font-medium">1. Only this event</span>
-                <p className="text-sm text-neutral-500 font-normal">
-                  {actionText === "delete" 
-                    ? "Delete only this occurrence" 
-                    : "Change only this occurrence"}
-                </p>
-              </div>
-            </Button>
-            
-            <Button
-              variant="secondary"
-              className="w-full justify-start text-left h-auto py-3 px-4"
-              onClick={() => onChoice("all-events")}
-            >
-              <div>
-                <span className="font-medium">2. All events</span>
-                <p className="text-sm text-neutral-500 font-normal">
-                  {actionText === "delete"
-                    ? "Delete entire series"
-                    : "Change all occurrences"}
-                </p>
-              </div>
-            </Button>
-            
-            <Button
-              variant="secondary"
-              className="w-full justify-start text-left h-auto py-3 px-4"
-              onClick={() => onChoice("this-and-following")}
-            >
-              <div>
-                <span className="font-medium">3. This and following</span>
-                <p className="text-sm text-neutral-500 font-normal">
-                  {actionText === "delete"
-                    ? "Delete this and future occurrences"
-                    : "Change this and future occurrences"}
-                </p>
-              </div>
-            </Button>
+        </div>
 
-            <Button
-              variant="outline"
-              className="w-full justify-center mt-4"
-              onClick={() => onChoice("cancel")}
-            >
-              Cancel
-            </Button>
-          </div>
+        {/* OPTIONS */}
+        <div className="px-2 pb-2">
+          <button
+            onClick={() => onChoice("only-this")}
+            className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-neutral-700 hover:bg-neutral-100 transition-all duration-150 active:scale-[0.98]"
+          >
+            Only this event
+          </button>
+          <button
+            onClick={() => onChoice("this-and-following")}
+            className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-neutral-700 hover:bg-neutral-100 transition-all duration-150 active:scale-[0.98]"
+          >
+            This and following
+          </button>
+          <button
+            onClick={() => onChoice("all-events")}
+            className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 active:scale-[0.98] ${
+              isDelete
+                ? "text-red-600 hover:bg-red-50"
+                : "text-neutral-700 hover:bg-neutral-100"
+            }`}
+          >
+            All events
+          </button>
+        </div>
+
+        {/* DIVIDER */}
+        <div className="h-px bg-neutral-200 mx-4" />
+
+        {/* CANCEL */}
+        <div className="p-2">
+          <Button
+            variant="ghost"
+            className="w-full h-11 rounded-xl text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 transition"
+            onClick={() => onChoice("cancel")}
+          >
+            Cancel
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

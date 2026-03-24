@@ -135,7 +135,7 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
     color: storeEvent.color,
     isAllDay,
     location: storeEvent.location,
-    series_id: (storeEvent as any).series_id,
+    repeat: storeEvent.repeat,
     isRecurringInstance: (storeEvent as any).isRecurringInstance,
     seriesMasterId: (storeEvent as any).seriesMasterId,
     occurrenceDate: (storeEvent as any).occurrenceDate,
@@ -250,8 +250,6 @@ export function dragEvent(event: EventType, deltaY: number): EventType {
 
   const el = document.getElementById(event.id) as HTMLDivElement | null
   if (el) {
-    el.style.left = "0px"
-    el.style.width = "calc(100%)"
     el.style.zIndex = "9999"
     el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
     el.style.transition = "box-shadow 100ms ease"
@@ -280,7 +278,6 @@ export function resizeEvent(event: EventType, deltaY: number): EventType {
   const el = document.getElementById(event.id) as HTMLDivElement | null
   if (el) {
     el.style.zIndex = "9999"
-    el.style.width = "calc(100%)"
     el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
     el.style.transition = "box-shadow 10ms ease"
   }
@@ -332,47 +329,52 @@ function buildClusters(events: EventType[]): EventType[][] {
 }
 
 function assignColumns(events: EventType[]): InternalPositionedEvent[] {
-  const columns: InternalPositionedEvent[][] = []
-  const positioned: InternalPositionedEvent[] = []
   const sorted = [...events].sort((a, b) => a.slot - b.slot)
 
+  const colEnd: number[] = []
+  const result: InternalPositionedEvent[] = []
+
   for (const ev of sorted) {
-    let placed = false
+    let col = 0
 
-    for (let c = 0; c < columns.length; c++) {
-      const last = columns[c][columns[c].length - 1]
-      if (last.slot + last.height <= ev.slot) {
-        const pe = { ...ev, col: c, colSpan: 1 }
-        columns[c].push(pe)
-        positioned.push(pe)
-        placed = true
-        break
-      }
+    while (col < colEnd.length && colEnd[col] > ev.slot) {
+      col++
     }
 
-    if (!placed) {
-      const pe = { ...ev, col: columns.length, colSpan: 1 }
-      columns.push([pe])
-      positioned.push(pe)
+    if (col === colEnd.length) {
+      colEnd.push(ev.slot + ev.height)
+    } else {
+      colEnd[col] = ev.slot + ev.height
     }
+
+    result.push({ ...ev, col, colSpan: 1 })
   }
 
-  return positioned
+  return result
 }
 
 function expandSpans(events: InternalPositionedEvent[]) {
+  const byCol: Record<number, InternalPositionedEvent[]> = {}
+
+  for (const ev of events) {
+    if (!byCol[ev.col]) byCol[ev.col] = []
+    byCol[ev.col].push(ev)
+  }
+
   const maxCol = Math.max(...events.map(e => e.col)) + 1
 
   for (const ev of events) {
     let span = 1
+
     for (let c = ev.col + 1; c < maxCol; c++) {
-      const collision = events.some(other =>
-        other.col === c &&
+      const collision = byCol[c]?.some(other =>
         overlaps(ev.slot, ev.slot + ev.height, other.slot, other.slot + other.height)
       )
+
       if (collision) break
       span++
     }
+
     ev.colSpan = span
   }
 }
@@ -403,8 +405,8 @@ export function calculateEventPositions(events: EventType[], selectedEventId: st
         const leftPercent = (ev.col / maxCol) * 100
         const widthPercent = (ev.colSpan / maxCol) * 100
 
-        const left = leftPercent === 0 ? "0" : `calc(${leftPercent}%)`
-        const width = widthPercent === 100 ? "100%" : `calc(${widthPercent}%)`
+        const left = leftPercent === 0 ? "0" : `${leftPercent}%`
+        const width = widthPercent === 100 ? "100%" : `${widthPercent}%`
         
         positions[ev.id] = {
           left,
@@ -459,8 +461,8 @@ export function restoreEventWidths(events: EventType[], animate: boolean = true,
         const widthPercent = (ev.colSpan / maxCol) * 100
 
         // Use same format as selected state for consistency
-        const newLeft = leftPercent === 0 ? "0" : `calc(${leftPercent}%)`
-        const newWidth = widthPercent === 100 ? "100%" : `calc(${widthPercent}%)`
+        const newLeft = leftPercent === 0 ? "0" : `${leftPercent}%`
+        const newWidth = widthPercent === 100 ? "100%" : `${widthPercent}%`
         
         el.style.left = newLeft
         el.style.width = newWidth
@@ -510,4 +512,23 @@ export function calculateEventDuration(event: EventType): number {
   }
   
   return endTotal - startTotal
+}
+
+export function applyPositionsToDOM(positions: EventPositions, animate: boolean = true) {
+  requestAnimationFrame(() => {
+    for (const id in positions) {
+      const el = document.getElementById(id)
+      if (!el) continue
+
+      const { left, width, zIndex } = positions[id]
+
+      if (animate) {
+        el.style.transition = "left 200ms ease, width 200ms ease"
+      }
+
+      el.style.left = left
+      el.style.width = width
+      el.style.zIndex = String(zIndex)
+    }
+  })
 }
