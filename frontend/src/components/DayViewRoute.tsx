@@ -1,0 +1,81 @@
+import { useEffect } from 'react'
+import { useParams, Navigate } from 'react-router-dom'
+import { useTimeStore } from '@/store/timeStore'
+import { useEventsStore } from '@/store/eventsStore'
+import DayView from '@/Day_view/DayView'
+
+export function DayViewRoute() {
+  const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
+  const setDate = useTimeStore(state => state.setDate)
+  const setToday = useTimeStore(state => state.setToday)
+  const fetchEventsWindow = useEventsStore(state => state.fetchEventsWindow)
+  const setSelectedEvent = useEventsStore(state => state.setSelectedEvent)
+
+  useEffect(() => {
+    // Validate URL parameters
+    if (!year || !month || !day) {
+      setToday()
+      return
+    }
+
+    const yearNum = parseInt(year, 10)
+    const monthNum = parseInt(month, 10) - 1 // URL is 1-indexed, JS Date is 0-indexed
+    const dayNum = parseInt(day, 10)
+
+    // Check if date is valid
+    const date = new Date(yearNum, monthNum, dayNum)
+    const isValidDate = 
+      date.getFullYear() === yearNum &&
+      date.getMonth() === monthNum &&
+      date.getDate() === dayNum
+
+    if (!isValidDate) {
+      // Invalid date, redirect to today
+      setToday()
+      return
+    }
+
+    // Set the date in the store
+    setDate(date)
+    
+    // Deselect any currently selected event when date changes
+    setSelectedEvent(null)
+    
+    // Fetch events in background - don't wait for it
+    // UI shows cached data immediately, updates when fetch completes
+    queueMicrotask(() => {
+      fetchEventsWindow(date)
+    })
+  }, [year, month, day, setDate, setToday, fetchEventsWindow, setSelectedEvent])
+
+  // Validate parameters
+  if (!year || !month || !day) {
+    return <Navigate to="/" replace />
+  }
+
+  const yearNum = parseInt(year, 10)
+  const monthNum = parseInt(month, 10) - 1
+  const dayNum = parseInt(day, 10)
+  const date = new Date(yearNum, monthNum, dayNum)
+  
+  // Check if date is valid
+  const isValidDate = 
+    date.getFullYear() === yearNum &&
+    date.getMonth() === monthNum &&
+    date.getDate() === dayNum
+
+  if (!isValidDate) {
+    return <Navigate to="/" replace />
+  }
+
+  return <DayView />
+}
+
+export function TodayRedirect() {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = today.getMonth() + 1 // 1-indexed for URL
+  const day = today.getDate()
+
+  return <Navigate to={`/day/${year}/${month}/${day}`} replace />
+}

@@ -1,0 +1,96 @@
+import { Button } from "@/components/ui/button"
+import { useNavigate, useLocation } from "react-router-dom"
+
+interface TopBarLeftProps {
+  onAddClick?: () => void
+}
+
+export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const isGoalSelected = location.pathname === '/goalview'
+  const isCalendarSelected = location.pathname === '/calendar'
+
+  const isAnySelected = isGoalSelected || isCalendarSelected
+
+  return (
+    <div className="fixed top-4 left-4 z-50 flex items-center gap-3">
+
+      <div className="group flex items-center border-[1px] rounded-full shadow-sm">
+
+        {/* Goals */}
+
+<div
+  onClick={() => navigate('/goalview')}
+  className={`
+    h-16 w-16 flex items-center justify-center
+    cursor-pointer rounded-full
+
+    transition-all duration-200 ease-out
+    active:scale-95
+
+    border
+
+    ${isGoalSelected
+      ? 'bg-[#dddddd] border-white/80 shadow-inner scale-90 hover:scale-100 hover:bg-transparent hover:shadow-lg'
+      : 'border-transparent hover:border-white/40 hover:shadow-lg hover:scale-100'
+    }
+  `}
+>
+
+
+
+          <img src="/src/assets/goal.png" alt="goals" className="w-9 h-9 opacity-80" />
+        </div>
+
+        {/* divider */}
+        {!isAnySelected && (
+          <div className="w-px h-9 bg-gray-300 transition-opacity duration-150 group-hover:opacity-0" />
+        )}
+
+        {/* Calendar */}
+        <div
+          onClick={() => navigate('/calendar')}
+          className={`
+            h-16 w-16 flex items-center justify-center
+            cursor-pointer rounded-full
+
+            transition-all duration-150
+            active:scale-95
+
+            ${isCalendarSelected
+      ? 'bg-[#dddddd] border-white/80 shadow-inner scale-90 hover:scale-100 hover:bg-transparent hover:shadow-lg'
+      : 'border-transparent hover:border-white/40 hover:shadow-lg hover:scale-100'
+            }
+          `}
+        >
+          <img src="/src/assets/calendar2.png" alt="Calendar" className="w-7 h-7 opacity-80" />
+        </div>
+
+      </div>
+
+      {/* plus button */}
+      <Button
+        variant="ghost"
+        onClick={onAddClick}
+        className="
+          h-16 w-16
+          rounded-full
+          shadow-lg
+          border-[1px]
+          text-slate-600
+          transition-all duration-200 ease-out
+          hover:text-slate-800
+          hover:scale-110
+          hover:shadow-xl
+          active:scale-95
+          flex items-center justify-center
+        "
+      >
+        <img src="/src/assets/plus.png" alt="Add" className="w-7 h-7 opacity-80" />
+      </Button>
+
+    </div>
+  )
+}
