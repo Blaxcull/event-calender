@@ -68,6 +68,7 @@ interface EventsState {
   // Sync tracking for optimistic updates
   pendingSyncs: Set<string>
   pendingUpdates: Map<string, Partial<NewEvent>[]>
+  pendingDeletes: Set<string>
 
   // UI state
   selectedEventId: string | null
@@ -106,6 +107,7 @@ interface EventsState {
   setHasEditsEventId: (id: string | null) => void
   splitRecurringEvent: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
   updateThisAndFollowing: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
+  deleteSingleOccurrence: (event: CalendarEvent, selectedDate: string) => Promise<void>
 }
 
 // ---- Helpers ----
@@ -155,6 +157,7 @@ export const useEventsStore = create<EventsState>()(
       error: null,
       pendingSyncs: new Set<string>(),
       pendingUpdates: new Map<string, Partial<NewEvent>[]>(),
+      pendingDeletes: new Set<string>(),
       selectedEventId: null,
       scrollToEventId: null,
       scrollToTop: false,
@@ -206,11 +209,27 @@ export const useEventsStore = create<EventsState>()(
           }
 
           // Merge fetched data with existing cache
-          const { eventsCache: oldCache, pendingSyncs } = get()
+          const { eventsCache: oldCache, pendingSyncs, pendingDeletes } = get()
           const newCache: EventsCache = { ...oldCache }
+
+          // Filter out any events marked as deleted in local cache
+          for (const dateKey of Object.keys(newCache)) {
+            newCache[dateKey] = newCache[dateKey].filter(e => !(e as any).deleted)
+          }
+
+          // Also filter events that are pending delete
+          if (pendingDeletes && pendingDeletes.size > 0) {
+            for (const dateKey of Object.keys(newCache)) {
+              newCache[dateKey] = newCache[dateKey].filter(e => !pendingDeletes.has(e.id))
+            }
+          }
 
           data?.forEach((row: Record<string, any>) => {
             const event = dbRowToEvent(row)
+            // Skip if this event is pending delete
+            if (pendingDeletes && pendingDeletes.has(event.id)) {
+              return
+            }
             if (!newCache[event.date]) newCache[event.date] = []
             newCache[event.date] = newCache[event.date].filter(e => e.id !== event.id)
             newCache[event.date].push(event)
@@ -219,7 +238,7 @@ export const useEventsStore = create<EventsState>()(
 
           // Preserve temp events still syncing
           for (const date of Object.keys(oldCache)) {
-            const tempEvents = oldCache[date].filter(e => pendingSyncs.has(e.id))
+            const tempEvents = oldCache[date].filter(e => pendingSyncs.has(e.id) && (!pendingDeletes || !pendingDeletes.has(e.id)))
             if (tempEvents.length > 0) {
               if (!newCache[date]) newCache[date] = []
               for (const tempEvent of tempEvents) {
@@ -231,12 +250,50 @@ export const useEventsStore = create<EventsState>()(
             }
           }
 
+          // Fetch exceptions for all master events in the window
+          const masterIds = new Set<string>()
+          data?.forEach((row: Record<string, any>) => {
+            if (row.repeat && row.repeat !== 'None' && row.id) {
+              masterIds.add(row.id)
+            }
+          })
+
+          let newExceptionsCache = { ...get().eventExceptionsCache }
+
+          if (masterIds.size > 0) {
+            const { data: exceptionsData, error: excError } = await supabase
+              .from('exceptions')
+              .select('*')
+              .in('series_id', Array.from(masterIds))
+
+            if (!excError && exceptionsData) {
+              for (const exc of exceptionsData) {
+                const seriesId = exc.series_id
+                if (!newExceptionsCache[seriesId]) {
+                  newExceptionsCache[seriesId] = []
+                }
+                newExceptionsCache[seriesId] = newExceptionsCache[seriesId].filter(e => e.date !== exc.date)
+                newExceptionsCache[seriesId].push({
+                  id: exc.id,
+                  series_id: exc.series_id,
+                  date: exc.date,
+                  start_time: exc.start_time,
+                  end_time: exc.end_time,
+                  title: exc.title,
+                  deleted: exc.deleted,
+                  created_at: exc.created_at,
+                })
+              }
+            }
+          }
+
           set({
             eventsCache: newCache,
             computedEventsCache: {},
             cacheStartDate: startStr,
             cacheEndDate: endStr,
             cachedUserId: user.id,
+            eventExceptionsCache: newExceptionsCache,
           })
         } catch (err) {
           set({ error: err instanceof Error ? err.message : 'Failed to fetch events' })
@@ -887,23 +944,32 @@ export const useEventsStore = create<EventsState>()(
 
       saveSelectedEvent: async () => {
         try {
-          const { saveTrigger } = get()
+          const { saveTrigger, selectedEventId: currentSelectedId } = get()
+          if (!currentSelectedId) return
+          
           set({ saveTrigger: saveTrigger + 1 })
 
           // Wait for EventEditor to flush local state
           await new Promise(resolve => setTimeout(resolve, 50))
 
-          const { selectedEventId, eventsCache } = get()
-          if (!selectedEventId) return
+          // Check if selection hasn't changed
+          const { selectedEventId: afterWaitId, eventsCache, saveTrigger: afterTrigger } = get()
+          
+          // Only proceed if still the same event and same trigger
+          if (!afterWaitId || afterWaitId !== currentSelectedId || afterTrigger !== saveTrigger) {
+            return
+          }
 
-          const found = findEventInCache(eventsCache, selectedEventId)
+          const found = findEventInCache(eventsCache, currentSelectedId)
           if (!found) return
 
           const { event } = found
+          
+          // Only clear selected event after successful save
           set({ selectedEventId: null, saveTrigger: 0 })
 
           if (event.isTemp === true) {
-            await get().saveTempEvent(selectedEventId)
+            await get().saveTempEvent(currentSelectedId)
           } else {
             const updates: Partial<NewEvent> = {
               title: event.title,
@@ -919,7 +985,7 @@ export const useEventsStore = create<EventsState>()(
               location: event.location,
             }
 
-            await get().updateEvent(selectedEventId, updates)
+            await get().updateEvent(currentSelectedId, updates)
 
             setTimeout(async () => {
               try {
@@ -927,7 +993,9 @@ export const useEventsStore = create<EventsState>()(
               } catch { /* background save failed silently */ }
             }, 0)
           }
-        } catch { /* save failed silently */ }
+        } catch (err) {
+          set({ saveTrigger: 0 })
+        }
       },
 
       showRecurringDialog: (event, actionType, callback) => {
@@ -980,21 +1048,64 @@ export const useEventsStore = create<EventsState>()(
 
         const isFirstOccurrence = selectedDate === (event.series_start_date || event.date)
 
+        // Optimistic update
         if (isFirstOccurrence) {
           // First occurrence: make it non-recurring
-          await get().updateEvent(masterEventId, {
-            series_end_date: undefined,
-            series_start_date: undefined,
-            repeat: 'None',
-            ...updates,
+          const { eventsCache: currentCache } = get()
+          const newCache = { ...currentCache }
+          for (const dateKey of Object.keys(newCache)) {
+            newCache[dateKey] = newCache[dateKey].map(e => {
+              if (e.id === masterEventId) {
+                return {
+                  ...e,
+                  series_end_date: undefined,
+                  series_start_date: undefined,
+                  repeat: 'None',
+                  ...updates,
+                  updated_at: new Date().toISOString()
+                }
+              }
+              return e
+            })
+          }
+          set({
+            eventsCache: newCache,
+            computedEventsCache: {},
+            recurringEventsCache: {},
           })
+          
+          // Fire DB in background
+          setTimeout(() => {
+            supabase.from('events').update({
+              series_end_date: null,
+              series_start_date: null,
+              repeat: 'None',
+              ...updates,
+            }).eq('id', masterEventId).then(({ error }) => {
+              if (error) console.error('Failed to update event:', error)
+            })
+          }, 0)
         } else {
-          // Shorten original series
-          await get().updateEvent(masterEventId, { series_end_date: prevDay })
-
-          // Create standalone event at selected date
+          // Shorten original series and add new standalone event - do optimistically
+          const { eventsCache: currentCache } = get()
+          const newCache = { ...currentCache }
+          
+          // Shorten master series
+          for (const dateKey of Object.keys(newCache)) {
+            newCache[dateKey] = newCache[dateKey].map(e => {
+              if (e.id === masterEventId) {
+                return { ...e, series_end_date: prevDay, updated_at: new Date().toISOString() }
+              }
+              return e
+            })
+          }
+          
+          // Add standalone event at selected date
+          const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
           const event2Title = updates?.title ?? (event.title && event.title !== 'New Event' ? event.title : originalTitle)
-          await get().addEventOptimistic({
+          const tempEvent = {
+            id: tempId,
+            user_id: 'temp',
             title: event2Title,
             description: updates?.description ?? event.description ?? masterEvent?.description,
             notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
@@ -1007,10 +1118,64 @@ export const useEventsStore = create<EventsState>()(
             is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
             location: masterEvent?.location ?? event.location,
             repeat: 'None',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            isTemp: true,
+          }
+          
+          if (!newCache[selectedDate]) newCache[selectedDate] = []
+          newCache[selectedDate].push(tempEvent)
+          
+          set({
+            eventsCache: newCache,
+            computedEventsCache: {},
+            recurringEventsCache: {},
           })
+          
+          // Fire DB in background
+          setTimeout(async () => {
+            try {
+              const { data: { user } } = await supabase.auth.getUser()
+              if (!user) return
+              
+              // Update master series
+              await supabase.from('events').update({ series_end_date: prevDay }).eq('id', masterEventId)
+              
+              // Insert new standalone event
+              const newEventData = buildEventForDb({
+                title: event2Title,
+                description: updates?.description ?? event.description ?? masterEvent?.description,
+                notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
+                urls: updates?.urls ?? event.urls ?? masterEvent?.urls,
+                date: selectedDate,
+                end_date: selectedDate,
+                start_time: startTimeForNewEvent ?? event.start_time,
+                end_time: endTimeForNewEvent ?? event.end_time,
+                color: masterEvent?.color ?? event.color,
+                is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
+                location: masterEvent?.location ?? event.location,
+                repeat: 'None',
+              }, user.id)
+              
+              const { data: result } = await supabase.from('events').insert([newEventData]).select().single()
+              
+              if (result) {
+                const realEvent = dbRowToEvent(result)
+                const { eventsCache: finalCache } = get()
+                set({
+                  eventsCache: {
+                    ...finalCache,
+                    [selectedDate]: (finalCache[selectedDate] || []).map(e => e.id === tempId ? realEvent : e)
+                  }
+                })
+              }
+            } catch (err) {
+              console.error('Failed to save split event:', err)
+            }
+          }, 0)
         }
 
-        // Create new recurring series from next occurrence
+        // Create new recurring series from next occurrence in background
         const getNextDate = () => {
           const d = new Date(selectedDate + 'T00:00:00')
           switch (originalRepeat) {
@@ -1025,51 +1190,44 @@ export const useEventsStore = create<EventsState>()(
 
         const nextOccurrence = getNextDate()
         if (nextOccurrence <= originalSeriesEndDate) {
-          const { data: { user } } = await supabase.auth.getUser()
-          if (!user) return
+          setTimeout(async () => {
+            try {
+              const { data: { user } } = await supabase.auth.getUser()
+              if (!user) return
 
-          const event3Data = buildEventForDb({
-            title: originalTitle,
-            description: masterEvent?.description ?? event.description,
-            notes: masterEvent?.notes ?? event.notes,
-            urls: masterEvent?.urls ?? event.urls,
-            date: nextOccurrence,
-            end_date: nextOccurrence,
-            start_time: masterEvent?.start_time ?? event.start_time,
-            end_time: masterEvent?.end_time ?? event.end_time,
-            color: masterEvent?.color ?? event.color,
-            is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
-            location: masterEvent?.location ?? event.location,
-            repeat: originalRepeat,
-            series_start_date: nextOccurrence,
-            series_end_date: originalSeriesEndDate,
-          }, user.id)
+              const event3Data = buildEventForDb({
+                title: originalTitle,
+                description: masterEvent?.description ?? event.description,
+                notes: masterEvent?.notes ?? event.notes,
+                urls: masterEvent?.urls ?? event.urls,
+                date: nextOccurrence,
+                end_date: nextOccurrence,
+                start_time: masterEvent?.start_time ?? event.start_time,
+                end_time: masterEvent?.end_time ?? event.end_time,
+                color: masterEvent?.color ?? event.color,
+                is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
+                location: masterEvent?.location ?? event.location,
+                repeat: originalRepeat,
+                series_start_date: nextOccurrence,
+                series_end_date: originalSeriesEndDate,
+              }, user.id)
 
-          const { data: result, error } = await supabase
-            .from('events')
-            .insert([event3Data])
-            .select()
-            .single()
-
-          if (error || !result) return
-
-          const event3Cached = dbRowToEvent(result)
-          const { eventsCache: currentEventsCache } = get()
-          set({
-            eventsCache: {
-              ...currentEventsCache,
-              [result.date]: [...(currentEventsCache[result.date] || []), event3Cached],
-            },
-            computedEventsCache: {},
-            recurringEventsCache: {},
-            eventExceptionsCache: {},
-          })
+              await supabase.from('events').insert([event3Data])
+              
+              // Refresh cache after inserting new series
+              const { eventsCache: refreshedCache } = get()
+              set({
+                eventsCache: refreshedCache,
+                computedEventsCache: {},
+              })
+            } catch { /* ignore background errors */ }
+          }, 0)
         }
       },
 
       updateThisAndFollowing: async (event, selectedDate, newStartTime, newEndTime, updates) => {
-        const startTimeForNewEvent = newStartTime ?? updates?.start_time
-        const endTimeForNewEvent = newEndTime ?? updates?.end_time
+        const startTimeForNewEvent = updates?.start_time ?? newStartTime
+        const endTimeForNewEvent = updates?.end_time ?? newEndTime
         const { eventsCache } = get()
 
         const masterEventId = event.seriesMasterId || event.id
@@ -1083,14 +1241,29 @@ export const useEventsStore = create<EventsState>()(
           return formatDate(d)
         })()
 
-        // Shorten original series
-        await get().updateEvent(masterEventId, { series_end_date: prevDay })
+        // Optimistically shorten original series in cache
+        const { eventsCache: currentEventsCache } = get()
+        const newCache = { ...currentEventsCache }
+        for (const dateKey of Object.keys(newCache)) {
+          newCache[dateKey] = newCache[dateKey].map(e => {
+            if (e.id === masterEventId) {
+              return { ...e, series_end_date: prevDay, updated_at: new Date().toISOString() }
+            }
+            return e
+          })
+        }
+        set({
+          eventsCache: newCache,
+          computedEventsCache: {},
+          recurringEventsCache: {},
+          eventExceptionsCache: {},
+        })
 
-        // Create new series
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-
-        const newSeriesData = buildEventForDb({
+        // Create new series in cache optimistically
+        const tempSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        const tempSeriesCached: Event = {
+          id: tempSeriesId,
+          user_id: 'temp-user',
           title: updates?.title ?? event.title,
           description: updates?.description ?? masterEvent?.description ?? event.description,
           notes: updates?.notes ?? masterEvent?.notes ?? event.notes,
@@ -1105,79 +1278,123 @@ export const useEventsStore = create<EventsState>()(
           repeat: originalRepeat,
           series_start_date: selectedDate,
           series_end_date: originalSeriesEndDate,
-        }, user.id)
-
-        // Optimistic add
-        const tempSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
-        const { eventsCache: currentEventsCache } = get()
-        const tempSeriesCached: Event = {
-          id: tempSeriesId,
-          user_id: user.id,
-          title: newSeriesData.title,
-          date: newSeriesData.date,
-          end_date: newSeriesData.end_date,
-          start_time: newSeriesData.start_time,
-          end_time: newSeriesData.end_time,
-          description: newSeriesData.description,
-          notes: newSeriesData.notes,
-          urls: newSeriesData.urls,
-          color: newSeriesData.color,
-          is_all_day: newSeriesData.is_all_day,
-          location: newSeriesData.location,
-          repeat: newSeriesData.repeat,
-          series_start_date: newSeriesData.series_start_date,
-          series_end_date: newSeriesData.series_end_date,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           isTemp: true,
         }
 
-        set({
+        set(state => ({
           eventsCache: {
-            ...currentEventsCache,
-            [selectedDate]: [...(currentEventsCache[selectedDate] || []), tempSeriesCached],
+            ...state.eventsCache,
+            [selectedDate]: [...(state.eventsCache[selectedDate] || []), tempSeriesCached],
           },
           computedEventsCache: {},
           recurringEventsCache: {},
           eventExceptionsCache: {},
-        })
+        }))
 
-        // Insert to DB
-        const { data: result, error } = await supabase
-          .from('events')
-          .insert([newSeriesData])
-          .select()
-          .single()
+        // Fire DB operations in background
+        setTimeout(async () => {
+          try {
+            // Update master event series_end_date
+            await supabase.from('events').update({ series_end_date: prevDay }).eq('id', masterEventId)
 
-        if (error || !result) {
-          // Rollback on failure
-          const { eventsCache: cc } = get()
-          set({
-            eventsCache: {
-              ...cc,
-              [selectedDate]: (cc[selectedDate] || []).filter(e => e.id !== tempSeriesId),
-            },
-            computedEventsCache: {},
-            recurringEventsCache: {},
-            eventExceptionsCache: {},
-          })
-          return
+            // Insert new series
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+
+            const newSeriesData = buildEventForDb({
+              title: updates?.title ?? event.title,
+              description: updates?.description ?? masterEvent?.description ?? event.description,
+              notes: updates?.notes ?? masterEvent?.notes ?? event.notes,
+              urls: updates?.urls ?? masterEvent?.urls ?? event.urls,
+              date: selectedDate,
+              end_date: selectedDate,
+              start_time: startTimeForNewEvent ?? masterEvent?.start_time ?? event.start_time,
+              end_time: endTimeForNewEvent ?? masterEvent?.end_time ?? event.end_time,
+              color: updates?.color ?? masterEvent?.color ?? event.color,
+              is_all_day: updates?.is_all_day ?? masterEvent?.is_all_day ?? event.is_all_day,
+              location: updates?.location ?? masterEvent?.location ?? event.location,
+              repeat: originalRepeat,
+              series_start_date: selectedDate,
+              series_end_date: originalSeriesEndDate,
+            }, user.id)
+
+            const { data: result, error } = await supabase
+              .from('events')
+              .insert([newSeriesData])
+              .select()
+              .single()
+
+            if (error || !result) return
+
+            // Replace temp with real event
+            const realSeriesCached = dbRowToEvent(result)
+            const { eventsCache: finalCache } = get()
+            set({
+              eventsCache: {
+                ...finalCache,
+                [selectedDate]: (finalCache[selectedDate] || []).map(e =>
+                  e.id === tempSeriesId ? realSeriesCached : e
+                ),
+              },
+              computedEventsCache: {},
+              recurringEventsCache: {},
+              eventExceptionsCache: {},
+            })
+          } catch { /* background save failed silently */ }
+        }, 0)
+      },
+
+      deleteSingleOccurrence: async (event, selectedDate) => {
+        const { eventsCache, eventExceptionsCache } = get()
+        const masterEventId = event.seriesMasterId || event.id
+        const masterEvent = findMasterEvent(eventsCache, masterEventId)
+        if (!masterEvent) return
+
+        // Optimistically add exception to cache
+        const newException: EventException = {
+          id: `temp-exception-${Date.now()}`,
+          series_id: masterEventId,
+          date: selectedDate,
+          deleted: true as any,
         }
 
-        // Replace temp with real event
-        const realSeriesCached = dbRowToEvent(result)
-        const { eventsCache: finalCache } = get()
+        const existingExceptions = eventExceptionsCache[masterEventId] || []
+        const updatedExceptions = [...existingExceptions, newException]
+
         set({
-          eventsCache: {
-            ...finalCache,
-            [selectedDate]: (finalCache[selectedDate] || []).map(e =>
-              e.id === tempSeriesId ? realSeriesCached : e
-            ),
+          eventExceptionsCache: {
+            ...eventExceptionsCache,
+            [masterEventId]: updatedExceptions,
           },
           computedEventsCache: {},
           recurringEventsCache: {},
-          eventExceptionsCache: {},
         })
+
+        // Fire DB in background
+        setTimeout(async () => {
+          try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+
+            await supabase
+              .from('exceptions')
+              .insert([{
+                series_id: masterEventId,
+                date: selectedDate,
+                deleted: true,
+              }])
+          } catch {
+            // Rollback on failure
+            set({
+              eventExceptionsCache: {
+                ...eventExceptionsCache,
+                [masterEventId]: existingExceptions,
+              },
+            })
+          }
+        }, 0)
       },
 
       clearCache: () => {
@@ -1189,6 +1406,7 @@ export const useEventsStore = create<EventsState>()(
           cacheStartDate: null,
           cacheEndDate: null,
           cachedUserId: null,
+          pendingDeletes: new Set(),
         })
       },
     }),

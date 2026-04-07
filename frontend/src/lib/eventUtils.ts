@@ -244,8 +244,6 @@ export function addEventOnClick(
 export function dragEvent(event: EventType, deltaY: number): EventType {
   lockInteraction()
 
-  createPlaceholder(event)
-
   const snappedY = Math.max(0, snap(deltaY))
 
   const el = document.getElementById(event.id) as HTMLDivElement | null
@@ -384,7 +382,11 @@ export function calculateEventPositions(events: EventType[], selectedEventId: st
   
   if (events.length === 0) return positions
   
-  const clusters = buildClusters(events)
+  const layoutEvents = selectedEventId
+    ? events.filter(e => e.id !== selectedEventId)
+    : events
+
+  const clusters = buildClusters(layoutEvents)
 
   for (const cluster of clusters) {
     const positioned = assignColumns(cluster)
@@ -393,26 +395,27 @@ export function calculateEventPositions(events: EventType[], selectedEventId: st
     const maxCol = Math.max(...positioned.map(e => e.col + e.colSpan))
 
     for (const ev of positioned) {
-      const isSelected = ev.id === selectedEventId
-      
-      if (isSelected) {
-        positions[ev.id] = {
-          left: "0",
-          width: "100%",
-          zIndex: 20
-        }
-      } else {
-        const leftPercent = (ev.col / maxCol) * 100
-        const widthPercent = (ev.colSpan / maxCol) * 100
+      const leftPercent = (ev.col / maxCol) * 100
+      const widthPercent = (ev.colSpan / maxCol) * 100
 
-        const left = leftPercent === 0 ? "0" : `${leftPercent}%`
-        const width = widthPercent === 100 ? "100%" : `${widthPercent}%`
-        
-        positions[ev.id] = {
-          left,
-          width,
-          zIndex: 2
-        }
+      const left = leftPercent === 0 ? "0" : `${leftPercent}%`
+      const width = widthPercent === 100 ? "100%" : `${widthPercent}%`
+      
+      positions[ev.id] = {
+        left,
+        width,
+        zIndex: 2
+      }
+    }
+  }
+
+  if (selectedEventId) {
+    const selected = events.find(e => e.id === selectedEventId)
+    if (selected) {
+      positions[selectedEventId] = {
+        left: "0",
+        width: "100%",
+        zIndex: 20
       }
     }
   }
@@ -421,7 +424,11 @@ export function calculateEventPositions(events: EventType[], selectedEventId: st
 }
 
 export function restoreEventWidths(events: EventType[], animate: boolean = true, skipEventId: string | null = null, selectedEventId: string | null = null) {
-  const clusters = buildClusters(events)
+  const layoutEvents = selectedEventId
+    ? events.filter(e => e.id !== selectedEventId)
+    : events
+
+  const clusters = buildClusters(layoutEvents)
 
   for (const cluster of clusters) {
     const positioned = assignColumns(cluster)
@@ -436,71 +443,37 @@ export function restoreEventWidths(events: EventType[], animate: boolean = true,
       el.style.zIndex = ""
       el.style.boxShadow = ""
       
-      const isSelected = ev.id === selectedEventId
+      if (animate && ev.id !== skipEventId) {
+        el.style.transition = "left 200ms ease, width 200ms ease"
+      }
+
+      const leftPercent = (ev.col / maxCol) * 100
+      const widthPercent = (ev.colSpan / maxCol) * 100
+
+      const newLeft = leftPercent === 0 ? "0" : `${leftPercent}%`
+      const newWidth = widthPercent === 100 ? "100%" : `${widthPercent}%`
       
-      if (isSelected) {
-        // Force reflow to ensure transition works
-        if (animate) {
-          el.style.transition = "none"
-          void el.offsetHeight // Trigger reflow
-        }
-        
-        el.style.left = "0"
-        el.style.width = "100%"
-        el.style.zIndex = "20"
-        
-        if (animate) {
-          el.style.transition = "left 200ms ease, width 200ms ease"
-        }
-      } else {
-        if (animate && ev.id !== skipEventId) {
-          el.style.transition = "left 200ms ease, width 200ms ease"
-        }
+      el.style.left = newLeft
+      el.style.width = newWidth
+      el.style.zIndex = "2"
+    }
+  }
 
-        const leftPercent = (ev.col / maxCol) * 100
-        const widthPercent = (ev.colSpan / maxCol) * 100
-
-        // Use same format as selected state for consistency
-        const newLeft = leftPercent === 0 ? "0" : `${leftPercent}%`
-        const newWidth = widthPercent === 100 ? "100%" : `${widthPercent}%`
-        
-        el.style.left = newLeft
-        el.style.width = newWidth
-        el.style.zIndex = "2"
+  if (selectedEventId) {
+    const el = document.getElementById(selectedEventId) as HTMLDivElement | null
+    if (el) {
+      if (animate) {
+        el.style.transition = "none"
+        void el.offsetHeight
+      }
+      el.style.left = "0"
+      el.style.width = "100%"
+      el.style.zIndex = "20"
+      if (animate) {
+        el.style.transition = "left 200ms ease, width 200ms ease"
       }
     }
   }
-}
-
-/* ================= PLACEHOLDER ================= */
-
-function createPlaceholder(event: EventType) {
-  if (document.getElementById(`ph-${event.id}`)) return
-
-  const original = document.getElementById(event.id)
-  if (!original) return
-
-  const ph = document.createElement("div")
-  ph.id = `ph-${event.id}`
-
-  ph.style.position = "absolute"
-  ph.style.top = `${event.slot + TOP_DEAD_ZONE + 2}px`
-  ph.style.height = `${event.height - 1}px`
-  ph.style.left = original.style.left
-  ph.style.width = original.style.width
-  ph.innerHTML = original.innerHTML
-  ph.style.opacity = "0.5"
-  ph.style.borderRadius = "10px"
-  ph.style.background = "#db7fa5"
-  ph.style.pointerEvents = "none"
-  ph.style.zIndex = "1"
-
-  original.parentElement?.appendChild(ph)
-}
-
-export function removePlaceholder(eventId: string) {
-  const ph = document.getElementById(`ph-${eventId}`)
-  if (ph) ph.remove()
 }
 
 export function calculateEventDuration(event: EventType): number {

@@ -1,10 +1,10 @@
 import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
 import type { EventType, EventPositions } from '../lib/eventUtils'
-import {unlockInteraction, resetInteractionLock, removePlaceholder, addEventOnClick, TOP_DEAD_ZONE, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, restoreEventWidths, applyPositionsToDOM } from '../lib/eventUtils'
+import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, restoreEventWidths, applyPositionsToDOM } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
-import RecurringActionDialog from "@/components/RecurringActionDialog"
+import { supabase } from "@/lib/supabase"
 
 interface TimeViewProps {
   initialEvents?: EventType[]
@@ -44,7 +44,9 @@ useEffect(() => {
 
 const bgColor = isDragging
   ? 'bg-[#db7fa5]'
-  : 'bg-[#f792bb]/[0.5]'
+  : isSelected
+    ? 'bg-[#f792bb]'
+    : 'bg-[#f792bb]/[0.5]'
 
  const isActive = isDragging || isResizing || isSelected
 
@@ -178,11 +180,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const [localEvents, setLocalEvents] = useState<EventType[]>([])
   const [eventPositions, setEventPositions] = useState<EventPositions>({})
   
-  // Get store functions
-  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
-  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
-  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
-  
   // Skip sync ref for recurring action handling
   const skipSyncRef = useRef(false)
   const lastDateKeyRef = useRef<string | null>(null)
@@ -201,7 +198,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       return
     }
     
-    // Check if date actually changed (not just events updating)
+    // Check if date actually changed (not just events updates)
     const dateKey = selectedDate.toISOString().split('T')[0]
     const isDateChange = lastDateKeyRef.current !== dateKey
     if (isDateChange) {
@@ -209,8 +206,23 @@ const TimeView: React.FC<TimeViewProps> = () => {
       setContainerVisible(false)
     }
     
+    const pendingDeletesList = useEventsStore.getState().pendingDeletes
+    
+    // If there are pending deletes, force skip sync to prevent re-adding
+    if (pendingDeletesList && pendingDeletesList.size > 0) {
+      skipSyncRef.current = true
+    }
+    
     const storeEvents = getEventsForDate(selectedDate)
-    const uiEvents = storeEvents.map(event => storeEventToUIEvent(event, selectedDate))
+    const pendingDeletes = useEventsStore.getState().pendingDeletes
+    
+    // Filter out events that are pending delete and also skip if master was deleted
+    const filteredEvents = storeEvents.filter(e => {
+      if (pendingDeletes.has(e.id)) return false
+      if ((e as any).seriesMasterId && pendingDeletes.has((e as any).seriesMasterId)) return false
+      return true
+    })
+    const uiEvents = filteredEvents.map(event => storeEventToUIEvent(event, selectedDate))
     
     // Check if any temp events were replaced with real ones (ID swap detection)
     const currentIds = new Set(localEvents.map(e => e.id))
@@ -296,41 +308,96 @@ const TimeView: React.FC<TimeViewProps> = () => {
             deleteEvent(selectedEvent.id)
             setSelectedEvent(null)
           } else if (selectedEvent.isRecurringInstance || selectedEvent.seriesMasterId) {
-            // Show dialog for recurring events - delete only this occurrence
-            const eventDateStr = selectedEvent.date instanceof Date 
-              ? formatDate(selectedEvent.date) 
+            const eventDateStr = selectedEvent.date instanceof Date
+              ? formatDate(selectedEvent.date)
               : selectedEvent.date
-            const startTime = selectedEvent.startHour * 60 + selectedEvent.startMin
-            const endTime = selectedEvent.endHour * 60 + selectedEvent.endMin
-            
+
             showRecurringDialog(selectedEvent as any, "delete", async (choice: string) => {
               if (choice === "only-this") {
-                // Delete only this occurrence by splitting with empty updates
-                const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
-                await splitRecurringEvent(
+                const deleteSingleOccurrence = useEventsStore.getState().deleteSingleOccurrence
+                deleteSingleOccurrence(
                   selectedEvent as any,
                   eventDateStr,
-                  startTime,
-                  endTime,
-                  {}
-                )
+                ).catch(() => {})
               } else if (choice === "all-events" && selectedEvent.seriesMasterId) {
-                // Delete all events in the series
-                const deleteEvent = useEventsStore.getState().deleteEvent
-                await deleteEvent(selectedEvent.seriesMasterId)
+                // Delete all events in the series - immediate optimistic delete
+                const masterId = selectedEvent.seriesMasterId
+                const { eventsCache, pendingDeletes } = useEventsStore.getState()
+                const newCache = { ...eventsCache }
+                for (const dateKey of Object.keys(newCache)) {
+                  newCache[dateKey] = newCache[dateKey].filter(e => e.id !== masterId)
+                }
+                // Add to pending deletes so fetch won't re-add it
+                const newPendingDeletes = new Set(pendingDeletes)
+                newPendingDeletes.add(masterId)
+                useEventsStore.setState({
+                  eventsCache: newCache,
+                  computedEventsCache: {},
+                  recurringEventsCache: {},
+                  eventExceptionsCache: {},
+                  pendingDeletes: newPendingDeletes,
+                })
+                
+                // Remove from local state
+                setLocalEvents(prev => prev.filter(e => e.id !== masterId && e.seriesMasterId !== masterId))
+                
+                // Deselect if this was selected
+                if (selectedEventId === selectedEvent.id) {
+                  setSelectedEvent(null)
+                }
+                
+                // Fire DB delete in background
+                supabase.from('events').delete().eq('id', masterId).then(({ error }) => {
+                  if (error) {
+                    console.error('Failed to delete series:', error)
+                  } else {
+                    // Remove from pendingDeletes after successful delete
+                    const currentPending = useEventsStore.getState().pendingDeletes
+                    const updatedPending = new Set(currentPending)
+                    updatedPending.delete(masterId)
+                    useEventsStore.setState({ pendingDeletes: updatedPending })
+                  }
+                })
               } else if (choice === "this-and-following" && selectedEvent.seriesMasterId) {
-                // Delete from this event onwards
-                // Shorten original series to end before this event
                 const prevDay = (() => {
                   const d = new Date(eventDateStr)
                   d.setDate(d.getDate() - 1)
                   return d.toISOString().split('T')[0]
                 })()
                 
-                const updateEvent = useEventsStore.getState().updateEvent
-                await updateEvent(selectedEvent.seriesMasterId, {
-                  series_end_date: prevDay,
+                // Immediately update cache (optimistic)
+                const { eventsCache } = useEventsStore.getState()
+                const newCache = { ...eventsCache }
+                for (const dateKey of Object.keys(newCache)) {
+                  newCache[dateKey] = newCache[dateKey].map(e => {
+                    if (e.id === selectedEvent.seriesMasterId) {
+                      return { ...e, series_end_date: prevDay, updated_at: new Date().toISOString() }
+                    }
+                    return e
+                  })
+                }
+                useEventsStore.setState({
+                  eventsCache: newCache,
+                  computedEventsCache: {},
+                  recurringEventsCache: {},
+                  eventExceptionsCache: {},
                 })
+                
+                // Fire DB update in background
+                supabase.from('events').update({ series_end_date: prevDay }).eq('id', selectedEvent.seriesMasterId).then(({ error }) => {
+                  if (error) console.error('Failed to update series_end_date:', error)
+                })
+                
+                // Immediately remove affected virtual events from local state
+                setLocalEvents(prev => prev.filter(e => {
+                  if (e.seriesMasterId === selectedEvent.seriesMasterId) {
+                    const eventDate = e.date instanceof Date
+                      ? formatDate(e.date)
+                      : e.date
+                    return eventDate < eventDateStr
+                  }
+                  return true
+                }))
               }
               setSelectedEvent(null)
               closeRecurringDialog()
@@ -505,21 +572,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
     
     const el = document.getElementById(event.id) as HTMLDivElement | null
     if (!el) return
-    
-    const ph = document.createElement("div")
-    ph.id = `ph-${event.id}`
-    ph.style.position = "absolute"
-    ph.style.top = `${event.slot + TOP_DEAD_ZONE + 2}px`
-    ph.style.height = `${event.height - 1}px`
-    ph.style.left = el.style.left
-    ph.style.width = el.style.width
-    ph.innerHTML = el.innerHTML
-    ph.style.opacity = "0.5"
-    ph.style.borderRadius = "10px"
-    ph.style.background = "#db7fa5"
-    ph.style.pointerEvents = "none"
-    ph.style.zIndex = "1"
-    el.parentElement?.appendChild(ph)
     
     el.style.left = "0px"
     el.style.width = "calc(100%)"
@@ -814,7 +866,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
           if (isRecurring) {
             // Show recurring dialog - cleanup drag state immediately
             el.style.boxShadow = "none"
-            removePlaceholder(wasDraggingId)
             isDraggingRef.current = false
             isResizingRef.current = false
             setDraggingId(null)
@@ -828,7 +879,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
               async (choice: string) => {
                 // Cleanup after dialog closes
                 el.style.boxShadow = "none"
-                removePlaceholder(wasDraggingId)
                 isDraggingRef.current = false
                 isResizingRef.current = false
                 setDraggingId(null)
@@ -851,7 +901,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   })
                   resetInteraction()
                 } else if (choice === "only-this") {
-                  // Split the recurring event into 3 events
                   const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
                   await splitRecurringEvent(
                     draggedEvent as any,
@@ -859,6 +908,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
                     start.hour * 60 + start.min,
                     end.hour * 60 + end.min
                   )
+                  // Remove the dragged virtual event from local state since it's been replaced
+                  if (draggedEvent.isRecurringInstance) {
+                    setLocalEvents(prev => prev.filter(e => e.id !== draggedEvent.id))
+                  }
                   originalEventRef.current = null
                   setSelectedEvent(null)
                   resetInteraction()
@@ -903,7 +956,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
         // Cleanup styles
         el.style.boxShadow = "none"
-        removePlaceholder(wasDraggingId)
       }
     }
     
@@ -960,7 +1012,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   })
                   resetInteraction()
                 } else if (choice === "only-this") {
-                  // Split the recurring event into 3 events
                   const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
                   await splitRecurringEvent(
                     resizedEvent as any,
@@ -968,6 +1019,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
                     resizedEvent.startHour * 60 + resizedEvent.startMin,
                     end.hour * 60 + end.min
                   )
+                  // Remove the resized virtual event from local state since it's been replaced
+                  if (resizedEvent.isRecurringInstance) {
+                    setLocalEvents(prev => prev.filter(e => e.id !== resizedEvent.id))
+                  }
                   originalEventRef.current = null
                   setSelectedEvent(null)
                   resetInteraction()
@@ -1087,21 +1142,6 @@ const TimeView: React.FC<TimeViewProps> = () => {
             )
           })}
       </div>
-
-      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
-        <RecurringActionDialog
-          open={recurringDialogOpen}
-          onChoice={(choice) => {
-            // Get the callback from store and call it
-            const callback = useEventsStore.getState().recurringDialogCallback
-            if (callback) {
-              callback(choice)
-            }
-          }}
-          actionType={recurringDialogActionType}
-          eventTitle={recurringDialogEvent?.title || ""}
-        />
-      )}
     </>
   )
 }

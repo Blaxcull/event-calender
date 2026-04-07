@@ -69,6 +69,8 @@ export function generateRecurringInstances(
 
     const exception = exceptions.find(ex => ex.date === recDate)
 
+    if (exception && (exception as any).deleted === true) continue
+
     const instance: CalendarEvent = {
       ...masterEvent,
       id: `${masterEvent.id}-${recDate}`,

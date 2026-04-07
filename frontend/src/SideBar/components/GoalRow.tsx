@@ -16,7 +16,7 @@ interface GoalRowProps {
 
 const GoalRow: React.FC<GoalRowProps> = ({ value, onChange }) => (
   <DropdownRow
-    icon={<Circle className="w-7 h-7 text-neutral-600" />}
+    icon={<Circle className="w-7 h-7 text-neutral-600 opacity-30" />}
     label="Goal"
     value={value}
     options={GOAL_OPTIONS}

@@ -68,9 +68,22 @@ const RepeatReminderPanel: React.FC = () => {
   }, [selectedEvent?.id])
 
   // Apply pending repeat on save
+  const lastProcessedSaveTriggerRef = useRef<number>(0)
   useEffect(() => {
     if (saveTrigger === 0 || !selectedEventId || pendingRepeat === null) return
     if (!selectedEvent) return
+    
+    // Only process each saveTrigger value once
+    if (saveTrigger === lastProcessedSaveTriggerRef.current) {
+      return
+    }
+    
+    // Only process if this is the event that was being edited
+    if (selectedEvent.id !== selectedEventId) {
+      return
+    }
+    
+    lastProcessedSaveTriggerRef.current = saveTrigger
 
     const isRecurring = !selectedEvent.isTemp && selectedEvent.isRecurringInstance === true
 
