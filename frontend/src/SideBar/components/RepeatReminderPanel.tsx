@@ -5,6 +5,7 @@ import RepeatRow from "./RepeatRow"
 import EarlyReminderRow from "./EarlyReminderRow"
 import AllDayRow from "./AllDayRow"
 import { useRecurringPropertyChange } from "@/hooks/useRecurringPropertyChange"
+import { getEventDurationMinutes } from "@/lib/eventUtils"
 
 const RepeatReminderPanel: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -159,28 +160,29 @@ const RepeatReminderPanel: React.FC = () => {
     [selectedEvent, handlePropertyChange]
   )
 
-  // Compute whether all-day should be forced (24h+ duration or multi-day)
+  // Compute whether all-day should be forced (24h+ duration only)
   const shouldForceAllDay = React.useMemo(() => {
     if (!selectedEvent) return false
-    const endDate = selectedEvent.end_date || selectedEvent.date
-    if (endDate > selectedEvent.date) return true
-    const duration = selectedEvent.end_time - selectedEvent.start_time
-    return duration >= 1440
+    return getEventDurationMinutes(selectedEvent) >= 1440
   }, [selectedEvent])
 
-  // Auto-enable all-day when duration is 24h+ or multi-day; disable when reverting
+  // Auto-enable all-day when duration is 24h+; disable when reverting
   const prevForceAllDay = useRef(shouldForceAllDay)
   useEffect(() => {
     if (!selectedEvent) return
     const wasForced = prevForceAllDay.current
     prevForceAllDay.current = shouldForceAllDay
+    const endDate = selectedEvent.end_date || selectedEvent.date
+    const isCrossDateUnder24h =
+      endDate > selectedEvent.date &&
+      !shouldForceAllDay
 
     if (shouldForceAllDay && !selectedEvent.is_all_day) {
       handlePropertyChange(selectedEvent, "is_all_day", true)
-    } else if (!shouldForceAllDay && wasForced && selectedEvent.is_all_day) {
+    } else if ((!shouldForceAllDay && wasForced && selectedEvent.is_all_day) || (isCrossDateUnder24h && selectedEvent.is_all_day)) {
       handlePropertyChange(selectedEvent, "is_all_day", false)
     }
-  }, [selectedEvent?.id, shouldForceAllDay])
+  }, [selectedEvent?.id, selectedEvent?.date, selectedEvent?.end_date, selectedEvent?.is_all_day, shouldForceAllDay])
 
   // Whether the event is multi-day (repeat doesn't make sense for multi-day)
   const isMultiDay = React.useMemo(() => {

@@ -23,6 +23,8 @@ import type {
 
 import {
   formatDate,
+  addDaysToDateStr,
+  addYearsToDateStr,
   addDays,
   getMonthRange,
   getMonthKey,
@@ -76,6 +78,7 @@ interface EventsState {
   scrollToTop: boolean
   saveTrigger: number
   hasEditsEventId: string | null
+  liveEventTimes: Record<string, { start_time: number; end_time: number }>
 
   // Recurring action dialog
   recurringDialogOpen: boolean
@@ -101,10 +104,14 @@ interface EventsState {
   setScrollToEventId: (id: string | null) => void
   setScrollToTop: (value: boolean) => void
   updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => void
+  updateEventFields: (id: string, updates: Partial<NewEvent>) => void
   saveSelectedEvent: () => Promise<void>
   showRecurringDialog: (event: CalendarEvent, actionType: 'edit' | 'delete', callback: (choice: string) => void) => void
   closeRecurringDialog: () => void
   setHasEditsEventId: (id: string | null) => void
+  previewEventTime: (id: string, start_time: number, end_time: number) => void
+  setLiveEventTime: (id: string, start_time: number, end_time: number) => void
+  clearLiveEventTime: (id?: string) => void
   splitRecurringEvent: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
   updateThisAndFollowing: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
   deleteSingleOccurrence: (event: CalendarEvent, selectedDate: string) => Promise<void>
@@ -130,6 +137,11 @@ function findEventInCache(cache: EventsCache, id: string): { event: Event; dateK
     if (event) return { event, dateKey }
   }
   return null
+}
+
+function getClockwiseDurationMinutes(startMinutes: number, endMinutes: number): number {
+  if (endMinutes >= startMinutes) return endMinutes - startMinutes
+  return (1440 - startMinutes) + endMinutes
 }
 
 /** Find a master recurring event by ID across all cache dates */
@@ -167,6 +179,7 @@ export const useEventsStore = create<EventsState>()(
       recurringDialogActionType: null,
       recurringDialogCallback: null,
       hasEditsEventId: null,
+      liveEventTimes: {},
 
       // ---- Fetch ----
 
@@ -872,10 +885,65 @@ export const useEventsStore = create<EventsState>()(
       isEventSyncing: (eventId: string) => get().pendingSyncs.has(eventId),
       isAnyEventSyncing: () => get().pendingSyncs.size > 0,
 
-      setSelectedEvent: (id) => set({ selectedEventId: id }),
+      setSelectedEvent: (id) =>
+        set((state) => {
+          if (state.selectedEventId === id) return state
+          if (!state.selectedEventId) return { selectedEventId: id }
+
+          const nextLive = { ...state.liveEventTimes }
+          delete nextLive[state.selectedEventId]
+          return {
+            selectedEventId: id,
+            liveEventTimes: id === null ? {} : nextLive,
+          }
+        }),
       setScrollToEventId: (id) => set({ scrollToEventId: id }),
       setScrollToTop: (value) => set({ scrollToTop: value }),
       setHasEditsEventId: (id) => set({ hasEditsEventId: id }),
+      previewEventTime: (id: string, start_time: number, end_time: number) => {
+        const { eventsCache, computedEventsCache } = get()
+        const found = findEventInCache(eventsCache, id)
+        if (!found) return
+
+        const { event: currentEvent, dateKey } = found
+        if (currentEvent.start_time === start_time && currentEvent.end_time === end_time) return
+
+        const nextCache = { ...eventsCache }
+        const eventIndex = nextCache[dateKey].findIndex((e) => e.id === id)
+        if (eventIndex === -1) return
+
+        nextCache[dateKey] = [...nextCache[dateKey]]
+        nextCache[dateKey][eventIndex] = {
+          ...nextCache[dateKey][eventIndex],
+          start_time,
+          end_time,
+          updated_at: new Date().toISOString(),
+        }
+        nextCache[dateKey].sort((a, b) => a.start_time - b.start_time)
+
+        const nextComputed = { ...computedEventsCache }
+        delete nextComputed[dateKey]
+
+        set({
+          eventsCache: nextCache,
+          computedEventsCache: nextComputed,
+        })
+      },
+      setLiveEventTime: (id: string, start_time: number, end_time: number) =>
+        set((state) => ({
+          liveEventTimes: {
+            ...state.liveEventTimes,
+            [id]: { start_time, end_time },
+          },
+        })),
+      clearLiveEventTime: (id?: string) =>
+        set((state) => {
+          if (!id) return { liveEventTimes: {} }
+          if (!(id in state.liveEventTimes)) return state
+          const next = { ...state.liveEventTimes }
+          delete next[id]
+          return { liveEventTimes: next }
+        }),
 
       updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => {
         if (value === undefined) return
@@ -895,7 +963,7 @@ export const useEventsStore = create<EventsState>()(
         const { event: currentEvent, dateKey } = found
         if (currentEvent[field as keyof Event] === value) return
 
-        const duration = currentEvent.end_time - currentEvent.start_time
+        const duration = getClockwiseDurationMinutes(currentEvent.start_time, currentEvent.end_time)
         const endTimeValue = field === 'start_time' && typeof value === 'number'
           ? value + duration
           : currentEvent.end_time
@@ -942,31 +1010,91 @@ export const useEventsStore = create<EventsState>()(
         }, 0)
       },
 
+      updateEventFields: (id: string, updates: Partial<NewEvent>) => {
+        const entries = Object.entries(updates).filter(([, value]) => value !== undefined) as [keyof NewEvent, EventFieldValue][]
+        if (entries.length === 0) return
+
+        const { eventsCache, pendingSyncs, pendingUpdates } = get()
+
+        if (isVirtualEventId(id)) {
+          const masterId = extractMasterId(id)
+          get().updateAllInSeries(masterId, updates)
+          return
+        }
+
+        const found = findEventInCache(eventsCache, id)
+        if (!found) return
+
+        const { event: currentEvent, dateKey } = found
+        const nextEvent: Event = {
+          ...currentEvent,
+          ...updates,
+          updated_at: new Date().toISOString(),
+        }
+
+        const nextDateKey = typeof nextEvent.date === 'string' ? nextEvent.date : dateKey
+        const newCache = { ...eventsCache }
+
+        if (nextDateKey !== dateKey) {
+          newCache[dateKey] = newCache[dateKey].filter(e => e.id !== id)
+          if (newCache[dateKey].length === 0) delete newCache[dateKey]
+          if (!newCache[nextDateKey]) newCache[nextDateKey] = []
+          newCache[nextDateKey] = [...newCache[nextDateKey].filter(e => e.id !== id), nextEvent]
+        } else {
+          const eventIndex = newCache[dateKey].findIndex(e => e.id === id)
+          if (eventIndex === -1) return
+          newCache[dateKey] = [...newCache[dateKey]]
+          newCache[dateKey][eventIndex] = nextEvent
+        }
+
+        if (newCache[nextDateKey]) {
+          newCache[nextDateKey] = [...newCache[nextDateKey]].sort((a, b) => a.start_time - b.start_time)
+        }
+
+        set({ eventsCache: newCache, computedEventsCache: {}, recurringEventsCache: {}, eventExceptionsCache: {} })
+
+        if (currentEvent.isTemp === true || pendingSyncs.has(id)) {
+          const newPendingUpdates = new Map(pendingUpdates)
+          const existing = newPendingUpdates.get(id) || []
+          newPendingUpdates.set(id, [...existing, updates])
+          set({ pendingUpdates: newPendingUpdates })
+          return
+        }
+
+        setTimeout(async () => {
+          try {
+            await supabase.from('events').update(filterUpdatesForDb(updates)).eq('id', id)
+          } catch { /* background field update failed silently */ }
+        }, 0)
+      },
+
       saveSelectedEvent: async () => {
         try {
           const { saveTrigger, selectedEventId: currentSelectedId } = get()
           if (!currentSelectedId) return
+          const nextSaveTrigger = saveTrigger + 1
           
-          set({ saveTrigger: saveTrigger + 1 })
+          set({ saveTrigger: nextSaveTrigger })
 
-          // Wait for EventEditor to flush local state
+          // Wait for sidebar editor effects to flush local draft state into the store
           await new Promise(resolve => setTimeout(resolve, 50))
 
           // Check if selection hasn't changed
           const { selectedEventId: afterWaitId, eventsCache, saveTrigger: afterTrigger } = get()
           
           // Only proceed if still the same event and same trigger
-          if (!afterWaitId || afterWaitId !== currentSelectedId || afterTrigger !== saveTrigger) {
+          if (!afterWaitId || afterWaitId !== currentSelectedId || afterTrigger !== nextSaveTrigger) {
+            set({ saveTrigger: 0 })
             return
           }
 
           const found = findEventInCache(eventsCache, currentSelectedId)
-          if (!found) return
+          if (!found) {
+            set({ saveTrigger: 0 })
+            return
+          }
 
           const { event } = found
-          
-          // Only clear selected event after successful save
-          set({ selectedEventId: null, saveTrigger: 0 })
 
           if (event.isTemp === true) {
             await get().saveTempEvent(currentSelectedId)
@@ -983,16 +1111,25 @@ export const useEventsStore = create<EventsState>()(
               color: event.color,
               is_all_day: event.is_all_day,
               location: event.location,
+              goalType: event.goalType,
+              goal: event.goal,
+              goalColor: event.goalColor,
+              goalIcon: event.goalIcon,
             }
 
-            await get().updateEvent(currentSelectedId, updates)
+            const filteredUpdates = filterUpdatesForDb(updates)
+            const { error } = await supabase
+              .from('events')
+              .update(filteredUpdates)
+              .eq('id', currentSelectedId)
 
-            setTimeout(async () => {
-              try {
-                await supabase.from('events').update(updates).eq('id', event.id)
-              } catch { /* background save failed silently */ }
-            }, 0)
+            if (error) {
+              throw error
+            }
           }
+
+          // Only clear selected event after successful save
+          set({ selectedEventId: null, saveTrigger: 0 })
         } catch (err) {
           set({ saveTrigger: 0 })
         }
@@ -1028,6 +1165,12 @@ export const useEventsStore = create<EventsState>()(
 
         const originalSeriesEndDate = masterEvent?.series_end_date || event.series_end_date || event.date
         const originalRepeat = masterEvent?.repeat || event.repeat || 'None'
+        const originalEventEndDate = masterEvent?.end_date || event.end_date || event.date
+        const originalDurationDays = (() => {
+          const start = new Date((masterEvent?.date || event.date) + 'T00:00:00')
+          const end = new Date(originalEventEndDate + 'T00:00:00')
+          return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000))
+        })()
         const prevDay = (() => {
           const d = new Date(selectedDate + 'T00:00:00')
           d.setDate(d.getDate() - 1)
@@ -1047,6 +1190,24 @@ export const useEventsStore = create<EventsState>()(
         if (masterForTitle) originalTitle = masterForTitle.title
 
         const isFirstOccurrence = selectedDate === (event.series_start_date || event.date)
+        const mergedStandaloneFields: Partial<NewEvent> = {
+          title: updates?.title ?? (event.title && event.title !== 'New Event' ? event.title : originalTitle),
+          description: updates?.description ?? event.description ?? masterEvent?.description,
+          notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
+          urls: updates?.urls ?? event.urls ?? masterEvent?.urls,
+          date: selectedDate,
+          end_date: updates?.end_date ?? event.end_date ?? selectedDate,
+          start_time: startTimeForNewEvent ?? event.start_time,
+          end_time: endTimeForNewEvent ?? event.end_time,
+          color: updates?.color ?? masterEvent?.color ?? event.color,
+          is_all_day: updates?.is_all_day ?? masterEvent?.is_all_day ?? event.is_all_day,
+          location: updates?.location ?? masterEvent?.location ?? event.location,
+          goalType: updates?.goalType ?? masterEvent?.goalType ?? event.goalType,
+          goal: updates?.goal ?? masterEvent?.goal ?? event.goal,
+          goalColor: updates?.goalColor ?? masterEvent?.goalColor ?? event.goalColor,
+          goalIcon: updates?.goalIcon ?? masterEvent?.goalIcon ?? event.goalIcon,
+          repeat: 'None',
+        }
 
         // Optimistic update
         if (isFirstOccurrence) {
@@ -1080,7 +1241,7 @@ export const useEventsStore = create<EventsState>()(
               series_end_date: null,
               series_start_date: null,
               repeat: 'None',
-              ...updates,
+              ...filterUpdatesForDb(updates ?? {}),
             }).eq('id', masterEventId).then(({ error }) => {
               if (error) console.error('Failed to update event:', error)
             })
@@ -1102,21 +1263,24 @@ export const useEventsStore = create<EventsState>()(
           
           // Add standalone event at selected date
           const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
-          const event2Title = updates?.title ?? (event.title && event.title !== 'New Event' ? event.title : originalTitle)
           const tempEvent = {
             id: tempId,
             user_id: 'temp',
-            title: event2Title,
-            description: updates?.description ?? event.description ?? masterEvent?.description,
-            notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
-            urls: updates?.urls ?? event.urls ?? masterEvent?.urls,
-            date: selectedDate,
-            end_date: selectedDate,
-            start_time: startTimeForNewEvent ?? event.start_time,
-            end_time: endTimeForNewEvent ?? event.end_time,
-            color: masterEvent?.color ?? event.color,
-            is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
-            location: masterEvent?.location ?? event.location,
+            title: mergedStandaloneFields.title || 'New Event',
+            description: mergedStandaloneFields.description,
+            notes: mergedStandaloneFields.notes,
+            urls: mergedStandaloneFields.urls,
+            date: mergedStandaloneFields.date || selectedDate,
+            end_date: mergedStandaloneFields.end_date || selectedDate,
+            start_time: mergedStandaloneFields.start_time ?? event.start_time,
+            end_time: mergedStandaloneFields.end_time ?? event.end_time,
+            color: mergedStandaloneFields.color,
+            is_all_day: mergedStandaloneFields.is_all_day,
+            location: mergedStandaloneFields.location,
+            goalType: mergedStandaloneFields.goalType,
+            goal: mergedStandaloneFields.goal,
+            goalColor: mergedStandaloneFields.goalColor,
+            goalIcon: mergedStandaloneFields.goalIcon,
             repeat: 'None',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -1142,20 +1306,7 @@ export const useEventsStore = create<EventsState>()(
               await supabase.from('events').update({ series_end_date: prevDay }).eq('id', masterEventId)
               
               // Insert new standalone event
-              const newEventData = buildEventForDb({
-                title: event2Title,
-                description: updates?.description ?? event.description ?? masterEvent?.description,
-                notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
-                urls: updates?.urls ?? event.urls ?? masterEvent?.urls,
-                date: selectedDate,
-                end_date: selectedDate,
-                start_time: startTimeForNewEvent ?? event.start_time,
-                end_time: endTimeForNewEvent ?? event.end_time,
-                color: masterEvent?.color ?? event.color,
-                is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
-                location: masterEvent?.location ?? event.location,
-                repeat: 'None',
-              }, user.id)
+              const newEventData = buildEventForDb(mergedStandaloneFields, user.id)
               
               const { data: result } = await supabase.from('events').insert([newEventData]).select().single()
               
@@ -1190,6 +1341,44 @@ export const useEventsStore = create<EventsState>()(
 
         const nextOccurrence = getNextDate()
         if (nextOccurrence <= originalSeriesEndDate) {
+          const nextSeriesEndDate = addYearsToDateStr(nextOccurrence, 10)
+          const tempNextSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const tempNextSeriesEvent: Event = {
+            id: tempNextSeriesId,
+            user_id: 'temp-user',
+            title: originalTitle,
+            description: masterEvent?.description ?? event.description,
+            notes: masterEvent?.notes ?? event.notes,
+            urls: masterEvent?.urls ?? event.urls,
+            date: nextOccurrence,
+            end_date: addDaysToDateStr(nextOccurrence, originalDurationDays),
+            start_time: masterEvent?.start_time ?? event.start_time,
+            end_time: masterEvent?.end_time ?? event.end_time,
+            color: masterEvent?.color ?? event.color,
+            is_all_day: masterEvent?.is_all_day ?? event.is_all_day,
+            location: masterEvent?.location ?? event.location,
+            goalType: masterEvent?.goalType ?? event.goalType,
+            goal: masterEvent?.goal ?? event.goal,
+            goalColor: masterEvent?.goalColor ?? event.goalColor,
+            goalIcon: masterEvent?.goalIcon ?? event.goalIcon,
+            repeat: originalRepeat,
+            series_start_date: nextOccurrence,
+            series_end_date: nextSeriesEndDate,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            isTemp: true,
+          }
+
+          set(state => ({
+            eventsCache: {
+              ...state.eventsCache,
+              [nextOccurrence]: [...(state.eventsCache[nextOccurrence] || []), tempNextSeriesEvent],
+            },
+            computedEventsCache: {},
+            recurringEventsCache: {},
+            eventExceptionsCache: {},
+          }))
+
           setTimeout(async () => {
             try {
               const { data: { user } } = await supabase.auth.getUser()
@@ -1201,7 +1390,7 @@ export const useEventsStore = create<EventsState>()(
                 notes: masterEvent?.notes ?? event.notes,
                 urls: masterEvent?.urls ?? event.urls,
                 date: nextOccurrence,
-                end_date: nextOccurrence,
+                end_date: addDaysToDateStr(nextOccurrence, originalDurationDays),
                 start_time: masterEvent?.start_time ?? event.start_time,
                 end_time: masterEvent?.end_time ?? event.end_time,
                 color: masterEvent?.color ?? event.color,
@@ -1209,18 +1398,42 @@ export const useEventsStore = create<EventsState>()(
                 location: masterEvent?.location ?? event.location,
                 repeat: originalRepeat,
                 series_start_date: nextOccurrence,
-                series_end_date: originalSeriesEndDate,
+                series_end_date: nextSeriesEndDate,
               }, user.id)
 
-              await supabase.from('events').insert([event3Data])
-              
-              // Refresh cache after inserting new series
-              const { eventsCache: refreshedCache } = get()
+              const { data: result, error } = await supabase
+                .from('events')
+                .insert([event3Data])
+                .select()
+                .single()
+
+              if (error || !result) throw error
+
+              const realSeriesEvent = dbRowToEvent(result)
+              const { eventsCache: finalCache } = get()
               set({
-                eventsCache: refreshedCache,
+                eventsCache: {
+                  ...finalCache,
+                  [nextOccurrence]: (finalCache[nextOccurrence] || []).map(e =>
+                    e.id === tempNextSeriesId ? realSeriesEvent : e
+                  ),
+                },
                 computedEventsCache: {},
+                recurringEventsCache: {},
+                eventExceptionsCache: {},
               })
-            } catch { /* ignore background errors */ }
+            } catch {
+              const { eventsCache: finalCache } = get()
+              set({
+                eventsCache: {
+                  ...finalCache,
+                  [nextOccurrence]: (finalCache[nextOccurrence] || []).filter(e => e.id !== tempNextSeriesId),
+                },
+                computedEventsCache: {},
+                recurringEventsCache: {},
+                eventExceptionsCache: {},
+              })
+            }
           }, 0)
         }
       },
@@ -1235,6 +1448,7 @@ export const useEventsStore = create<EventsState>()(
 
         const originalSeriesEndDate = masterEvent?.series_end_date || event.series_end_date || event.date
         const originalRepeat = masterEvent?.repeat || event.repeat || 'None'
+        const nextSeriesEndDate = addYearsToDateStr(selectedDate, 10)
         const prevDay = (() => {
           const d = new Date(selectedDate + 'T00:00:00')
           d.setDate(d.getDate() - 1)
@@ -1261,23 +1475,47 @@ export const useEventsStore = create<EventsState>()(
 
         // Create new series in cache optimistically
         const tempSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
-        const tempSeriesCached: Event = {
-          id: tempSeriesId,
-          user_id: 'temp-user',
+        const mergedSeriesFields: Partial<NewEvent> = {
           title: updates?.title ?? event.title,
           description: updates?.description ?? masterEvent?.description ?? event.description,
           notes: updates?.notes ?? masterEvent?.notes ?? event.notes,
           urls: updates?.urls ?? masterEvent?.urls ?? event.urls,
           date: selectedDate,
-          end_date: selectedDate,
+          end_date: updates?.end_date ?? event.end_date ?? selectedDate,
           start_time: startTimeForNewEvent ?? masterEvent?.start_time ?? event.start_time,
           end_time: endTimeForNewEvent ?? masterEvent?.end_time ?? event.end_time,
           color: updates?.color ?? masterEvent?.color ?? event.color,
           is_all_day: updates?.is_all_day ?? masterEvent?.is_all_day ?? event.is_all_day,
           location: updates?.location ?? masterEvent?.location ?? event.location,
+          goalType: updates?.goalType ?? masterEvent?.goalType ?? event.goalType,
+          goal: updates?.goal ?? masterEvent?.goal ?? event.goal,
+          goalColor: updates?.goalColor ?? masterEvent?.goalColor ?? event.goalColor,
+          goalIcon: updates?.goalIcon ?? masterEvent?.goalIcon ?? event.goalIcon,
           repeat: originalRepeat,
           series_start_date: selectedDate,
-          series_end_date: originalSeriesEndDate,
+          series_end_date: nextSeriesEndDate,
+        }
+        const tempSeriesCached: Event = {
+          id: tempSeriesId,
+          user_id: 'temp-user',
+          title: mergedSeriesFields.title || 'New Event',
+          description: mergedSeriesFields.description,
+          notes: mergedSeriesFields.notes,
+          urls: mergedSeriesFields.urls,
+          date: mergedSeriesFields.date || selectedDate,
+          end_date: mergedSeriesFields.end_date || selectedDate,
+          start_time: mergedSeriesFields.start_time ?? event.start_time,
+          end_time: mergedSeriesFields.end_time ?? event.end_time,
+          color: mergedSeriesFields.color,
+          is_all_day: mergedSeriesFields.is_all_day,
+          location: mergedSeriesFields.location,
+          goalType: mergedSeriesFields.goalType,
+          goal: mergedSeriesFields.goal,
+          goalColor: mergedSeriesFields.goalColor,
+          goalIcon: mergedSeriesFields.goalIcon,
+          repeat: originalRepeat,
+          series_start_date: selectedDate,
+          series_end_date: nextSeriesEndDate,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           isTemp: true,
@@ -1303,22 +1541,7 @@ export const useEventsStore = create<EventsState>()(
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
 
-            const newSeriesData = buildEventForDb({
-              title: updates?.title ?? event.title,
-              description: updates?.description ?? masterEvent?.description ?? event.description,
-              notes: updates?.notes ?? masterEvent?.notes ?? event.notes,
-              urls: updates?.urls ?? masterEvent?.urls ?? event.urls,
-              date: selectedDate,
-              end_date: selectedDate,
-              start_time: startTimeForNewEvent ?? masterEvent?.start_time ?? event.start_time,
-              end_time: endTimeForNewEvent ?? masterEvent?.end_time ?? event.end_time,
-              color: updates?.color ?? masterEvent?.color ?? event.color,
-              is_all_day: updates?.is_all_day ?? masterEvent?.is_all_day ?? event.is_all_day,
-              location: updates?.location ?? masterEvent?.location ?? event.location,
-              repeat: originalRepeat,
-              series_start_date: selectedDate,
-              series_end_date: originalSeriesEndDate,
-            }, user.id)
+            const newSeriesData = buildEventForDb(mergedSeriesFields, user.id)
 
             const { data: result, error } = await supabase
               .from('events')
@@ -1407,6 +1630,7 @@ export const useEventsStore = create<EventsState>()(
           cacheEndDate: null,
           cachedUserId: null,
           pendingDeletes: new Set(),
+          liveEventTimes: {},
         })
       },
     }),

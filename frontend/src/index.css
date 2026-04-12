@@ -247,7 +247,7 @@
 
 .event-end {
   clip-path: polygon(1% 0, 100% 0, 100% 100%, 1% 100%, 0 50%);
-    border-radius: 0 8px 8px 0; /* only right rounded */
+    border-radius: 0 20px 20px 0; /* only right rounded */
 }
 
 .event-middle {

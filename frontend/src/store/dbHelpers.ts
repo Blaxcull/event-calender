@@ -25,11 +25,20 @@ export function buildEventForDb(
     'description', 'notes', 'urls', 'color',
     'is_all_day', 'location', 'repeat',
     'series_start_date', 'series_end_date',
+    'goalType', 'goal', 'goalColor', 'goalIcon',
   ]
 
   for (const field of optionalFields) {
     if (event[field] !== undefined) {
-      row[field] = event[field]
+      if (field === 'goalType') {
+        row.goal_type = event[field]
+      } else if (field === 'goalColor') {
+        row.goal_color = event[field]
+      } else if (field === 'goalIcon') {
+        row.goal_icon = event[field]
+      } else {
+        row[field] = event[field]
+      }
     }
   }
 
@@ -52,7 +61,7 @@ export function filterUpdatesForDb(updates: Partial<NewEvent>): Record<string, a
   const directFields = [
     'title', 'date', 'end_date', 'start_time', 'end_time',
     'repeat', 'series_start_date', 'series_end_date',
-    'is_all_day', 'description', 'notes', 'urls', 'color', 'location',
+    'is_all_day', 'description', 'notes', 'urls', 'color', 'location', 'goal',
   ]
 
   for (const [key, value] of Object.entries(updates)) {
@@ -60,6 +69,12 @@ export function filterUpdatesForDb(updates: Partial<NewEvent>): Record<string, a
 
     if (directFields.includes(key)) {
       filtered[key] = value
+    } else if (key === 'goalType') {
+      filtered.goal_type = value
+    } else if (key === 'goalColor') {
+      filtered.goal_color = value
+    } else if (key === 'goalIcon') {
+      filtered.goal_icon = value
     } else if (key === 'earlyReminder') {
       filtered.early_reminder = value
     }
@@ -89,6 +104,10 @@ export function dbRowToEvent(row: Record<string, any>): Event {
     repeat: row.repeat,
     series_start_date: row.series_start_date,
     series_end_date: row.series_end_date,
+    goalType: row.goal_type,
+    goal: row.goal,
+    goalColor: row.goal_color,
+    goalIcon: row.goal_icon,
     earlyReminder: row.early_reminder,
     created_at: row.created_at,
     updated_at: row.updated_at,

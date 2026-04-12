@@ -16,6 +16,10 @@ export interface EventType {
   startMin: number
   endHour: number
   endMin: number
+  originalStartHour?: number
+  originalStartMin?: number
+  originalEndHour?: number
+  originalEndMin?: number
   height: number  // Height in pixels
   title: string
   date: Date
@@ -24,6 +28,7 @@ export interface EventType {
   notes?: string
   urls?: string[]
   color?: string
+  goalIcon?: string
   isAllDay?: boolean
   location?: string
   series_id?: string
@@ -91,29 +96,86 @@ export function timeToY(minutes: number): number {
   return (minutes / 60) * SLOT_HEIGHT
 }
 
+// Clockwise duration on a 24h clock, so 23:00 -> 00:00 is 60 minutes.
+export function getClockwiseDurationMinutes(startMinutes: number, endMinutes: number): number {
+  if (endMinutes >= startMinutes) return endMinutes - startMinutes
+  return (1440 - startMinutes) + endMinutes
+}
+
+function parseHslParts(color?: string): { h: number; s: number; l: number } | null {
+  if (!color) return null
+  const match = color.match(/^\s*(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%\s*$/)
+  if (!match) return null
+  return {
+    h: Number(match[1]),
+    s: Number(match[2]),
+    l: Number(match[3]),
+  }
+}
+
+export function getEventVisualColors(color?: string) {
+  const parsed = parseHslParts(color)
+
+  if (!parsed) {
+    return {
+      backgroundColor: "#f792bb",
+      mutedBackgroundColor: "hsl(334 83% 77% / 0.5)",
+      textColor: "#be185d",
+      accentColor: "#ec4899",
+    }
+  }
+
+  return {
+    backgroundColor: `hsl(${parsed.h} ${parsed.s}% ${parsed.l}%)`,
+    mutedBackgroundColor: `hsl(${parsed.h} ${parsed.s}% ${parsed.l}% / 0.5)`,
+    textColor: `hsl(${parsed.h} ${Math.min(parsed.s, 90)}% ${Math.max(12, parsed.l - 42)}%)`,
+    accentColor: `hsl(${parsed.h} ${Math.min(parsed.s, 90)}% ${Math.max(18, parsed.l - 34)}%)`,
+  }
+}
+
+export function getEventDurationMinutes(event: Pick<Event, 'date' | 'end_date' | 'start_time' | 'end_time'>): number {
+  const startDate = new Date(`${event.date}T00:00:00`)
+  const endDate = new Date(`${(event.end_date || event.date)}T00:00:00`)
+  const daySpan = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 86400000))
+
+  if (daySpan === 0) {
+    if (event.end_time >= event.start_time) {
+      return event.end_time - event.start_time
+    }
+    return (1440 - event.start_time) + event.end_time
+  }
+
+  return (daySpan * 1440) + (event.end_time - event.start_time)
+}
+
 // Convert store event to UI event
 export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): EventType {
-  const startY = timeToY(storeEvent.start_time)
-  const endY = timeToY(storeEvent.end_time)
-  const startTime = yToTime(startY)
-  const endTime = yToTime(endY)
-
-  // Determine if event should display as all-day sticky
   const storeEndDate = storeEvent.end_date || storeEvent.date
   const isMultiDay = storeEndDate > storeEvent.date
+  const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
   
-  // Calculate duration in hours (handles overnight events)
-  let durationMinutes: number
-  if (storeEvent.end_time >= storeEvent.start_time) {
-    durationMinutes = storeEvent.end_time - storeEvent.start_time
-  } else {
-    // Overnight event (e.g., 23:00 to 02:00)
-    durationMinutes = (1440 - storeEvent.start_time) + storeEvent.end_time
-  }
-  const durationHours = durationMinutes / 60
-  const isFullDay = durationHours >= 24
+  const totalDurationMinutes = getEventDurationMinutes(storeEvent)
+  const isFullDay = totalDurationMinutes >= 1440
 
-  const isAllDay = storeEvent.is_all_day || isMultiDay || isFullDay
+  let visibleStartMinutes = storeEvent.start_time
+  let visibleEndMinutes = storeEvent.end_time
+
+  // Split overnight cross-date timed events across the visible day.
+  if (isMultiDay && !isFullDay && !storeEvent.is_all_day) {
+    if (selectedDateStr === storeEvent.date) {
+      visibleEndMinutes = 1440
+    } else if (selectedDateStr === storeEndDate) {
+      visibleStartMinutes = 0
+    }
+  }
+
+  const startY = timeToY(visibleStartMinutes)
+  const endY = timeToY(visibleEndMinutes)
+  const startTime = yToTime(startY)
+  const endTime = yToTime(endY)
+  const visibleDurationMinutes = getClockwiseDurationMinutes(visibleStartMinutes, visibleEndMinutes)
+  const durationHeight = timeToY(visibleDurationMinutes)
+  const isAllDay = isFullDay || (storeEvent.is_all_day && !isMultiDay)
 
   // Parse end_date for the UI event
   const endDate = storeEndDate ? new Date(storeEndDate + 'T00:00:00') : selectedDate
@@ -125,7 +187,11 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
     startMin: startTime.min,
     endHour: endTime.hour,
     endMin: endTime.min,
-    height: Math.max(endY - startY, MIN_15_MIN_HEIGHT),
+    originalStartHour: Math.floor(storeEvent.start_time / 60) % 24,
+    originalStartMin: storeEvent.start_time % 60,
+    originalEndHour: Math.floor(storeEvent.end_time / 60) % 24,
+    originalEndMin: storeEvent.end_time % 60,
+    height: Math.max(durationHeight, MIN_15_MIN_HEIGHT),
     title: storeEvent.title,
     date: selectedDate,
     endDate: endDate,
@@ -133,6 +199,7 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
     notes: storeEvent.notes,
     urls: storeEvent.urls || [],
     color: storeEvent.color,
+    goalIcon: storeEvent.goalIcon,
     isAllDay,
     location: storeEvent.location,
     repeat: storeEvent.repeat,

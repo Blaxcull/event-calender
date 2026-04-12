@@ -17,8 +17,13 @@ type TimeStore = {
   setDate: (date: Date) => void;
   setToday: () => void;
   clearDate: () => void;
-  updateTime: () => void;
+  updateTime: (previousNow?: Date) => void;
 };
+
+const isSameCalendarDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
 
 const buildDateInfo = (d: Date): DateInfo => ({
   day: d.getDate(),
@@ -59,12 +64,14 @@ export const useTimeStore = create<TimeStore>((set) => ({
       dateInfo: null,
     }),
 
-  updateTime: () => {
+  updateTime: (previousNow) => {
     const now = new Date();
     set((state) => {
       if (state.selectedDate) {
-        // Update selectedDate to current time (keeping the date part)
-        const updatedDate = new Date(state.selectedDate);
+        const shouldRollToToday =
+          previousNow instanceof Date && isSameCalendarDay(state.selectedDate, previousNow);
+
+        const updatedDate = shouldRollToToday ? new Date(now) : new Date(state.selectedDate);
         updatedDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
         return {
           selectedDate: updatedDate,
@@ -79,4 +86,3 @@ export const useTimeStore = create<TimeStore>((set) => ({
     });
   },
 }));
-

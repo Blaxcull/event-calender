@@ -22,6 +22,8 @@ export interface Event {
   reminder?: string
   goalType?: string
   goal?: string
+  goalColor?: string
+  goalIcon?: string
   earlyReminder?: string
   created_at?: string
   updated_at?: string
@@ -66,6 +68,8 @@ export interface NewEvent {
   reminder?: string
   goalType?: string
   goal?: string
+  goalColor?: string
+  goalIcon?: string
   earlyReminder?: string
   id?: string // Optional for optimistic temp events
 }

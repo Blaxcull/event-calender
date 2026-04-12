@@ -15,21 +15,37 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const isDayRoute = location.pathname.startsWith('/day')
+  const isWeekRoute = location.pathname.startsWith('/week')
 
   const handleViewClick = (view: ViewType) => {
     onViewChange(view)
+    const now = new Date()
     if (view === "day") {
-      const now = new Date()
       navigate(`/day/${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`)
+      return
+    }
+    if (view === "week") {
+      navigate(`/week/${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`)
     }
   }
 
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50">
-      <div className="flex items-center p-2 bg-background border rounded-full shadow-sm">
+      <div className="flex items-center p-2 bg-[#ececeb] border border-black/5 rounded-full shadow-sm">
       {views.map((view, i) => {
-  const isActive = currentView === view && (view !== "day" || isDayRoute)
-  const nextActive = currentView === views[i + 1] && (views[i + 1] !== "day" || isDayRoute)
+  const routeMatched =
+    (view === "day" && isDayRoute) ||
+    (view === "week" && isWeekRoute) ||
+    (view !== "day" && view !== "week" && currentView === view)
+
+  const nextView = views[i + 1]
+  const nextRouteMatched =
+    (nextView === "day" && isDayRoute) ||
+    (nextView === "week" && isWeekRoute) ||
+    (nextView !== "day" && nextView !== "week" && currentView === nextView)
+
+  const isActive = routeMatched
+  const nextActive = nextRouteMatched
 
   return (
     <div key={view} className="flex items-center">
@@ -39,7 +55,7 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
           "capitalize text-xl font-semibold rounded-full w-[120px] py-6",
           "transition-all duration-200 ease-out",
           "bg-transparent text-neutral-600",
-          "hover:bg-neutral-200 hover:scale-105 active:scale-95",
+          "hover:bg-[#e3e3e1] hover:scale-105 active:scale-95",
           isActive && "bg-[#dddddd] shadow-sm"
         )}
       >

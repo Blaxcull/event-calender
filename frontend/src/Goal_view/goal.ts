@@ -6,22 +6,24 @@ export interface Goal {
   name: string;
   color: string;
   targetValue: number;
-  targetPeriod: 'week' | 'month' | 'year';
+  targetPeriod: 'day' | 'week' | 'month' | 'year';
   status: 'active' | 'paused' | 'completed';
   description?: string;
   icon?: string;
 }
 
 export const GOAL_COLORS = [
-  { label: 'Green', value: '142 71% 45%', emoji: '🟢' },
+  { label: 'None', value: '', emoji: 'Ø' },
   { label: 'Red', value: '0 84% 60%', emoji: '🔴' },
-  { label: 'Blue', value: '217 91% 60%', emoji: '🔵' },
   { label: 'Yellow', value: '48 96% 53%', emoji: '🟡' },
+  { label: 'Blue', value: '217 91% 60%', emoji: '🔵' },
+  { label: 'Green', value: '142 71% 45%', emoji: '🟢' },
   { label: 'Purple', value: '270 67% 47%', emoji: '🟣' },
   { label: 'Orange', value: '25 95% 53%', emoji: '🟠' },
 ];
 
 export const GOAL_ICONS = [
+  { value: "", label: "None" },
   { value: "fitness", label: "Fitness", icon: Dumbbell },
   { value: "learning", label: "Learning", icon: BookOpen },
   { value: "money", label: "Money", icon: DollarSign },
@@ -34,7 +36,7 @@ export const GOAL_ICONS = [
   { value: "nutrition", label: "Nutrition", icon: Salad },
   { value: "rest", label: "Rest", icon: TimerReset },
   { value: "focus", label: "Focus", icon: Brain },
-] satisfies Array<{ value: string; label: string; icon: LucideIcon }>;
+] satisfies Array<{ value: string; label: string; icon?: LucideIcon }>;
 
 const LEGACY_ICON_MAP: Record<string, string> = {
   "🏋️": "fitness",
@@ -51,7 +53,7 @@ const LEGACY_ICON_MAP: Record<string, string> = {
   "🧠": "focus",
 };
 
-export const DEFAULT_GOAL_ICON = GOAL_ICONS[0].value;
+export const DEFAULT_GOAL_ICON = "";
 
 export const normalizeGoalIcon = (icon?: string) => {
   if (!icon) return DEFAULT_GOAL_ICON;
@@ -60,5 +62,5 @@ export const normalizeGoalIcon = (icon?: string) => {
 
 export const getGoalIcon = (icon?: string) => {
   const normalized = normalizeGoalIcon(icon);
-  return GOAL_ICONS.find((entry) => entry.value === normalized) ?? GOAL_ICONS[0];
+  return GOAL_ICONS.find((entry) => entry.value === normalized && entry.icon) ?? GOAL_ICONS[1];
 };

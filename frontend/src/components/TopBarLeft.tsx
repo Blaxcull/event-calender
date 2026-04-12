@@ -11,13 +11,41 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
 
   const isGoalSelected = location.pathname === '/goalview'
   const isCalendarSelected = location.pathname === '/calendar'
+  const isDayRoute = /^\/day\/\d+\/\d+\/\d+$/.test(location.pathname)
 
   const isAnySelected = isGoalSelected || isCalendarSelected
+
+  const triggerAddAtCurrentTime = () => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("pendingAddNowEvent", "1")
+      window.dispatchEvent(new CustomEvent("calendar:add-now-event"))
+    }
+  }
+
+  const handlePlusClick = () => {
+    if (onAddClick) {
+      onAddClick()
+      return
+    }
+
+    const now = new Date()
+    const todayPath = `/day/${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`
+
+    if (isDayRoute && location.pathname === todayPath) {
+      triggerAddAtCurrentTime()
+      return
+    }
+
+    navigate(todayPath)
+    window.setTimeout(() => {
+      triggerAddAtCurrentTime()
+    }, 140)
+  }
 
   return (
     <div className="fixed top-4 left-4 z-50 flex items-center gap-3">
 
-      <div className="group flex items-center border-[1px] rounded-full shadow-sm">
+      <div className="group flex items-center border-[1px] rounded-full shadow-sm bg-[#ececeb]/90 border-black/5 backdrop-blur-sm">
 
         {/* Goals */}
 
@@ -33,7 +61,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
     border
 
     ${isGoalSelected
-      ? 'bg-[#dddddd] border-white/80 shadow-inner scale-90 hover:scale-100 hover:bg-transparent hover:shadow-lg'
+      ? 'bg-[#dddddd] border-white/80 shadow-inner scale-90 hover:scale-100 hover:bg-[#e7e7e6] hover:shadow-lg'
       : 'border-transparent hover:border-white/40 hover:shadow-lg hover:scale-100'
     }
   `}
@@ -60,7 +88,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
             active:scale-95
 
             ${isCalendarSelected
-      ? 'bg-[#dddddd] border-white/80 shadow-inner scale-90 hover:scale-100 hover:bg-transparent hover:shadow-lg'
+      ? 'bg-[#dddddd] border-white/80 shadow-inner scale-90 hover:scale-100 hover:bg-[#e7e7e6] hover:shadow-lg'
       : 'border-transparent hover:border-white/40 hover:shadow-lg hover:scale-100'
             }
           `}
@@ -73,7 +101,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
       {/* plus button */}
       <Button
         variant="ghost"
-        onClick={onAddClick}
+        onClick={handlePlusClick}
         className="
           h-16 w-16
           rounded-full

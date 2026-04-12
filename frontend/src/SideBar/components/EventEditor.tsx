@@ -13,6 +13,8 @@ const EventEditor: React.FC = () => {
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   const setHasEditsEventId = useEventsStore((state) => state.setHasEditsEventId)
+  useEventsStore((state) => state.eventsCache)
+  useEventsStore((state) => state.computedEventsCache)
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
@@ -26,23 +28,10 @@ const EventEditor: React.FC = () => {
   const savedEventIdRef = useRef<string | null>(null)
   const lastProcessedSaveTriggerRef = useRef<number>(0)
 
-  // Subscribe to cache changes and trigger re-render
-  const [, setEventVersion] = useState(0)
   const getEventById = useEventsStore((state) => state.getEventById)
   
-  // Get the selected event - this will update when eventVersion changes
+  // Get the selected event from reactive cache slices above
   const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
-  
-  // Subscribe to cache changes and trigger re-render
-  useEffect(() => {
-    const unsubscribe = useEventsStore.subscribe(
-      () => {
-        // Trigger re-render when caches change
-        setEventVersion(v => v + 1)
-      }
-    )
-    return unsubscribe
-  }, [])
 
   // Load event data when selected event changes
   const prevEventIdRef = useRef<string | null>(null)

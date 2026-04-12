@@ -1,10 +1,12 @@
 import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
 import type { EventType, EventPositions } from '../lib/eventUtils'
-import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, restoreEventWidths, applyPositionsToDOM } from '../lib/eventUtils'
+import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, SLOT_HEIGHT, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, restoreEventWidths, applyPositionsToDOM, getEventVisualColors } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
+import { resolveGoalColorForEvent, resolveGoalIconForEvent, useGoalsStore } from "@/store/goalsStore"
 import { supabase } from "@/lib/supabase"
+import { getGoalIcon } from "@/Goal_view/goal"
 
 interface TimeViewProps {
   initialEvents?: EventType[]
@@ -42,11 +44,13 @@ useEffect(() => {
   return () => observer.disconnect()
 }, [])
 
-const bgColor = isDragging
-  ? 'bg-[#db7fa5]'
-  : isSelected
-    ? 'bg-[#f792bb]'
-    : 'bg-[#f792bb]/[0.5]'
+const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors(event.color)
+const goalIconEntry = event.goalIcon ? getGoalIcon(event.goalIcon) : null
+const GoalIcon = goalIconEntry?.icon
+const labelStartHour = event.originalStartHour ?? event.startHour
+const labelStartMin = event.originalStartMin ?? event.startMin
+const labelEndHour = event.originalEndHour ?? event.endHour
+const labelEndMin = event.originalEndMin ?? event.endMin
 
  const isActive = isDragging || isResizing || isSelected
 
@@ -59,18 +63,17 @@ const eventStyle: React.CSSProperties = {
       left: position.left,
       width: position.width,
       zIndex: position.zIndex,
+      backgroundColor: isSelected || isDragging ? backgroundColor : mutedBackgroundColor,
       transition: isDragging || isResizing ? undefined : "left 200ms ease, width 200ms ease",
     }
 
-const leftStrip = isSelected
-  ? 'bg-white'
-  : 'bg-pink-700'
+const leftStripColor = isSelected ? '#ffffff' : accentColor
 
 return (
   <div
     ref={containerRef}
     onMouseDown={onMouseDown}
-    className={`absolute ${bgColor} ${zIndex} ${shadow}
+    className={`absolute ${zIndex} ${shadow}
   rounded-md calendar-event
   cursor-grab active:cursor-grabbing select-none
   ${isSelected ? 'border-2 border-white' : isDragging || isResizing ? 'border-0' : 'border-r-2 border-b-0 border-t-4 border-transparent'}
@@ -78,10 +81,10 @@ return (
     id={event.id}
     style={eventStyle}
   >
-    <div className={`absolute top-1 bottom-1 left-[3px] w-[6px] ${leftStrip} rounded`} />
+    <div className="absolute top-1 bottom-1 left-[3px] w-[6px] rounded" style={{ backgroundColor: leftStripColor }} />
 
     {((event.repeat && event.repeat !== 'None') || event.isRecurringInstance) && (
-      <svg className="absolute top-2 right-3 w-4 h-4 opacity-70 z-20" viewBox="0 0 24 24" fill="none" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <svg className="absolute top-2 right-3 w-4 h-4 opacity-70 z-20" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 13.0399V11C2 7.68629 4.68629 5 8 5H21V5" />
             <path d="M19 2L22 5L19 8" />
             <path d="M22 9.98004V12.02C22 15.3337 19.3137 18.02 16 18.02H3V18.02" />
@@ -91,16 +94,14 @@ return (
 
 
     {/* Event content - adjust based on event height */}
-<div
-  className={`text-pink-700 pl-[18px] pr-3 pt-0  relative z-10 `}
->
+<div className="pl-[18px] pr-3 pt-0 relative z-10" style={{ color: textColor }}>
   {calculateEventDuration(event) <= 20 ? (
     // 20 MIN OR LESS (super compact)
     <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
       <span className="truncate font-semibold  ">{event.title}</span>
       <div className="flex items-center shrink-0 gap-1 ml-1">
         <span className="text-xs opacity-70">
-          {`${event.startHour.toString().padStart(2, "0")}:${event.startMin
+          {`${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
             .toString()
             .padStart(2, "0")}`}
         </span>
@@ -113,7 +114,7 @@ return (
       <span className="truncate font-semibold text-xl ">{event.title}</span>
       <div className="flex items-center shrink-0 gap-1 ml-1">
         <span className="font-medium text-xl">
-          {`${event.startHour.toString().padStart(2, "0")}:${event.startMin
+          {`${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
             .toString()
             .padStart(2, "0")}`}
         </span>
@@ -123,23 +124,24 @@ return (
   ) : (
     // MORE THAN 30 MIN (normal layout)
     <>
-      <div className="  font-extrabold text-2xl pt-1 truncate flex items-center gap-1">
+      <div className="font-extrabold text-2xl pt-1 truncate flex items-center gap-2">
+        {GoalIcon ? <GoalIcon className="w-5 h-5 shrink-0" /> : null}
         {event.title}
       </div>
       <div className="text-xl font-medium flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {showEndTime 
-            ? `${event.startHour.toString().padStart(2, "0")}:${event.startMin
+            ? `${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
               .toString()
-              .padStart(2, "0")} - ${event.endHour
+              .padStart(2, "0")} - ${labelEndHour
               .toString()
-              .padStart(2, "0")}:${event.endMin
+              .padStart(2, "0")}:${labelEndMin
               .toString()
               .padStart(2, "0")}`
-            : `${event.startHour.toString().padStart(2, "0")}:${event.startMin
+            : `${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
               .toString()
               .padStart(2, "0")}`}
         </div>
@@ -166,24 +168,33 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const addEventLocal = useEventsStore((state) => state.addEventLocal)
   const updateEvent = useEventsStore((state) => state.updateEvent)
   const deleteEvent = useEventsStore((state) => state.deleteEvent)
+  const eventsCache = useEventsStore((state) => state.eventsCache)
+  const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
+  const setScrollToEventId = useEventsStore((state) => state.setScrollToEventId)
+  const setLiveEventTime = useEventsStore((state) => state.setLiveEventTime)
+  const clearLiveEventTime = useEventsStore((state) => state.clearLiveEventTime)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
-
-  // Subscribe to entire store for reactivity
-  const storeState = useEventsStore()
+  const goalsStore = useGoalsStore((state) => state.store)
 
   // Local state for events - this is the key to performance!
   // We work with local events during drag/resize for instant feedback
   const [localEvents, setLocalEvents] = useState<EventType[]>([])
   const [eventPositions, setEventPositions] = useState<EventPositions>({})
+  const localEventsRef = useRef<EventType[]>([])
+  const livePreviewRef = useRef<{ id: string; start: number; end: number } | null>(null)
   
   // Skip sync ref for recurring action handling
   const skipSyncRef = useRef(false)
   const lastDateKeyRef = useRef<string | null>(null)
   const [containerVisible, setContainerVisible] = useState(false)
+
+  useEffect(() => {
+    localEventsRef.current = localEvents
+  }, [localEvents])
   
   // Sync local events from store when not dragging/resizing
   useEffect(() => {
@@ -195,6 +206,8 @@ const TimeView: React.FC<TimeViewProps> = () => {
     
     if (!selectedDate) {
       setLocalEvents([])
+      clearLiveEventTime()
+      livePreviewRef.current = null
       return
     }
     
@@ -222,7 +235,18 @@ const TimeView: React.FC<TimeViewProps> = () => {
       if ((e as any).seriesMasterId && pendingDeletes.has((e as any).seriesMasterId)) return false
       return true
     })
-    const uiEvents = filteredEvents.map(event => storeEventToUIEvent(event, selectedDate))
+    const uiEvents = filteredEvents.map(event => {
+      const resolvedGoalColor = resolveGoalColorForEvent(goalsStore, event)
+      const resolvedGoalIcon = resolveGoalIconForEvent(goalsStore, event)
+      return storeEventToUIEvent(
+        {
+          ...event,
+          color: event.goalColor || resolvedGoalColor || event.color,
+          goalIcon: event.goalIcon || resolvedGoalIcon,
+        },
+        selectedDate
+      )
+    })
     
     // Check if any temp events were replaced with real ones (ID swap detection)
     const currentIds = new Set(localEvents.map(e => e.id))
@@ -278,7 +302,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         idMapping.current.delete(tempId)
       }
     }
-  }, [selectedDate, storeState.eventsCache, storeState.computedEventsCache, getEventsForDate])
+  }, [selectedDate, eventsCache, computedEventsCache, getEventsForDate, goalsStore])
   
   // UI state
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -291,6 +315,93 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const justCreatedEventRef = useRef<string | null>(null)
   const originalEventRef = useRef<{ id: string; slot: number; startHour: number; startMin: number; endHour: number; endMin: number; height: number } | null>(null)
   const DRAG_THRESHOLD = 5
+
+  const createNewEventAtY = (
+    yInGrid: number,
+    shouldScrollToNewEvent: boolean = false,
+    startAtExactSlot: boolean = false
+  ) => {
+    if (!selectedDate) return
+
+    const newUIEvent = startAtExactSlot
+      ? (() => {
+          const duration = SLOT_HEIGHT
+          const dayHeight = 24 * SLOT_HEIGHT
+          const snappedStart = Math.max(0, snap(yInGrid))
+          const startY = Math.min(snappedStart, dayHeight - duration)
+          const start = yToTimeSnapped(startY)
+          const end = yToTimeSnapped(startY + duration)
+          return {
+            id: Math.random().toString(36).slice(2, 11),
+            slot: startY,
+            height: duration,
+            startHour: start.hour,
+            startMin: start.min,
+            endHour: end.hour,
+            endMin: end.min,
+            title: "New Event",
+            date: selectedDate,
+            endDate: selectedDate,
+            notes: "",
+            urls: [],
+          }
+        })()
+      : addEventOnClick(yInGrid, localEventsRef.current, selectedDate)
+    if (!newUIEvent) return
+
+    lastAddedEventId.current = newUIEvent.id
+    pendingEventIds.current.add(newUIEvent.id)
+
+    const allEventsWithNew = [...localEventsRef.current, newUIEvent]
+    setLocalEvents(allEventsWithNew)
+
+    const positions = calculateEventPositions(allEventsWithNew.filter(e => !e.isAllDay), newUIEvent.id)
+    applyPositionsToDOM(positions)
+    setEventPositions(positions)
+
+    requestAnimationFrame(() => {
+      const newEl = document.getElementById(newUIEvent.id) as HTMLDivElement | null
+      if (newEl) {
+        newEl.style.opacity = "0"
+
+        requestAnimationFrame(() => {
+          newEl.style.transition = "opacity 150ms ease-out"
+          newEl.style.opacity = "1"
+
+          setTimeout(() => {
+            newEl.style.transition = ""
+            newEl.style.opacity = ""
+          }, 150)
+        })
+      }
+    })
+
+    const dateStr = formatDate(selectedDate)
+    const storeEvent = uiEventToStoreEvent(newUIEvent, dateStr)
+    try {
+      addEventLocal({
+        title: storeEvent.title!,
+        date: storeEvent.date!,
+        end_date: storeEvent.end_date!,
+        start_time: storeEvent.start_time!,
+        end_time: storeEvent.end_time!,
+        description: storeEvent.description,
+        notes: storeEvent.notes,
+        urls: storeEvent.urls,
+        color: storeEvent.color,
+        is_all_day: storeEvent.is_all_day,
+        location: storeEvent.location,
+        id: storeEvent.id,
+      })
+      justCreatedEventRef.current = newUIEvent.id
+      setSelectedEvent(newUIEvent.id)
+      if (shouldScrollToNewEvent) {
+        setScrollToEventId(newUIEvent.id)
+      }
+    } catch (error) {
+      // Event creation failed
+    }
+  }
 
   // Reset interaction lock on mount to ensure clean state
   useEffect(() => {
@@ -454,16 +565,37 @@ const TimeView: React.FC<TimeViewProps> = () => {
         }
       }
       
-      // Don't deselect if we just created this event (saved event)
+      // Ignore one outside click only for a truly untouched freshly created temp event.
       if (justCreatedEventRef.current === selectedEventId) {
+        const { eventsCache } = useEventsStore.getState()
+        let currentSelectedEvent: any = null
+
+        for (const events of Object.values(eventsCache)) {
+          const found = events.find(e => e.id === selectedEventId)
+          if (found) {
+            currentSelectedEvent = found
+            break
+          }
+        }
+
+        const isUntouchedFreshTemp =
+          currentSelectedEvent &&
+          currentSelectedEvent.isTemp === true &&
+          currentSelectedEvent.created_at === currentSelectedEvent.updated_at &&
+          (currentSelectedEvent.title === 'New Event' || !currentSelectedEvent.title?.trim())
+
+        if (isUntouchedFreshTemp) {
+          justCreatedEventRef.current = null
+          return
+        }
+
         justCreatedEventRef.current = null
-        return
       }
       
       // Clicking on empty grid just deselects - doesn't delete
       setSelectedEvent(null)
       // Recalculate positions so events go back to column layout
-      const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), null)
+      const positions = calculateEventPositions(localEventsRef.current.filter(e => !e.isAllDay), null)
       setEventPositions(positions)
       return
     }
@@ -480,65 +612,43 @@ const TimeView: React.FC<TimeViewProps> = () => {
     }
     
     clickY -= TOP_DEAD_ZONE
-    if (!selectedDate) return
-    
-    const newUIEvent = addEventOnClick(clickY, localEvents, selectedDate)
-    if (!newUIEvent) return
-    
-    lastAddedEventId.current = newUIEvent.id
-    pendingEventIds.current.add(newUIEvent.id)
-    
-    // Add to local state immediately
-    const allEventsWithNew = [...localEvents, newUIEvent]
-    setLocalEvents(allEventsWithNew)
-
-    // Calculate positions with new event included so existing events reflow
-    const positions = calculateEventPositions(allEventsWithNew.filter(e => !e.isAllDay), newUIEvent.id)
-    applyPositionsToDOM(positions)
-    setEventPositions(positions)
-    
-    // Fade in the new event
-    requestAnimationFrame(() => {
-      const newEl = document.getElementById(newUIEvent.id) as HTMLDivElement | null
-      if (newEl) {
-        newEl.style.opacity = "0"
-        
-        requestAnimationFrame(() => {
-          newEl.style.transition = "opacity 150ms ease-out"
-          newEl.style.opacity = "1"
-          
-          setTimeout(() => {
-            newEl.style.transition = ""
-            newEl.style.opacity = ""
-          }, 150)
-        })
-      }
-    })
-    
-    // Save to store (local only - not saved to DB until Save/Enter)
-    const dateStr = formatDate(selectedDate)
-    const storeEvent = uiEventToStoreEvent(newUIEvent, dateStr)
-    try {
-      addEventLocal({
-        title: storeEvent.title!,
-        date: storeEvent.date!,
-        end_date: storeEvent.end_date!,
-        start_time: storeEvent.start_time!,
-        end_time: storeEvent.end_time!,
-        description: storeEvent.description,
-        notes: storeEvent.notes,
-        urls: storeEvent.urls,
-        color: storeEvent.color,
-        is_all_day: storeEvent.is_all_day,
-        location: storeEvent.location,
-        id: storeEvent.id,
-      })
-      justCreatedEventRef.current = newUIEvent.id
-      setSelectedEvent(newUIEvent.id)
-    } catch (error) {
-      // Event creation failed
-    }
+    createNewEventAtY(clickY)
   }
+
+  useEffect(() => {
+    const maybeCreateNowEvent = () => {
+      if (!selectedDate) return
+
+      const now = new Date()
+      const isToday =
+        selectedDate.getFullYear() === now.getFullYear() &&
+        selectedDate.getMonth() === now.getMonth() &&
+        selectedDate.getDate() === now.getDate()
+      if (!isToday) return
+
+      if (typeof window !== "undefined") {
+        const pending = sessionStorage.getItem("pendingAddNowEvent")
+        if (!pending) return
+        sessionStorage.removeItem("pendingAddNowEvent")
+      }
+
+      const minutesNow = now.getHours() * 60 + now.getMinutes()
+      const yInGrid = (minutesNow / 15) * STEP_HEIGHT
+      createNewEventAtY(yInGrid, true, true)
+    }
+
+    maybeCreateNowEvent()
+
+    const onAddNow = () => {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("pendingAddNowEvent", "1")
+      }
+      maybeCreateNowEvent()
+    }
+
+    window.addEventListener("calendar:add-now-event", onAddNow)
+    return () => window.removeEventListener("calendar:add-now-event", onAddNow)
+  }, [selectedDate])
 
   const handleMouseDown = (e: React.MouseEvent, event: EventType) => {
     e.stopPropagation()
@@ -631,7 +741,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         const distance = Math.sqrt(dx * dx + dy * dy)
         
         if (distance > DRAG_THRESHOLD) {
-          const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
+        const event = localEventsRef.current.find(ev => ev.id === mouseDownPosRef.current?.eventId)
           if (event) {
             startDrag(event)
           }
@@ -644,10 +754,11 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
       if (draggingId && isDraggingRef.current) {
         // Get current dragged event
-        const draggedEvent = localEvents.find(ev => ev.id === draggingId)
+        const draggedEvent = localEventsRef.current.find(ev => ev.id === draggingId)
         if (draggedEvent) {
           // Calculate new position with snapping
-          const snappedY = Math.max(0, snap(y - dragOffsetRef.current))
+          const maxSlot = Math.max(0, (24 * 100) - draggedEvent.height)
+          const snappedY = Math.max(0, Math.min(snap(y - dragOffsetRef.current), maxSlot))
           
           // Update DOM directly for smooth animation
           const el = document.getElementById(draggingId) as HTMLDivElement | null
@@ -659,18 +770,33 @@ const TimeView: React.FC<TimeViewProps> = () => {
           // This causes re-render but that's OK - it's local state only!
           const start = yToTimeSnapped(snappedY)
           const end = yToTimeSnapped(snappedY + draggedEvent.height)
-          const updatedEvents = localEvents.map(ev => 
-            ev.id === draggingId 
-              ? { ...ev, slot: snappedY, startHour: start.hour, startMin: start.min, endHour: end.hour, endMin: end.min }
-              : ev
-          )
-          setLocalEvents(updatedEvents)
+          const startMinutes = start.hour * 60 + start.min
+          const endMinutes = end.hour * 60 + end.min
+          const previousPreview = livePreviewRef.current
+          if (
+            !previousPreview ||
+            previousPreview.id !== draggingId ||
+            previousPreview.start !== startMinutes ||
+            previousPreview.end !== endMinutes
+          ) {
+            setLiveEventTime(draggingId, startMinutes, endMinutes)
+            livePreviewRef.current = { id: draggingId, start: startMinutes, end: endMinutes }
+          }
+          setLocalEvents(prev => {
+            const updatedEvents = prev.map(ev =>
+              ev.id === draggingId
+                ? { ...ev, slot: snappedY, startHour: start.hour, startMin: start.min, endHour: end.hour, endMin: end.min }
+                : ev
+            )
+            setEventPositions(calculateEventPositions(updatedEvents.filter(e => !e.isAllDay), draggingId))
+            return updatedEvents
+          })
         }
       }
 
       if (resizingId && isResizingRef.current) {
         // Get current resized event
-        const resizedEvent = localEvents.find(ev => ev.id === resizingId)
+        const resizedEvent = localEventsRef.current.find(ev => ev.id === resizingId)
         if (resizedEvent) {
           // Calculate new height with snapping
           const newHeight = Math.max(STEP_HEIGHT, snap(y - resizedEvent.slot))
@@ -683,12 +809,27 @@ const TimeView: React.FC<TimeViewProps> = () => {
           
           // Update local state for real-time overlap adjustments
           const end = yToTimeSnapped(resizedEvent.slot + newHeight)
-          const updatedEvents = localEvents.map(ev => 
-            ev.id === resizingId 
-              ? { ...ev, height: newHeight, endHour: end.hour, endMin: end.min }
-              : ev
-          )
-          setLocalEvents(updatedEvents)
+          const startMinutes = resizedEvent.startHour * 60 + resizedEvent.startMin
+          const endMinutes = end.hour * 60 + end.min
+          const previousPreview = livePreviewRef.current
+          if (
+            !previousPreview ||
+            previousPreview.id !== resizingId ||
+            previousPreview.start !== startMinutes ||
+            previousPreview.end !== endMinutes
+          ) {
+            setLiveEventTime(resizingId, startMinutes, endMinutes)
+            livePreviewRef.current = { id: resizingId, start: startMinutes, end: endMinutes }
+          }
+          setLocalEvents(prev => {
+            const updatedEvents = prev.map(ev =>
+              ev.id === resizingId
+                ? { ...ev, height: newHeight, endHour: end.hour, endMin: end.min }
+                : ev
+            )
+            setEventPositions(calculateEventPositions(updatedEvents.filter(e => !e.isAllDay), resizingId))
+            return updatedEvents
+          })
         }
       }
     }
@@ -697,7 +838,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     return () => {
       window.removeEventListener("mousemove", handleMouseMove)
     }
-   }, [draggingId, resizingId, localEvents])
+   }, [clearLiveEventTime, draggingId, resizingId, selectedEventId, setLiveEventTime])
 
   // Track the most recently added event to skip its layout animation
   const lastAddedEventId = useRef<string | null>(null)
@@ -766,7 +907,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
   // Recalculate positions when selection changes (expand selected, collapse on deselect)
   useEffect(() => {
     if (isDraggingRef.current || isResizingRef.current) return
-    const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), selectedEventId)
+    const positions = calculateEventPositions(localEventsRef.current.filter(e => !e.isAllDay), selectedEventId)
     setEventPositions(positions)
   }, [selectedEventId, localEvents])
 
@@ -778,7 +919,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     
     // Handle click (no drag/resize happened)
     if (mouseDownPosRef.current && !wasDragging && !wasResizing) {
-      const event = localEvents.find(ev => ev.id === mouseDownPosRef.current?.eventId)
+      const event = localEventsRef.current.find(ev => ev.id === mouseDownPosRef.current?.eventId)
       if (event) {
         // Check if there's a temp event selected that needs to be deleted
         if (selectedEventId && selectedEventId !== event.id) {
@@ -792,19 +933,28 @@ const TimeView: React.FC<TimeViewProps> = () => {
         setSelectedEvent(event.id)
 
         // Recalculate positions so selected event expands to full width
-        const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), event.id)
+        const positions = calculateEventPositions(localEventsRef.current.filter(e => !e.isAllDay), event.id)
         setEventPositions(positions)
       }
       mouseDownPosRef.current = null
+      clearLiveEventTime()
+      livePreviewRef.current = null
       return
     }
     
     mouseDownPosRef.current = null
     
-    if (!draggingId && !resizingId) return
+    if (!draggingId && !resizingId) {
+      clearLiveEventTime()
+      livePreviewRef.current = null
+      return
+    }
     
     const wasDraggingId = draggingId
     const wasResizingId = resizingId
+    if (wasDraggingId) clearLiveEventTime(wasDraggingId)
+    if (wasResizingId) clearLiveEventTime(wasResizingId)
+    livePreviewRef.current = null
     
     // Helper to restore original event position - updates both DOM and store
     const restoreOriginalPosition = () => {
@@ -835,7 +985,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       }
       
       // Also recalculate positions for all events to ensure correct widths
-      const positions = calculateEventPositions(localEvents.filter(e => !e.isAllDay), eventId)
+      const positions = calculateEventPositions(localEventsRef.current.filter(e => !e.isAllDay), eventId)
       setEventPositions(positions)
       
       originalEventRef.current = null
@@ -853,7 +1003,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         const finalTop = parseInt(el.style.top || '0') - TOP_DEAD_ZONE
         const snappedY = snap(finalTop)
         const start = yToTimeSnapped(snappedY)
-        const draggedEvent = localEvents.find(e => e.id === wasDraggingId)
+        const draggedEvent = localEventsRef.current.find(e => e.id === wasDraggingId)
         
         if (draggedEvent && selectedDate) {
           const end = yToTimeSnapped(snappedY + draggedEvent.height)
@@ -964,7 +1114,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       if (el) {
         const finalHeight = parseInt(el.style.height || '100')
         const snappedHeight = Math.max(STEP_HEIGHT, snap(finalHeight))
-        const resizedEvent = localEvents.find(e => e.id === wasResizingId)
+        const resizedEvent = localEventsRef.current.find(e => e.id === wasResizingId)
         
         if (resizedEvent && selectedDate) {
            const end = yToTimeSnapped(resizedEvent.slot + snappedHeight)
@@ -1082,14 +1232,18 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
     isDraggingRef.current = false
     isResizingRef.current = false
-    const skipId = wasDraggingId || wasResizingId || null
     setDraggingId(null)
     setResizingId(null)
     unlockInteraction()
     originalEventRef.current = null
 
-    // Restore event widths so overlapping events re-split into columns
-    restoreEventWidths(localEvents.filter(e => !e.isAllDay), true, skipId, selectedEventId)
+    // Recompute all overlap columns from state so no event keeps stale DOM geometry.
+    setEventPositions(
+      calculateEventPositions(
+        localEventsRef.current.filter(e => !e.isAllDay),
+        selectedEventId
+      )
+    )
 
     setTimeout(() => {
       recentlyInteractedRef.current = false
@@ -1101,7 +1255,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     return () => {
       window.removeEventListener("mouseup", handleMouseUp)
     }
-  }, [draggingId, resizingId, localEvents, selectedDate])
+  }, [clearLiveEventTime, draggingId, resizingId, selectedDate, selectedEventId])
 
   // Filter out all-day events from time grid (they're shown in the sticky row)
   const timedEvents = localEvents.filter(event => !event.isAllDay)

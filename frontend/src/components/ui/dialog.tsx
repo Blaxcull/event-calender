@@ -11,12 +11,20 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ zIndex: 200 }}
+    >
       <div 
-        className="absolute inset-0 bg-white/50 backdrop-blur-sm"
+        className="absolute inset-0"
+        style={{
+          backgroundColor: "rgba(0,0,0,0.30)",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+        }}
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative z-10">
+      <div className="relative" style={{ zIndex: 210 }}>
         {children}
       </div>
     </div>

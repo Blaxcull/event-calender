@@ -3,6 +3,7 @@ import { useParams, Navigate } from 'react-router-dom'
 import { useTimeStore } from '@/store/timeStore'
 import { useEventsStore } from '@/store/eventsStore'
 import DayView from '@/Day_view/DayView'
+import WeekView from '@/Week_view/WeekView'
 
 export function DayViewRoute() {
   const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
@@ -69,6 +70,60 @@ export function DayViewRoute() {
   }
 
   return <DayView />
+}
+
+export function WeekViewRoute() {
+  const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
+  const setDate = useTimeStore(state => state.setDate)
+  const setToday = useTimeStore(state => state.setToday)
+  const fetchEventsWindow = useEventsStore(state => state.fetchEventsWindow)
+  const setSelectedEvent = useEventsStore(state => state.setSelectedEvent)
+
+  useEffect(() => {
+    if (!year || !month || !day) {
+      setToday()
+      return
+    }
+
+    const yearNum = parseInt(year, 10)
+    const monthNum = parseInt(month, 10) - 1
+    const dayNum = parseInt(day, 10)
+    const date = new Date(yearNum, monthNum, dayNum)
+    const isValidDate =
+      date.getFullYear() === yearNum &&
+      date.getMonth() === monthNum &&
+      date.getDate() === dayNum
+
+    if (!isValidDate) {
+      setToday()
+      return
+    }
+
+    setDate(date)
+    setSelectedEvent(null)
+    queueMicrotask(() => {
+      fetchEventsWindow(date)
+    })
+  }, [year, month, day, setDate, setToday, fetchEventsWindow, setSelectedEvent])
+
+  if (!year || !month || !day) {
+    return <Navigate to="/" replace />
+  }
+
+  const yearNum = parseInt(year, 10)
+  const monthNum = parseInt(month, 10) - 1
+  const dayNum = parseInt(day, 10)
+  const date = new Date(yearNum, monthNum, dayNum)
+  const isValidDate =
+    date.getFullYear() === yearNum &&
+    date.getMonth() === monthNum &&
+    date.getDate() === dayNum
+
+  if (!isValidDate) {
+    return <Navigate to="/" replace />
+  }
+
+  return <WeekView />
 }
 
 export function TodayRedirect() {

@@ -62,6 +62,11 @@ export function generateRecurringInstances(
   exceptions: EventException[]
 ): CalendarEvent[] {
   const instances: CalendarEvent[] = []
+  const daySpan = (() => {
+    const start = new Date(masterEvent.date + 'T00:00:00')
+    const end = new Date((masterEvent.end_date || masterEvent.date) + 'T00:00:00')
+    return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000))
+  })()
 
   for (const recDate of recurringDates) {
     // Skip the master event's original date - it's a real DB row
@@ -75,7 +80,7 @@ export function generateRecurringInstances(
       ...masterEvent,
       id: `${masterEvent.id}-${recDate}`,
       date: recDate,
-      end_date: recDate,
+      end_date: addDaysToDateStr(recDate, daySpan),
       isRecurringInstance: true,
       seriesMasterId: masterEvent.id,
       occurrenceDate: recDate,

@@ -33,6 +33,23 @@ const getClosestTimeOption = (minutes: number) => {
   ).value
 }
 
+const LAST_TIME_OPTION = 23 * 60 + 45
+
+const getSingleDayTimeFix = (startTime: number, endTime: number) => {
+  if (endTime > startTime) return {}
+
+  if (startTime >= LAST_TIME_OPTION) {
+    return {
+      start_time: LAST_TIME_OPTION - 15,
+      end_time: LAST_TIME_OPTION,
+    }
+  }
+
+  return {
+    end_time: Math.min(startTime + 15, LAST_TIME_OPTION),
+  }
+}
+
 /* ================= TIME PICKER ================= */
 
 const TimePicker: React.FC<{
@@ -51,6 +68,7 @@ const TimePicker: React.FC<{
   const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const isInputFocused = useRef(false)
+  const externalValueRef = useRef(value)
 
 
 
@@ -63,10 +81,13 @@ const TimePicker: React.FC<{
 }, [inputValue])
 
 
-  /* Sync external value */
+  /* Sync external value; avoid clobbering while user is editing */
   useEffect(() => {
-    setInputValue(formatTimeValue(value))
-  }, [value])
+    externalValueRef.current = value
+    if (!isInputFocused.current && !isOpen) {
+      setInputValue(formatTimeValue(value))
+    }
+  }, [value, isOpen])
 
   /* Close on outside click */
   useEffect(() => {
@@ -196,8 +217,9 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 }
 
   const handleInputBlur = () => {
+      isInputFocused.current = false
       let finalValue =
-  typedClosest !== null ? typedClosest : value
+  typedClosest !== null ? typedClosest : externalValueRef.current
 
 if (minValue !== undefined && finalValue < minValue) {
   finalValue = minValue
@@ -212,11 +234,12 @@ if (minValue !== undefined && finalValue < minValue) {
     if (e.key === 'Enter') {
       e.preventDefault()
       const finalValue =
-        typedClosest !== null ? typedClosest : value
+        typedClosest !== null ? typedClosest : externalValueRef.current
 
       onChange(finalValue)
       setInputValue(formatTimeValue(finalValue))
       setIsOpen(false)
+      isInputFocused.current = false
       ;(e.target as HTMLInputElement).blur()
     }
   }
@@ -308,11 +331,17 @@ const DatePickerButton: React.FC<{
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const selectedDate = useMemo(() => {
+  const propSelectedDate = useMemo(() => {
     return value ? new Date(value + 'T00:00:00') : undefined
   }, [value])
 
+  const [optimisticDate, setOptimisticDate] = useState<Date | undefined>(() => propSelectedDate)
+  const selectedDate = optimisticDate ?? propSelectedDate
   const [month, setMonth] = useState<Date | undefined>(() => selectedDate)
+
+  useEffect(() => {
+    setOptimisticDate(propSelectedDate)
+  }, [propSelectedDate])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -371,6 +400,7 @@ const DatePickerButton: React.FC<{
             onMonthChange={setMonth}
             onSelect={(date) => {
               if (date) {
+                setOptimisticDate(date)
                 onChange(date)
                 setIsOpen(false)
               }
@@ -389,8 +419,10 @@ const DatePickerButton: React.FC<{
 const DateTimeEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const updateEventField = useEventsStore((state) => state.updateEventField)
-  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
-  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+  const updateEventFields = useEventsStore((state) => state.updateEventFields)
+  const liveEventTimes = useEventsStore((state) => state.liveEventTimes)
+  useEventsStore((state) => state.eventsCache)
+  useEventsStore((state) => state.computedEventsCache)
   
   // Get selected event - uses getEventById which handles both real and virtual events
   const getEventById = useEventsStore((state) => state.getEventById)
@@ -399,7 +431,7 @@ const DateTimeEditor: React.FC = () => {
   // Check if this is a recurring event INSTANCE (not the base master event)
   // Only show dialog for virtual instances (isRecurringInstance = true)
   // Don't show dialog for base recurring events (they have repeat but isRecurringInstance is false)
-  const isRecurring = selectedEvent && 
+  const isRecurring = selectedEvent &&
                       !selectedEvent.isTemp &&
                       (selectedEvent as any).isRecurringInstance === true
 
@@ -416,93 +448,43 @@ const DateTimeEditor: React.FC = () => {
     const isRecurring = !freshEvent.isTemp && (freshEvent as any).isRecurringInstance === true
 
     if (isRecurring) {
-      // Capture values at this moment
-      const eventId = freshEvent.id
-
-      showRecurringDialog(
-        freshEvent as CalendarEvent,
-        "edit",
-        async (choice: string) => {
-          if (choice === "only-this") {
-            // Use splitRecurringEvent to split the series
-            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
-            
-            // Build updates object with current field and any extra fields
-            const updates: Record<string, EventFieldValue> = {}
-            if (field && value !== undefined) {
-              updates[field] = value
-            }
-            if (extraFields) {
-              Object.entries(extraFields).forEach(([key, val]) => {
-                if (val !== undefined) {
-                  updates[key] = val
-                }
-              })
-            }
-            
-            await splitRecurringEvent(
-              freshEvent as any,
-              freshEvent.date,
-              freshEvent.start_time,
-              freshEvent.end_time,
-              updates as any
-            )
-          } else if (choice === "all-events") {
-            const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-            const seriesMasterId = (freshEvent as any).seriesMasterId || eventId
-            
-            const allUpdates: Record<string, EventFieldValue> = {}
-            if (field && value !== undefined) {
-              allUpdates[field] = value
-            }
-            if (extraFields) {
-              Object.entries(extraFields).forEach(([key, val]) => {
-                if (val !== undefined) {
-                  allUpdates[key] = val
-                }
-              })
-            }
-            
-            await updateAllInSeries(seriesMasterId, allUpdates as Partial<NewEvent>)
-          } else if (choice === "this-and-following") {
-            const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
-            
-            const followingUpdates: Record<string, EventFieldValue> = {}
-            if (field && value !== undefined) {
-              followingUpdates[field] = value
-            }
-            if (extraFields) {
-              Object.entries(extraFields).forEach(([key, val]) => {
-                if (val !== undefined) {
-                  followingUpdates[key] = val
-                }
-              })
-            }
-            
-            await updateThisAndFollowing(
-              freshEvent as any,
-              freshEvent.date,
-              freshEvent.start_time,
-              freshEvent.end_time,
-              followingUpdates as Partial<NewEvent>
-            )
-          }
-          closeRecurringDialog()
-        }
+      // Non-drag edits default to "only-this" (no dialog).
+      const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+      const updates: Record<string, EventFieldValue> = {}
+      if (field && value !== undefined) updates[field] = value
+      if (extraFields) {
+        Object.entries(extraFields).forEach(([key, val]) => {
+          if (val !== undefined) updates[key] = val
+        })
+      }
+      void splitRecurringEvent(
+        freshEvent as any,
+        freshEvent.date,
+        freshEvent.start_time,
+        freshEvent.end_time,
+        updates as any
       )
     } else {
-      updateEventField(currentEventId!, field, value)
+      const combinedUpdates: Partial<NewEvent> = {}
+      if (field && value !== undefined) {
+        combinedUpdates[field] = value as never
+      }
       if (extraFields) {
         Object.entries(extraFields).forEach(([key, val]) => {
           if (val !== undefined) {
-            updateEventField(currentEventId!, key as keyof NewEvent, val)
+            combinedUpdates[key as keyof NewEvent] = val as never
           }
         })
       }
+      updateEventFields(currentEventId!, combinedUpdates)
     }
-  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, showRecurringDialog, closeRecurringDialog])
+  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, updateEventFields])
 
   if (!selectedEvent) return null
+
+  const livePreview = liveEventTimes[selectedEvent.id]
+  const displayStartTime = livePreview?.start_time ?? selectedEvent.start_time
+  const displayEndTime = livePreview?.end_time ?? selectedEvent.end_time
 
   const endDate = selectedEvent.end_date || selectedEvent.date
   const isMultiDay = endDate > selectedEvent.date
@@ -522,7 +504,10 @@ const DateTimeEditor: React.FC = () => {
             value={selectedEvent.date}
             onChange={(date) => {
               const newDate = formatDate(date)
-              handlePropertyChange('date', newDate, { end_date: newDate })
+              handlePropertyChange('date', newDate, {
+                end_date: newDate,
+                ...getSingleDayTimeFix(displayStartTime, displayEndTime),
+              })
             }}
           />
           <span className="text-neutral-600">-</span>
@@ -531,7 +516,12 @@ const DateTimeEditor: React.FC = () => {
             value={selectedEvent.end_date || selectedEvent.date}
             onChange={(date) => {
               const newDate = formatDate(date)
-              handlePropertyChange('end_date', newDate)
+              const extraFields =
+                newDate === selectedEvent.date
+                  ? getSingleDayTimeFix(displayStartTime, displayEndTime)
+                  : undefined
+
+              handlePropertyChange('end_date', newDate, extraFields)
             }}
             alignRight
           />
@@ -545,7 +535,7 @@ const DateTimeEditor: React.FC = () => {
           </span>
           <TimePicker
             key={`start-${selectedEvent.id}`}
-            value={selectedEvent.start_time}
+            value={displayStartTime}
             onChange={(mins) => {
               handlePropertyChange('start_time', mins)
             }}
@@ -554,12 +544,12 @@ const DateTimeEditor: React.FC = () => {
           <span className="text-neutral-600">-</span>
           <TimePicker
             key={`end-${selectedEvent.id}`}
-            value={selectedEvent.end_time}
+            value={displayEndTime}
             onChange={(mins) => {
               handlePropertyChange('end_time', mins)
             }}
             disabled={disableTime}
-            minValue={selectedEvent.start_time}
+            minValue={isMultiDay ? undefined : displayStartTime}
           />
         </div>
       </div>
