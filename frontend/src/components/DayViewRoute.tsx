@@ -49,18 +49,15 @@ export function DayViewRoute() {
     })
   }, [year, month, day, setDate, setToday, fetchEventsWindow, setSelectedEvent])
 
-  // Validate parameters
-  if (!year || !month || !day) {
-    return <Navigate to="/" replace />
-  }
-
-  const yearNum = parseInt(year, 10)
-  const monthNum = parseInt(month, 10) - 1
-  const dayNum = parseInt(day, 10)
+  const yearNum = parseInt(year || '', 10)
+  const monthNum = parseInt(month || '', 10) - 1
+  const dayNum = parseInt(day || '', 10)
   const date = new Date(yearNum, monthNum, dayNum)
   
-  // Check if date is valid
   const isValidDate = 
+    !Number.isNaN(yearNum) &&
+    !Number.isNaN(monthNum) &&
+    !Number.isNaN(dayNum) &&
     date.getFullYear() === yearNum &&
     date.getMonth() === monthNum &&
     date.getDate() === dayNum
@@ -79,21 +76,19 @@ export function WeekViewRoute() {
   const fetchEventsWindow = useEventsStore(state => state.fetchEventsWindow)
   const setSelectedEvent = useEventsStore(state => state.setSelectedEvent)
 
+  const yearNum = parseInt(year || '', 10)
+  const monthNum = parseInt(month || '', 10) - 1
+  const dayNum = parseInt(day || '', 10)
+  const date = new Date(yearNum, monthNum, dayNum)
+  const isValidDate =
+    !Number.isNaN(yearNum) &&
+    !Number.isNaN(monthNum) &&
+    !Number.isNaN(dayNum) &&
+    date.getFullYear() === yearNum &&
+    date.getMonth() === monthNum &&
+    date.getDate() === dayNum
+
   useEffect(() => {
-    if (!year || !month || !day) {
-      setToday()
-      return
-    }
-
-    const yearNum = parseInt(year, 10)
-    const monthNum = parseInt(month, 10) - 1
-    const dayNum = parseInt(day, 10)
-    const date = new Date(yearNum, monthNum, dayNum)
-    const isValidDate =
-      date.getFullYear() === yearNum &&
-      date.getMonth() === monthNum &&
-      date.getDate() === dayNum
-
     if (!isValidDate) {
       setToday()
       return
@@ -104,20 +99,7 @@ export function WeekViewRoute() {
     queueMicrotask(() => {
       fetchEventsWindow(date)
     })
-  }, [year, month, day, setDate, setToday, fetchEventsWindow, setSelectedEvent])
-
-  if (!year || !month || !day) {
-    return <Navigate to="/" replace />
-  }
-
-  const yearNum = parseInt(year, 10)
-  const monthNum = parseInt(month, 10) - 1
-  const dayNum = parseInt(day, 10)
-  const date = new Date(yearNum, monthNum, dayNum)
-  const isValidDate =
-    date.getFullYear() === yearNum &&
-    date.getMonth() === monthNum &&
-    date.getDate() === dayNum
+  }, [year, month, day, setDate, setToday, fetchEventsWindow, setSelectedEvent, isValidDate, date])
 
   if (!isValidDate) {
     return <Navigate to="/" replace />

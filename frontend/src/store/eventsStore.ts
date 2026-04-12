@@ -705,10 +705,24 @@ export const useEventsStore = create<EventsState>()(
           }
         }
 
+        let datesToClearFromComputed: string[] = [...affectedDates]
+        if (event && !isRecurringEvent && event.end_date) {
+          const startDate = new Date(event.date)
+          const endDate = new Date(event.end_date)
+          const current = new Date(startDate)
+          while (current <= endDate) {
+            const dateKey = formatDate(current)
+            if (!datesToClearFromComputed.includes(dateKey)) {
+              datesToClearFromComputed.push(dateKey)
+            }
+            current.setDate(current.getDate() + 1)
+          }
+        }
+
         if (isRecurringEvent) {
           set({ eventsCache: newCache, computedEventsCache: {}, recurringEventsCache: {}, eventExceptionsCache: {} })
         } else {
-          for (const date of affectedDates) delete newComputedCache[date]
+          for (const date of datesToClearFromComputed) delete newComputedCache[date]
           set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
         }
 
