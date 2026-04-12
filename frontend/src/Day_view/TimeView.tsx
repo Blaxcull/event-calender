@@ -415,8 +415,9 @@ const TimeView: React.FC<TimeViewProps> = () => {
         const selectedEvent = localEvents.find(e => e.id === selectedEventId)
         if (selectedEvent) {
           if (selectedEvent.title === "New Event") {
-            // Delete new events
-            deleteEvent(selectedEvent.id)
+            // Delete new events immediately in UI.
+            removeEventLocally(selectedEvent.id)
+            void deleteEvent(selectedEvent.id)
             setSelectedEvent(null)
           } else if (selectedEvent.isRecurringInstance || selectedEvent.seriesMasterId) {
             const eventDateStr = selectedEvent.date instanceof Date
@@ -426,6 +427,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
             showRecurringDialog(selectedEvent as any, "delete", async (choice: string) => {
               if (choice === "only-this") {
                 const deleteSingleOccurrence = useEventsStore.getState().deleteSingleOccurrence
+                removeEventLocally(selectedEvent.id)
                 deleteSingleOccurrence(
                   selectedEvent as any,
                   eventDateStr,
@@ -514,8 +516,9 @@ const TimeView: React.FC<TimeViewProps> = () => {
               closeRecurringDialog()
             })
           } else {
-            // Non-recurring existing events - delete
-            deleteEvent(selectedEvent.id)
+            // Non-recurring existing events - remove immediately, then persist delete.
+            removeEventLocally(selectedEvent.id)
+            void deleteEvent(selectedEvent.id)
             setSelectedEvent(null)
           }
         }
@@ -848,6 +851,20 @@ const TimeView: React.FC<TimeViewProps> = () => {
   
   // Track temp-to-real ID mappings for stable keys
   const idMapping = useRef<Map<string, string>>(new Map())
+
+  const removeEventLocally = (eventId: string) => {
+    pendingEventIds.current.delete(eventId)
+    idMapping.current.delete(eventId)
+    for (const [tempId, realId] of idMapping.current.entries()) {
+      if (realId === eventId) idMapping.current.delete(tempId)
+    }
+
+    setLocalEvents(prev => {
+      const next = prev.filter(e => e.id !== eventId)
+      setEventPositions(calculateEventPositions(next.filter(e => !e.isAllDay), null))
+      return next
+    })
+  }
 
   // Clean up any orphaned placeholders and duplicate event elements when events change
   useEffect(() => {

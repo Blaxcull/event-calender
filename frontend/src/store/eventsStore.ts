@@ -1637,7 +1637,11 @@ export const useEventsStore = create<EventsState>()(
     {
       name: 'events-storage',
       partialize: (state) => ({
-        eventsCache: state.eventsCache,
+        eventsCache: Object.fromEntries(
+          Object.entries(state.eventsCache)
+            .map(([dateKey, events]) => [dateKey, events.filter((event) => event.isTemp !== true)])
+            .filter(([, events]) => events.length > 0)
+        ),
         cacheStartDate: state.cacheStartDate,
         cacheEndDate: state.cacheEndDate,
         cachedUserId: state.cachedUserId,
