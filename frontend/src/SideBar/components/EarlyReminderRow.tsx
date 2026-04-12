@@ -19,7 +19,7 @@ interface EarlyReminderRowProps {
 
 const EarlyReminderRow: React.FC<EarlyReminderRowProps> = ({ value, onChange }) => (
   <DropdownRow
-    icon={<Bell className="w-7 h-7 text-neutral-600" />}
+    icon={<Bell className="w-7 h-7 text-neutral-600 opacity-30" />}
     label="Early Reminder"
     value={value}
     options={EARLY_REMINDER_OPTIONS}

@@ -13,7 +13,7 @@ interface RepeatRowProps {
 const RepeatRow: React.FC<RepeatRowProps> = ({ value, onChange, disabled }) => (
   <div className={disabled ? 'opacity-50 pointer-events-none' : ''}>
     <DropdownRow
-      icon={<Repeat className="w-7 h-7 text-neutral-600" />}
+      icon={<Repeat className="w-7 h-7 text-neutral-600 opacity-30" />}
       label="Repeat"
       value={value}
       options={REPEAT_OPTIONS}

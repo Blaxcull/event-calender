@@ -43,6 +43,7 @@ export interface EventException {
   start_time?: number
   end_time?: number
   title?: string
+  deleted?: boolean
   created_at?: string
 }
 

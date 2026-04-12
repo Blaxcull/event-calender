@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useEventsStore, formatDate, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
 import { Calendar } from '@/components/ui/calendar'
-import RecurringActionDialog from '@/components/RecurringActionDialog'
 
 /* ================= TIME OPTIONS ================= */
 
@@ -391,9 +390,6 @@ const DateTimeEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const updateEventField = useEventsStore((state) => state.updateEventField)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
-  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
-  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
-  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   
   // Get selected event - uses getEventById which handles both real and virtual events
@@ -568,17 +564,6 @@ const DateTimeEditor: React.FC = () => {
         </div>
       </div>
 
-      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
-        <RecurringActionDialog
-          open={recurringDialogOpen}
-          onChoice={(choice) => {
-            const callback = useEventsStore.getState().recurringDialogCallback
-            if (callback) callback(choice)
-          }}
-          actionType={recurringDialogActionType}
-          eventTitle={recurringDialogEvent?.title || ""}
-        />
-      )}
     </>
   )
 }

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useEventsStore, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
 import { Input } from '@/components/ui/input'
-import RecurringActionDialog from '@/components/RecurringActionDialog'
 
 interface URLChip {
   url: string
@@ -12,9 +11,6 @@ const EventEditor: React.FC = () => {
   const updateEventField = useEventsStore((state) => state.updateEventField)
   const saveTrigger = useEventsStore((state) => state.saveTrigger)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
-  const recurringDialogOpen = useEventsStore((state) => state.recurringDialogOpen)
-  const recurringDialogEvent = useEventsStore((state) => state.recurringDialogEvent)
-  const recurringDialogActionType = useEventsStore((state) => state.recurringDialogActionType)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   const setHasEditsEventId = useEventsStore((state) => state.setHasEditsEventId)
 
@@ -27,6 +23,8 @@ const EventEditor: React.FC = () => {
   const prevSelectedEventIdRef = useRef<string | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   const urlSectionRef = useRef<HTMLDivElement>(null)
+  const savedEventIdRef = useRef<string | null>(null)
+  const lastProcessedSaveTriggerRef = useRef<number>(0)
 
   // Subscribe to cache changes and trigger re-render
   const [, setEventVersion] = useState(0)
@@ -188,10 +186,27 @@ const EventEditor: React.FC = () => {
       return
     }
     
+    // Only process each saveTrigger value once
+    if (saveTrigger === lastProcessedSaveTriggerRef.current) {
+      return
+    }
+    
     const currentEventId = selectedEventId
     if (!currentEventId) {
       return
     }
+    
+    // Only process if edits were made (savedEventIdRef is set when user types)
+    if (!savedEventIdRef.current) {
+      return
+    }
+    
+    // Only process if the event being saved is the one that was selected when save was triggered
+    if (currentEventId !== savedEventIdRef.current) {
+      return
+    }
+    
+    lastProcessedSaveTriggerRef.current = saveTrigger
     
     // Check if this is a virtual event ID (format: "masterEventId-YYYY-MM-DD")
     const datePattern = /-(\d{4}-\d{2}-\d{2})$/
@@ -298,6 +313,7 @@ const EventEditor: React.FC = () => {
           }
           setHasEdits(false)
           setHasEditsEventId(null)
+          savedEventIdRef.current = null
           closeRecurringDialog()
         }
       )
@@ -354,6 +370,7 @@ const EventEditor: React.FC = () => {
     titleRef.current = newTitle
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     if (currentSelectedEventId) {
+      savedEventIdRef.current = currentSelectedEventId
       setHasEdits(true)
       setHasEditsEventId(currentSelectedEventId)
     }
@@ -379,6 +396,7 @@ const EventEditor: React.FC = () => {
     notesRef.current = newNotes
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     if (currentSelectedEventId) {
+      savedEventIdRef.current = currentSelectedEventId
       setHasEdits(true)
       setHasEditsEventId(currentSelectedEventId)
     }
@@ -442,6 +460,7 @@ const EventEditor: React.FC = () => {
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
     if (currentSelectedEventId && currentEvent) {
+      savedEventIdRef.current = currentSelectedEventId
       setHasEdits(true)
       setHasEditsEventId(currentSelectedEventId)
       handlePropertyChange('urls', newChips.map(c => c.url))
@@ -455,6 +474,7 @@ const EventEditor: React.FC = () => {
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
     if (currentSelectedEventId && currentEvent) {
+      savedEventIdRef.current = currentSelectedEventId
       setHasEdits(true)
       setHasEditsEventId(currentSelectedEventId)
       handlePropertyChange('urls', newChips.map(c => c.url))
@@ -559,17 +579,6 @@ shadow-lg border border-neutral-100
         </div>
       </div>
 
-      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
-        <RecurringActionDialog
-          open={recurringDialogOpen}
-          onChoice={(choice) => {
-            const callback = useEventsStore.getState().recurringDialogCallback
-            if (callback) callback(choice)
-          }}
-          actionType={recurringDialogActionType}
-          eventTitle={recurringDialogEvent?.title || ""}
-        />
-      )}
     </>
   )
 }
