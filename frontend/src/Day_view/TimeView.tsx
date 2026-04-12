@@ -1,7 +1,7 @@
 import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
 import type { EventType, EventPositions } from '../lib/eventUtils'
-import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, SLOT_HEIGHT, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, restoreEventWidths, applyPositionsToDOM, getEventVisualColors } from '../lib/eventUtils'
+import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, SLOT_HEIGHT, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, applyPositionsToDOM, getEventVisualColors } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 import { resolveGoalColorForEvent, resolveGoalIconForEvent, useGoalsStore } from "@/store/goalsStore"
@@ -355,7 +355,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     const allEventsWithNew = [...localEventsRef.current, newUIEvent]
     setLocalEvents(allEventsWithNew)
 
-    const positions = calculateEventPositions(allEventsWithNew.filter(e => !e.isAllDay), newUIEvent.id)
+    const positions = calculateEventPositions(allEventsWithNew.filter(e => !(e as EventType).isAllDay), newUIEvent.id)
     applyPositionsToDOM(positions)
     setEventPositions(positions)
 

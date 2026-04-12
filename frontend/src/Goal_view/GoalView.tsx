@@ -1,18 +1,5 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-const GoalView = () => {
-  return (
-    <div className="h-full w-full flex items-center justify-center bg-gray-100">
-      <p className="text-2xl text-neutral-400">Goal View - Coming Soon</p>
-    </div>
-  )
-=======
-import { useState, useRef, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
-=======
 import { useState, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
->>>>>>> 5cce8be (goal tab sidebar and some issues with the repeat)
 import { startOfWeek, endOfWeek, addWeeks, addMonths, addYears, format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import GoalSidebar from "./GoalSidebar";
@@ -315,8 +302,9 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
                       />
                       {item.icon ? (
                         (() => {
-                          const Icon = getGoalIcon(item.icon).icon;
-                          return <Icon className="h-5 w-5 shrink-0 text-slate-700" />;
+                          const iconConfig = getGoalIcon(item.icon);
+                          const Icon = iconConfig?.icon;
+                          return Icon ? <Icon className="h-5 w-5 shrink-0 text-slate-700" /> : null;
                         })()
                       ) : null}
                       <span className={`text-lg transition-all duration-200 ${item.completed ? "text-muted-foreground" : "text-foreground"}`}>
@@ -589,7 +577,6 @@ const GoalView = () => {
       <GoalSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} prefillName={sidebarPrefillName} prefillNotes={sidebarItemData.notes} prefillColor={sidebarItemData.color} prefillIcon={sidebarItemData.icon} prefillTargetValue={sidebarItemData.targetValue} prefillTargetPeriod={sidebarItemData.targetPeriod} prefillStatus={sidebarItemData.status} onSave={handleSidebarSave} onClearPrefill={() => { setSidebarItemId(""); setSidebarPrefillName(""); setSidebarColumnType(null); setSidebarItemData({}); }} />
     </div>
   );
->>>>>>> bec4af2 (started goal tab)
 }
 
 export default GoalView
