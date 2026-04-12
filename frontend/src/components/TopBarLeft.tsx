@@ -1,5 +1,8 @@
 import { Button } from "@/components/ui/button"
 import { useNavigate, useLocation } from "react-router-dom"
+import goalIcon from "@/assets/goal.png"
+import calendarIcon from "@/assets/calendar2.png"
+import plusIcon from "@/assets/plus.png"
 
 interface TopBarLeftProps {
   onAddClick?: () => void
@@ -69,7 +72,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
 
 
 
-          <img src="/src/assets/goal.png" alt="goals" className="w-9 h-9 opacity-80" />
+          <img src={goalIcon} alt="goals" className="w-9 h-9 opacity-80" />
         </div>
 
         {/* divider */}
@@ -93,7 +96,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
             }
           `}
         >
-          <img src="/src/assets/calendar2.png" alt="Calendar" className="w-7 h-7 opacity-80" />
+          <img src={calendarIcon} alt="Calendar" className="w-7 h-7 opacity-80" />
         </div>
 
       </div>
@@ -116,7 +119,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
           flex items-center justify-center
         "
       >
-        <img src="/src/assets/plus.png" alt="Add" className="w-7 h-7 opacity-80" />
+        <img src={plusIcon} alt="Add" className="w-7 h-7 opacity-80" />
       </Button>
 
     </div>

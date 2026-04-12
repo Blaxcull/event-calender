@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useEventsStore, formatDate, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
 import { Calendar } from '@/components/ui/calendar'
+import calendarIcon from '@/assets/calendar2.png'
+import clockIcon from '@/assets/clock.png'
 
 /* ================= TIME OPTIONS ================= */
 
@@ -495,7 +497,7 @@ const DateTimeEditor: React.FC = () => {
     <>
       <div className="shadow-lg border border-neutral-100 w-full bg-[#ececec] rounded-[52px] pl-5 pr-6 py-6 border-20 space-y-3 shadow-none">
         <div className="flex items-center gap-3">
-          <img src="/src/assets/calendar2.png" alt="Calendar" className="w-7 h-7 opacity-30" />
+          <img src={calendarIcon} alt="Calendar" className="w-7 h-7 opacity-30" />
           <span className="text-neutral-800 text-2xl w-16 pl-2 pr-55 shrink-0">
             Date
           </span>
@@ -529,7 +531,7 @@ const DateTimeEditor: React.FC = () => {
 
         <hr className="border-neutral-200 border-t-[3px]" />
         <div className="flex items-center gap-3">
-          <img src="/src/assets/clock.png" alt="Clock" className="w-7 h-7 opacity-30" />
+          <img src={clockIcon} alt="Clock" className="w-7 h-7 opacity-30" />
           <span className="text-neutral-800 text-2xl w-16 pl-2 pr-61 shrink-0">
             Time
           </span>
