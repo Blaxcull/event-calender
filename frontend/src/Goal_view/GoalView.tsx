@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { startOfWeek, endOfWeek, addWeeks, addMonths, addYears, format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import GoalSidebar from "./GoalSidebar";
 import { getGoalIcon } from "./goal";
 import type { Goal } from "./goal";
+import { supabase } from "@/lib/supabase";
+import { useGoalsStore, type GoalColumnType } from "@/store/goalsStore";
 
 interface TodoItem {
   id: string;
@@ -28,7 +30,10 @@ interface DragState {
   dropTarget: { columnType: ColumnType; itemId: string; position: 'before' | 'after' } | null;
 }
 
-const generateId = () => Math.random().toString(36).substring(2, 9);
+const generateId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : Math.random().toString(36).substring(2, 11);
 
 const getKey = (type: ColumnType, date: Date): string => {
   if (type === "life") return "life";
@@ -40,6 +45,30 @@ const getKey = (type: ColumnType, date: Date): string => {
   d.setDate(diff);
   return `week-${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 };
+
+const getColumnTypeFromBucketKey = (bucketKey: string): GoalColumnType | null => {
+  if (bucketKey === "life") return "life";
+  if (bucketKey.startsWith("week-")) return "week";
+  if (bucketKey.startsWith("month-")) return "month";
+  if (bucketKey.startsWith("year-")) return "year";
+  return null;
+};
+
+interface GoalWriteRow {
+  id: string;
+  user_id: string;
+  name: string;
+  notes: string | null;
+  color: string;
+  icon: string;
+  target_value: number;
+  target_period: Goal["targetPeriod"];
+  status: Goal["status"];
+  completed: boolean;
+  column_type: GoalColumnType;
+  bucket_key: string;
+  sort_order: number;
+}
 
 const slideVariants = {
   enter: (dir: number) => ({
@@ -400,22 +429,107 @@ const GoalView = () => {
   const [sidebarColumnType, setSidebarColumnType] = useState<ColumnType | null>(null);
   const [sidebarItemData, setSidebarItemData] = useState<{ notes?: string; color?: string; icon?: string; targetValue?: number; targetPeriod?: Goal["targetPeriod"]; status?: Goal["status"] }>({});
   const [dragState, setDragState] = useState<DragState | null>(null);
-  const [store, setStore] = useState<TodoStore>(() => {
-    try {
-      const saved = localStorage.getItem("todo-store");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  const store = useGoalsStore((state) => state.store) as TodoStore;
+  const setGoalsStore = useGoalsStore((state) => state.setStore);
+  const fetchAllGoals = useGoalsStore((state) => state.fetchAllGoals);
+  const hasLoadedAllGoals = useGoalsStore((state) => state.hasLoadedAll);
 
   const columnItemRefs = useRef<Map<ColumnType, Map<string, HTMLElement>>>(new Map());
   const columnItemHeights = useRef<Map<ColumnType, number>>(new Map());
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const hasAttemptedLegacyMigrationRef = useRef(false);
 
-  const save = (newStore: TodoStore) => {
-    setStore(newStore);
-    localStorage.setItem("todo-store", JSON.stringify(newStore));
-  };
+  useEffect(() => {
+    void fetchAllGoals();
+  }, [fetchAllGoals]);
+
+  const syncStoreToSupabase = useCallback(async (nextStore: TodoStore) => {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return;
+
+    const rows: GoalWriteRow[] = [];
+    for (const [bucketKey, items] of Object.entries(nextStore)) {
+      const columnType = getColumnTypeFromBucketKey(bucketKey);
+      if (!columnType) continue;
+
+      items.forEach((item, index) => {
+        rows.push({
+          id: item.id,
+          user_id: user.id,
+          name: item.text,
+          notes: item.notes ?? null,
+          color: item.color || "",
+          icon: item.icon || "",
+          target_value: item.targetValue ?? 1,
+          target_period: item.targetPeriod ?? "week",
+          status: item.status ?? "active",
+          completed: !!item.completed,
+          column_type: columnType,
+          bucket_key: bucketKey,
+          sort_order: index,
+        });
+      });
+    }
+
+    if (rows.length > 0) {
+      const { error: upsertError } = await supabase.from("goals").upsert(rows, { onConflict: "id" });
+      if (upsertError) {
+        console.error("Failed to save goals", upsertError);
+        return;
+      }
+    }
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("goals")
+      .select("id")
+      .eq("user_id", user.id);
+    if (existingError) {
+      console.error("Failed to fetch existing goals for cleanup", existingError);
+      return;
+    }
+
+    const keepIds = new Set(rows.map((row) => row.id));
+    const idsToDelete = (existingRows ?? [])
+      .map((row: { id: string }) => row.id)
+      .filter((id) => !keepIds.has(id));
+
+    if (idsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("goals")
+        .delete()
+        .eq("user_id", user.id)
+        .in("id", idsToDelete);
+      if (deleteError) {
+        console.error("Failed to delete removed goals", deleteError);
+      }
+    }
+  }, []);
+
+  const save = useCallback((newStore: TodoStore) => {
+    setGoalsStore(newStore);
+    syncQueueRef.current = syncQueueRef.current
+      .then(() => syncStoreToSupabase(newStore))
+      .catch(() => syncStoreToSupabase(newStore));
+  }, [setGoalsStore, syncStoreToSupabase]);
+
+  useEffect(() => {
+    if (!hasLoadedAllGoals || hasAttemptedLegacyMigrationRef.current) return;
+    hasAttemptedLegacyMigrationRef.current = true;
+
+    if (Object.keys(store).length > 0) return;
+
+    try {
+      const raw = localStorage.getItem("todo-store");
+      if (!raw) return;
+      const legacyStore = JSON.parse(raw) as TodoStore;
+      if (!legacyStore || Object.keys(legacyStore).length === 0) return;
+
+      save(legacyStore);
+      localStorage.removeItem("todo-store");
+    } catch {
+      // Ignore malformed local legacy data.
+    }
+  }, [hasLoadedAllGoals, save, store]);
 
   const getDate = (type: ColumnType) => type === "year" ? yearDate : currentDate;
 
