@@ -6,6 +6,7 @@
  * For non-recurring events, it updates directly.
  */
 import { useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   useEventsStore,
   type CalendarEvent,
@@ -21,6 +22,8 @@ export function useRecurringPropertyChange() {
   const updateEventField = useEventsStore((state) => state.updateEventField)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+  const location = useLocation()
+  const isWeekRoute = location.pathname.startsWith('/week')
 
   const handlePropertyChange = useCallback(
     (
@@ -31,27 +34,36 @@ export function useRecurringPropertyChange() {
     ) => {
       if (!event) return
 
-      const isRecurring = !event.isTemp && event.isRecurringInstance === true
+      const isVirtualRecurring = event.isRecurringInstance === true
+      const isSeriesRecurring = !!(event.repeat && event.repeat !== 'None' && ((event as any).series_start_date || (event as any).series_end_date))
+      const isRecurring = !!(isVirtualRecurring || isSeriesRecurring)
 
       if (isRecurring) {
         const eventId = event.id
-
-        showRecurringDialog(event, 'edit', async (choice: string) => {
-          const buildUpdates = (): Record<string, EventFieldValue> => {
-            const updates: Record<string, EventFieldValue> = {}
-            if (field && value !== undefined) {
-              updates[field] = value
-            }
-            if (extraFields) {
-              for (const [key, val] of Object.entries(extraFields)) {
-                if (val !== undefined) {
-                  updates[key] = val
-                }
+        const buildUpdates = (): Record<string, EventFieldValue> => {
+          const updates: Record<string, EventFieldValue> = {}
+          if (field && value !== undefined) {
+            updates[field] = value
+          }
+          if (extraFields) {
+            for (const [key, val] of Object.entries(extraFields)) {
+              if (val !== undefined) {
+                updates[key] = val
               }
             }
-            return updates
           }
+          return updates
+        }
 
+        // In week view, editing the real/master recurring event applies to the whole series directly.
+        if (isWeekRoute && !isVirtualRecurring) {
+          const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+          const seriesMasterId = (event as any).seriesMasterId || eventId
+          void updateAllInSeries(seriesMasterId, buildUpdates() as Partial<NewEvent>)
+          return
+        }
+
+        showRecurringDialog(event, 'edit', async (choice: string) => {
           if (choice === 'only-this') {
             const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
             await splitRecurringEvent(
@@ -90,7 +102,7 @@ export function useRecurringPropertyChange() {
         }
       }
     },
-    [updateEventField, showRecurringDialog, closeRecurringDialog]
+    [updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute]
   )
 
   return handlePropertyChange

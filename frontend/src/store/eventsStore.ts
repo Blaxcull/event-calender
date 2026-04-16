@@ -742,6 +742,8 @@ export const useEventsStore = create<EventsState>()(
       getEventsForDate: (date: Date): CalendarEvent[] => {
         const dateKey = formatDate(date)
         const { eventsCache, computedEventsCache, recurringEventsCache, eventExceptionsCache } = get()
+        const eventsCacheSnapshot = eventsCache
+        const eventExceptionsSnapshot = eventExceptionsCache
 
         // Return cached computed events if available
         if (computedEventsCache[dateKey]) {
@@ -810,12 +812,17 @@ export const useEventsStore = create<EventsState>()(
 
           // Cache for the month (deferred to avoid setState during render)
           setTimeout(() => {
-            set(state => ({
-              recurringEventsCache: {
-                ...state.recurringEventsCache,
-                [monthKey]: generatedRecurring,
-              },
-            }))
+            set(state => {
+              if (state.eventsCache !== eventsCacheSnapshot || state.eventExceptionsCache !== eventExceptionsSnapshot) {
+                return state
+              }
+              return {
+                recurringEventsCache: {
+                  ...state.recurringEventsCache,
+                  [monthKey]: generatedRecurring,
+                },
+              }
+            })
           }, 0)
 
           recurringEvents = generatedRecurring.filter(e => e.date === dateKey)
@@ -833,19 +840,26 @@ export const useEventsStore = create<EventsState>()(
 
         // Cache computed result (deferred)
         setTimeout(() => {
-          set(state => ({
-            computedEventsCache: {
-              ...state.computedEventsCache,
-              [dateKey]: uniqueEvents,
-            },
-          }))
+          set(state => {
+            // Ignore stale deferred writes if event data changed after this computation.
+            if (state.eventsCache !== eventsCacheSnapshot || state.eventExceptionsCache !== eventExceptionsSnapshot) {
+              return state
+            }
+            if (state.computedEventsCache[dateKey]) return state
+            return {
+              computedEventsCache: {
+                ...state.computedEventsCache,
+                [dateKey]: uniqueEvents,
+              },
+            }
+          })
         }, 0)
 
         return uniqueEvents
       },
 
       getEventById: (id: string): CalendarEvent | null => {
-        const { eventsCache, computedEventsCache } = get()
+        const { eventsCache, computedEventsCache, eventExceptionsCache } = get()
 
         // Virtual recurring instance IDs
         if (isVirtualEventId(id)) {
@@ -861,6 +875,18 @@ export const useEventsStore = create<EventsState>()(
           const masterEvent = findMasterEvent(eventsCache, masterId)
 
           if (masterEvent) {
+            const hasSeriesBounds =
+              !!masterEvent.repeat &&
+              masterEvent.repeat !== 'None' &&
+              !!masterEvent.series_start_date &&
+              !!masterEvent.series_end_date
+            if (!hasSeriesBounds) return null
+            if (virtualDate < masterEvent.series_start_date! || virtualDate > masterEvent.series_end_date!) return null
+            if (virtualDate === masterEvent.date) return null
+            const seriesExceptions = eventExceptionsCache[masterId] || []
+            const matchingException = seriesExceptions.find((exception) => exception.date === virtualDate)
+            if (matchingException?.deleted) return null
+
             const virtualEvent: CalendarEvent = {
               ...masterEvent,
               id,
@@ -873,12 +899,22 @@ export const useEventsStore = create<EventsState>()(
 
             // Cache it (deferred)
             setTimeout(() => {
-              set(state => ({
-                computedEventsCache: {
-                  ...state.computedEventsCache,
-                  [virtualDate]: [...(state.computedEventsCache[virtualDate] || []), virtualEvent],
-                },
-              }))
+              set(state => {
+                const existingForDate = state.computedEventsCache[virtualDate] || []
+                if (existingForDate.some((event) => event.id === id)) {
+                  return state
+                }
+                const currentExceptions = state.eventExceptionsCache[masterId] || []
+                if (currentExceptions.some((exception) => exception.date === virtualDate && exception.deleted)) {
+                  return state
+                }
+                return {
+                  computedEventsCache: {
+                    ...state.computedEventsCache,
+                    [virtualDate]: [...existingForDate, virtualEvent],
+                  },
+                }
+              })
             }, 0)
 
             return virtualEvent
@@ -964,10 +1000,19 @@ export const useEventsStore = create<EventsState>()(
 
         const { eventsCache, pendingSyncs, pendingUpdates } = get()
 
-        // Virtual events redirect to series update
+        // Virtual recurring instances default to "only-this" semantics.
         if (isVirtualEventId(id)) {
-          const masterId = extractMasterId(id)
-          get().updateAllInSeries(masterId, { [field]: value })
+          const virtualEvent = get().getEventById(id)
+          const match = id.match(VIRTUAL_ID_PATTERN)
+          if (!virtualEvent || !match) return
+          const occurrenceDate = match[1]
+          void get().splitRecurringEvent(
+            virtualEvent,
+            occurrenceDate,
+            undefined,
+            undefined,
+            { [field]: value } as Partial<NewEvent>
+          )
           return
         }
 
@@ -1031,8 +1076,17 @@ export const useEventsStore = create<EventsState>()(
         const { eventsCache, pendingSyncs, pendingUpdates } = get()
 
         if (isVirtualEventId(id)) {
-          const masterId = extractMasterId(id)
-          get().updateAllInSeries(masterId, updates)
+          const virtualEvent = get().getEventById(id)
+          const match = id.match(VIRTUAL_ID_PATTERN)
+          if (!virtualEvent || !match) return
+          const occurrenceDate = match[1]
+          void get().splitRecurringEvent(
+            virtualEvent,
+            occurrenceDate,
+            undefined,
+            undefined,
+            updates
+          )
           return
         }
 
@@ -1247,6 +1301,7 @@ export const useEventsStore = create<EventsState>()(
             eventsCache: newCache,
             computedEventsCache: {},
             recurringEventsCache: {},
+            selectedEventId: masterEventId,
           })
           
           // Fire DB in background
@@ -1262,8 +1317,9 @@ export const useEventsStore = create<EventsState>()(
           }, 0)
         } else {
           // Shorten original series and add new standalone event - do optimistically
-          const { eventsCache: currentCache } = get()
+          const { eventsCache: currentCache, pendingSyncs, pendingUpdates } = get()
           const newCache = { ...currentCache }
+          const nextPendingSyncs = new Set(pendingSyncs)
           
           // Shorten master series
           for (const dateKey of Object.keys(newCache)) {
@@ -1303,11 +1359,14 @@ export const useEventsStore = create<EventsState>()(
           
           if (!newCache[selectedDate]) newCache[selectedDate] = []
           newCache[selectedDate].push(tempEvent)
+          nextPendingSyncs.add(tempId)
           
           set({
             eventsCache: newCache,
             computedEventsCache: {},
             recurringEventsCache: {},
+            selectedEventId: tempId,
+            pendingSyncs: nextPendingSyncs,
           })
           
           // Fire DB in background
@@ -1320,22 +1379,59 @@ export const useEventsStore = create<EventsState>()(
               await supabase.from('events').update({ series_end_date: prevDay }).eq('id', masterEventId)
               
               // Insert new standalone event
-              const newEventData = buildEventForDb(mergedStandaloneFields, user.id)
+              const queuedUpdates = (get().pendingUpdates.get(tempId) || [])
+              const mergedQueuedUpdates = Object.assign({}, ...queuedUpdates)
+              const finalStandaloneFields = {
+                ...mergedStandaloneFields,
+                ...mergedQueuedUpdates,
+              }
+              const newEventData = buildEventForDb(finalStandaloneFields, user.id)
               
               const { data: result } = await supabase.from('events').insert([newEventData]).select().single()
               
               if (result) {
                 const realEvent = dbRowToEvent(result)
-                const { eventsCache: finalCache } = get()
+                const {
+                  eventsCache: finalCache,
+                  selectedEventId: currentSelectedId,
+                  pendingSyncs: currentPendingSyncs,
+                  pendingUpdates: currentPendingUpdates,
+                } = get()
+                const nextPendingSyncs = new Set(currentPendingSyncs)
+                nextPendingSyncs.delete(tempId)
+                const nextPendingUpdates = new Map(currentPendingUpdates)
+                nextPendingUpdates.delete(tempId)
                 set({
                   eventsCache: {
                     ...finalCache,
                     [selectedDate]: (finalCache[selectedDate] || []).map(e => e.id === tempId ? realEvent : e)
-                  }
+                  },
+                  selectedEventId: currentSelectedId === tempId ? realEvent.id : currentSelectedId,
+                  pendingSyncs: nextPendingSyncs,
+                  pendingUpdates: nextPendingUpdates,
                 })
               }
             } catch (err) {
               console.error('Failed to save split event:', err)
+              const {
+                eventsCache: finalCache,
+                pendingSyncs: currentPendingSyncs,
+                pendingUpdates: currentPendingUpdates,
+                selectedEventId: currentSelectedId,
+              } = get()
+              const nextPendingSyncs = new Set(currentPendingSyncs)
+              nextPendingSyncs.delete(tempId)
+              const nextPendingUpdates = new Map(currentPendingUpdates)
+              nextPendingUpdates.delete(tempId)
+              set({
+                eventsCache: {
+                  ...finalCache,
+                  [selectedDate]: (finalCache[selectedDate] || []).filter(e => e.id !== tempId),
+                },
+                pendingSyncs: nextPendingSyncs,
+                pendingUpdates: nextPendingUpdates,
+                selectedEventId: currentSelectedId === tempId ? null : currentSelectedId,
+              })
             }
           }, 0)
         }
@@ -1383,6 +1479,10 @@ export const useEventsStore = create<EventsState>()(
             isTemp: true,
           }
 
+          const { pendingSyncs } = get()
+          const nextPendingSyncs = new Set(pendingSyncs)
+          nextPendingSyncs.add(tempNextSeriesId)
+
           set(state => ({
             eventsCache: {
               ...state.eventsCache,
@@ -1391,6 +1491,7 @@ export const useEventsStore = create<EventsState>()(
             computedEventsCache: {},
             recurringEventsCache: {},
             eventExceptionsCache: {},
+            pendingSyncs: nextPendingSyncs,
           }))
 
           setTimeout(async () => {
@@ -1398,6 +1499,8 @@ export const useEventsStore = create<EventsState>()(
               const { data: { user } } = await supabase.auth.getUser()
               if (!user) return
 
+              const queuedUpdates = (get().pendingUpdates.get(tempNextSeriesId) || [])
+              const mergedQueuedUpdates = Object.assign({}, ...queuedUpdates)
               const event3Data = buildEventForDb({
                 title: originalTitle,
                 description: masterEvent?.description ?? event.description,
@@ -1413,6 +1516,7 @@ export const useEventsStore = create<EventsState>()(
                 repeat: originalRepeat,
                 series_start_date: nextOccurrence,
                 series_end_date: nextSeriesEndDate,
+                ...mergedQueuedUpdates,
               }, user.id)
 
               const { data: result, error } = await supabase
@@ -1424,7 +1528,16 @@ export const useEventsStore = create<EventsState>()(
               if (error || !result) throw error
 
               const realSeriesEvent = dbRowToEvent(result)
-              const { eventsCache: finalCache } = get()
+              const {
+                eventsCache: finalCache,
+                pendingSyncs: currentPendingSyncs,
+                pendingUpdates: currentPendingUpdates,
+                selectedEventId: currentSelectedId,
+              } = get()
+              const nextPendingSyncs = new Set(currentPendingSyncs)
+              nextPendingSyncs.delete(tempNextSeriesId)
+              const nextPendingUpdates = new Map(currentPendingUpdates)
+              nextPendingUpdates.delete(tempNextSeriesId)
               set({
                 eventsCache: {
                   ...finalCache,
@@ -1435,9 +1548,21 @@ export const useEventsStore = create<EventsState>()(
                 computedEventsCache: {},
                 recurringEventsCache: {},
                 eventExceptionsCache: {},
+                pendingSyncs: nextPendingSyncs,
+                pendingUpdates: nextPendingUpdates,
+                selectedEventId: currentSelectedId === tempNextSeriesId ? realSeriesEvent.id : currentSelectedId,
               })
             } catch {
-              const { eventsCache: finalCache } = get()
+              const {
+                eventsCache: finalCache,
+                pendingSyncs: currentPendingSyncs,
+                pendingUpdates: currentPendingUpdates,
+                selectedEventId: currentSelectedId,
+              } = get()
+              const nextPendingSyncs = new Set(currentPendingSyncs)
+              nextPendingSyncs.delete(tempNextSeriesId)
+              const nextPendingUpdates = new Map(currentPendingUpdates)
+              nextPendingUpdates.delete(tempNextSeriesId)
               set({
                 eventsCache: {
                   ...finalCache,
@@ -1446,6 +1571,9 @@ export const useEventsStore = create<EventsState>()(
                 computedEventsCache: {},
                 recurringEventsCache: {},
                 eventExceptionsCache: {},
+                pendingSyncs: nextPendingSyncs,
+                pendingUpdates: nextPendingUpdates,
+                selectedEventId: currentSelectedId === tempNextSeriesId ? null : currentSelectedId,
               })
             }
           }, 0)
@@ -1535,6 +1663,10 @@ export const useEventsStore = create<EventsState>()(
           isTemp: true,
         }
 
+        const { pendingSyncs } = get()
+        const nextPendingSyncs = new Set(pendingSyncs)
+        nextPendingSyncs.add(tempSeriesId)
+
         set(state => ({
           eventsCache: {
             ...state.eventsCache,
@@ -1543,6 +1675,8 @@ export const useEventsStore = create<EventsState>()(
           computedEventsCache: {},
           recurringEventsCache: {},
           eventExceptionsCache: {},
+          pendingSyncs: nextPendingSyncs,
+          selectedEventId: tempSeriesId,
         }))
 
         // Fire DB operations in background
@@ -1555,7 +1689,9 @@ export const useEventsStore = create<EventsState>()(
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
 
-            const newSeriesData = buildEventForDb(mergedSeriesFields, user.id)
+            const queuedUpdates = (get().pendingUpdates.get(tempSeriesId) || [])
+            const mergedQueuedUpdates = Object.assign({}, ...queuedUpdates)
+            const newSeriesData = buildEventForDb({ ...mergedSeriesFields, ...mergedQueuedUpdates }, user.id)
 
             const { data: result, error } = await supabase
               .from('events')
@@ -1567,7 +1703,16 @@ export const useEventsStore = create<EventsState>()(
 
             // Replace temp with real event
             const realSeriesCached = dbRowToEvent(result)
-            const { eventsCache: finalCache } = get()
+            const {
+              eventsCache: finalCache,
+              pendingSyncs: currentPendingSyncs,
+              pendingUpdates: currentPendingUpdates,
+              selectedEventId: currentSelectedId,
+            } = get()
+            const nextPendingSyncs = new Set(currentPendingSyncs)
+            nextPendingSyncs.delete(tempSeriesId)
+            const nextPendingUpdates = new Map(currentPendingUpdates)
+            nextPendingUpdates.delete(tempSeriesId)
             set({
               eventsCache: {
                 ...finalCache,
@@ -1578,8 +1723,34 @@ export const useEventsStore = create<EventsState>()(
               computedEventsCache: {},
               recurringEventsCache: {},
               eventExceptionsCache: {},
+              pendingSyncs: nextPendingSyncs,
+              pendingUpdates: nextPendingUpdates,
+              selectedEventId: currentSelectedId === tempSeriesId ? realSeriesCached.id : currentSelectedId,
             })
-          } catch { /* background save failed silently */ }
+          } catch {
+            const {
+              eventsCache: finalCache,
+              pendingSyncs: currentPendingSyncs,
+              pendingUpdates: currentPendingUpdates,
+              selectedEventId: currentSelectedId,
+            } = get()
+            const nextPendingSyncs = new Set(currentPendingSyncs)
+            nextPendingSyncs.delete(tempSeriesId)
+            const nextPendingUpdates = new Map(currentPendingUpdates)
+            nextPendingUpdates.delete(tempSeriesId)
+            set({
+              eventsCache: {
+                ...finalCache,
+                [selectedDate]: (finalCache[selectedDate] || []).filter(e => e.id !== tempSeriesId),
+              },
+              computedEventsCache: {},
+              recurringEventsCache: {},
+              eventExceptionsCache: {},
+              pendingSyncs: nextPendingSyncs,
+              pendingUpdates: nextPendingUpdates,
+              selectedEventId: currentSelectedId === tempSeriesId ? null : currentSelectedId,
+            })
+          }
         }, 0)
       },
 

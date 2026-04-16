@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useEffect, useRef } from "react"
+import { useLocation } from "react-router-dom"
 import { useEventsStore, type CalendarEvent, type NewEvent } from "@/store/eventsStore"
 import { addYearsToDateStr } from "@/store/dateUtils"
 import RepeatRow from "./RepeatRow"
@@ -15,6 +16,8 @@ const RepeatReminderPanel: React.FC = () => {
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   const saveTrigger = useEventsStore((state) => state.saveTrigger)
+  const location = useLocation()
+  const isWeekRoute = location.pathname.startsWith("/week")
 
   const [pendingRepeat, setPendingRepeat] = useState<string | null>(null)
 
@@ -40,6 +43,15 @@ const RepeatReminderPanel: React.FC = () => {
         for (const events of Object.values(eventsCache)) {
           const master = events.find(e => e.id === masterId)
           if (master) {
+            const hasSeriesBounds =
+              !!master.repeat &&
+              master.repeat !== "None" &&
+              !!(master as any).series_start_date &&
+              !!(master as any).series_end_date
+            if (!hasSeriesBounds) return null
+            if (virtualDate < (master as any).series_start_date || virtualDate > (master as any).series_end_date) return null
+            if (virtualDate === master.date) return null
+
             return {
               ...master,
               id: selectedEventId,
@@ -86,19 +98,50 @@ const RepeatReminderPanel: React.FC = () => {
     
     lastProcessedSaveTriggerRef.current = saveTrigger
 
-    const isRecurring = !selectedEvent.isTemp && selectedEvent.isRecurringInstance === true
+    const isVirtualRecurring = selectedEvent.isRecurringInstance === true
+    const isRecurring = !!(
+      isVirtualRecurring ||
+      (selectedEvent.repeat && selectedEvent.repeat !== "None" && ((selectedEvent as any).series_start_date || (selectedEvent as any).series_end_date))
+    )
+    const buildRepeatUpdates = (): Partial<NewEvent> => {
+      const updates: Partial<NewEvent> = { repeat: pendingRepeat }
+      if (pendingRepeat === "None") {
+        updates.series_start_date = undefined
+        updates.series_end_date = undefined
+      }
+      return updates
+    }
 
     if (isRecurring) {
+      if (isWeekRoute && !isVirtualRecurring) {
+        const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+        const seriesMasterId = (selectedEvent as any).seriesMasterId || selectedEvent.id
+        const updates: Partial<NewEvent> = { repeat: pendingRepeat }
+        if (pendingRepeat !== "None") {
+          updates.series_start_date = selectedEvent.date
+          updates.series_end_date = addYearsToDateStr(selectedEvent.date, 10)
+        } else {
+          updates.series_start_date = undefined
+          updates.series_end_date = undefined
+        }
+        void updateAllInSeries(seriesMasterId, updates)
+        setPendingRepeat(null)
+        return
+      }
+
       showRecurringDialog(
         selectedEvent,
         "edit",
         async (choice: string) => {
           if (choice === "only-this") {
-            await updateEventField(selectedEventId, "repeat", pendingRepeat)
-            if (pendingRepeat === "None") {
-              updateEventField(selectedEventId, "series_start_date", undefined)
-              updateEventField(selectedEventId, "series_end_date", undefined)
-            }
+            const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
+            await splitRecurringEvent(
+              selectedEvent as any,
+              selectedEvent.date,
+              selectedEvent.start_time,
+              selectedEvent.end_time,
+              buildRepeatUpdates()
+            )
           } else if (choice === "all-events") {
             const updateAllInSeries = useEventsStore.getState().updateAllInSeries
             const seriesMasterId = (selectedEvent as any).seriesMasterId || selectedEventId
@@ -135,7 +178,7 @@ const RepeatReminderPanel: React.FC = () => {
       }
       setPendingRepeat(null)
     }
-  }, [saveTrigger, selectedEventId, pendingRepeat, selectedEvent, updateEventField, showRecurringDialog, closeRecurringDialog])
+  }, [saveTrigger, selectedEventId, pendingRepeat, selectedEvent, updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute])
 
   // Use shared hook for non-repeat property changes
   const handlePropertyChange = useRecurringPropertyChange()

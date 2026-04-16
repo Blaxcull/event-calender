@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useEventsStore, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
 import { Input } from '@/components/ui/input'
 
@@ -29,6 +30,8 @@ const EventEditor: React.FC = () => {
   const lastProcessedSaveTriggerRef = useRef<number>(0)
 
   const getEventById = useEventsStore((state) => state.getEventById)
+  const location = useLocation()
+  const isWeekRoute = location.pathname.startsWith('/week')
   
   // Get the selected event from reactive cache slices above
   const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
@@ -62,11 +65,31 @@ const EventEditor: React.FC = () => {
       return
     }
     
+    const isVirtualRecurring = !!((currentEvent as any)?.isRecurringInstance)
     const eventIsRecurring = currentEvent && 
-                        !currentEvent.isTemp &&
-                        (currentEvent as any).isRecurringInstance === true
+                        (
+                          isVirtualRecurring ||
+                          ((currentEvent as any).repeat && (currentEvent as any).repeat !== "None" && ((currentEvent as any).series_start_date || (currentEvent as any).series_end_date))
+                        )
 
     if (eventIsRecurring) {
+      if (isWeekRoute && !isVirtualRecurring) {
+        const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+        const updates: Record<string, EventFieldValue> = {}
+        if (field && value !== undefined) {
+          updates[field] = value
+        }
+        if (extraFields) {
+          Object.entries(extraFields).forEach(([key, val]) => {
+            if (val !== undefined) {
+              updates[key] = val
+            }
+          })
+        }
+        void updateAllInSeries(currentEvent.id, updates as Partial<NewEvent>)
+        return
+      }
+
       // Capture values at this moment
       const eventId = currentEvent.id
       const eventDate = (currentEvent as any).date
@@ -81,7 +104,6 @@ const EventEditor: React.FC = () => {
           if (choice === "only-this") {
             // Use splitRecurringEvent to split the series
             const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
-            const setSelectedEvent = useEventsStore.getState().setSelectedEvent
             
             // Build updates object with current field and any extra fields
             const updates: Record<string, EventFieldValue> = {}
@@ -103,8 +125,6 @@ const EventEditor: React.FC = () => {
               (currentEvent as any).end_time,
               updates as any
             )
-            // Clear selection to force fresh render
-            setSelectedEvent(null)
           } else if (choice === "all-events") {
             const updateAllInSeries = useEventsStore.getState().updateAllInSeries
             const seriesMasterId = (currentEvent as any).seriesMasterId || eventId
@@ -150,7 +170,7 @@ const EventEditor: React.FC = () => {
         })
       }
     }
-  }, [updateEventField, showRecurringDialog, closeRecurringDialog])
+  }, [updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute])
 
   // Save local state to cache when saveTrigger changes
   const titleRef = useRef(title)
@@ -228,6 +248,17 @@ const EventEditor: React.FC = () => {
           for (const events of Object.values(eventsCache)) {
             const found = events.find((e: any) => e.id === masterEventId)
             if (found) {
+              const hasSeriesBounds =
+                !!found.repeat &&
+                found.repeat !== 'None' &&
+                !!found.series_start_date &&
+                !!found.series_end_date
+              if (!hasSeriesBounds) break
+              const seriesStartDate = found.series_start_date as string
+              const seriesEndDate = found.series_end_date as string
+              if (virtualDate < seriesStartDate || virtualDate > seriesEndDate) break
+              if (virtualDate === found.date) break
+
               currentEvent = {
                 ...found,
                 id: currentEventId,
@@ -251,15 +282,31 @@ const EventEditor: React.FC = () => {
       return
     }
     
+    const isVirtualRecurring = !!(currentEvent as any)?.isRecurringInstance
     const eventIsRecurring = currentEvent && 
-                        !currentEvent.isTemp &&
-                        currentEvent.isRecurringInstance === true
+                        (
+                          isVirtualRecurring ||
+                          ((currentEvent as any).repeat && (currentEvent as any).repeat !== "None" && ((currentEvent as any).series_start_date || (currentEvent as any).series_end_date))
+                        )
     
     const capturedTitle = titleRef.current || 'New Event'
     const capturedNotes = notesRef.current
     const capturedUrls = urlChipsRef.current.map(c => c.url)
     
     if (eventIsRecurring) {
+      if (isWeekRoute && !isVirtualRecurring) {
+        const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+        void updateAllInSeries(currentEventId, {
+          title: capturedTitle,
+          notes: capturedNotes,
+          urls: capturedUrls
+        })
+        setHasEdits(false)
+        setHasEditsEventId(null)
+        savedEventIdRef.current = null
+        return
+      }
+
       showRecurringDialog(
         currentEvent as CalendarEvent,
         "edit",
@@ -325,7 +372,7 @@ const EventEditor: React.FC = () => {
         updateEventField(currentEventId, 'series_end_date', seriesEndDate)
       }
     }
-  }, [saveTrigger, selectedEventId, getEventById, updateEventField, showRecurringDialog, closeRecurringDialog])
+  }, [saveTrigger, selectedEventId, getEventById, updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute])
 
   // Clear title on blur without Enter
   useEffect(() => {

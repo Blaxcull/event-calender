@@ -3,6 +3,7 @@ import { useEventsStore, formatDate, type NewEvent, type EventFieldValue, type C
 import { Calendar } from '@/components/ui/calendar'
 import calendarIcon from '@/assets/calendar2.png'
 import clockIcon from '@/assets/clock.png'
+import { useRecurringPropertyChange } from '@/hooks/useRecurringPropertyChange'
 
 /* ================= TIME OPTIONS ================= */
 
@@ -420,67 +421,24 @@ const DatePickerButton: React.FC<{
 
 const DateTimeEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
-  const updateEventField = useEventsStore((state) => state.updateEventField)
-  const updateEventFields = useEventsStore((state) => state.updateEventFields)
   const liveEventTimes = useEventsStore((state) => state.liveEventTimes)
   useEventsStore((state) => state.eventsCache)
   useEventsStore((state) => state.computedEventsCache)
+  const handleRecurringPropertyChange = useRecurringPropertyChange()
   
   // Get selected event - uses getEventById which handles both real and virtual events
   const getEventById = useEventsStore((state) => state.getEventById)
   const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
-  
-  // Check if this is a recurring event INSTANCE (not the base master event)
-  // Only show dialog for virtual instances (isRecurringInstance = true)
-  // Don't show dialog for base recurring events (they have repeat but isRecurringInstance is false)
-  const isRecurring = selectedEvent &&
-                      !selectedEvent.isTemp &&
-                      (selectedEvent as any).isRecurringInstance === true
 
   const handlePropertyChange = useCallback((field: keyof NewEvent, value: EventFieldValue, extraFields?: Partial<Record<keyof NewEvent, EventFieldValue>>) => {
-    // Get fresh event from store to ensure we have latest values
     const currentEventId = useEventsStore.getState().selectedEventId
     if (!currentEventId) return
-    
-    // Get fresh event for recurring check
-    const freshEvent = useEventsStore.getState().getEventById(currentEventId)
-    
-    if (!freshEvent) return
-    
-    const isRecurring = !freshEvent.isTemp && (freshEvent as any).isRecurringInstance === true
 
-    if (isRecurring) {
-      // Non-drag edits default to "only-this" (no dialog).
-      const splitRecurringEvent = useEventsStore.getState().splitRecurringEvent
-      const updates: Record<string, EventFieldValue> = {}
-      if (field && value !== undefined) updates[field] = value
-      if (extraFields) {
-        Object.entries(extraFields).forEach(([key, val]) => {
-          if (val !== undefined) updates[key] = val
-        })
-      }
-      void splitRecurringEvent(
-        freshEvent as any,
-        freshEvent.date,
-        freshEvent.start_time,
-        freshEvent.end_time,
-        updates as any
-      )
-    } else {
-      const combinedUpdates: Partial<NewEvent> = {}
-      if (field && value !== undefined) {
-        combinedUpdates[field] = value as never
-      }
-      if (extraFields) {
-        Object.entries(extraFields).forEach(([key, val]) => {
-          if (val !== undefined) {
-            combinedUpdates[key as keyof NewEvent] = val as never
-          }
-        })
-      }
-      updateEventFields(currentEventId!, combinedUpdates)
-    }
-  }, [selectedEvent, selectedEventId, isRecurring, updateEventField, updateEventFields])
+    const freshEvent = useEventsStore.getState().getEventById(currentEventId)
+    if (!freshEvent) return
+
+    handleRecurringPropertyChange(freshEvent, field, value, extraFields)
+  }, [handleRecurringPropertyChange])
 
   if (!selectedEvent) return null
 

@@ -1026,9 +1026,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
           const end = yToTimeSnapped(snappedY + draggedEvent.height)
           const dateStr = formatDate(selectedDate)
           
-          // Check if this is a recurring event INSTANCE (not the base master event)
-          // Only show dialog for virtual instances (isRecurringInstance = true)
-          const isRecurring = draggedEvent.isRecurringInstance === true
+          const isRecurring = !!(
+            draggedEvent.isRecurringInstance === true ||
+            (draggedEvent.repeat && draggedEvent.repeat !== 'None' && ((draggedEvent as any).series_start_date || (draggedEvent as any).series_end_date))
+          )
           
           if (isRecurring) {
             // Show recurring dialog - cleanup drag state immediately
@@ -1082,16 +1083,16 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   originalEventRef.current = null
                   setSelectedEvent(null)
                   resetInteraction()
-                } else if (choice === "all-events" && draggedEvent.seriesMasterId) {
+                } else if (choice === "all-events") {
                   // Update all events in the series
                   const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-                  await updateAllInSeries(draggedEvent.seriesMasterId, {
+                  await updateAllInSeries(draggedEvent.seriesMasterId || draggedEvent.id, {
                     start_time: start.hour * 60 + start.min,
                     end_time: end.hour * 60 + end.min,
                   })
                   originalEventRef.current = null
                   resetInteraction()
-                } else if (choice === "this-and-following" && draggedEvent.seriesMasterId) {
+                } else if (choice === "this-and-following") {
                   // Split into 2 recurring series
                   const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
                   await updateThisAndFollowing(
@@ -1137,9 +1138,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
            const end = yToTimeSnapped(resizedEvent.slot + snappedHeight)
           const dateStr = formatDate(selectedDate)
           
-          // Check if this is a recurring event INSTANCE (not the base master event)
-          // Only show dialog for virtual instances (isRecurringInstance = true)
-          const isRecurring = resizedEvent.isRecurringInstance === true
+          const isRecurring = !!(
+            resizedEvent.isRecurringInstance === true ||
+            (resizedEvent.repeat && resizedEvent.repeat !== 'None' && ((resizedEvent as any).series_start_date || (resizedEvent as any).series_end_date))
+          )
           
           if (isRecurring) {
             // Show recurring dialog - cleanup resize state immediately
@@ -1193,15 +1195,15 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   originalEventRef.current = null
                   setSelectedEvent(null)
                   resetInteraction()
-                } else if (choice === "all-events" && resizedEvent.seriesMasterId) {
+                } else if (choice === "all-events") {
                   // Update all events in the series
                   const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-                  await updateAllInSeries(resizedEvent.seriesMasterId, {
+                  await updateAllInSeries(resizedEvent.seriesMasterId || resizedEvent.id, {
                     end_time: end.hour * 60 + end.min,
                   })
                   originalEventRef.current = null
                   resetInteraction()
-                } else if (choice === "this-and-following" && resizedEvent.seriesMasterId && selectedDate) {
+                } else if (choice === "this-and-following" && selectedDate) {
                   // Split into 2 recurring series
                   const updateThisAndFollowing = useEventsStore.getState().updateThisAndFollowing
                   await updateThisAndFollowing(

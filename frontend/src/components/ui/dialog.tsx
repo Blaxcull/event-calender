@@ -13,7 +13,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 200 }}
+      style={{ zIndex: 5000 }}
     >
       <div 
         className="absolute inset-0"
@@ -24,7 +24,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
         }}
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative" style={{ zIndex: 210 }}>
+      <div className="relative" style={{ zIndex: 5010 }}>
         {children}
       </div>
     </div>

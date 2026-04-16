@@ -26,6 +26,23 @@ const formatTime = (minutes: number) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
 }
 
+const TIMELINE_SURFACE_COLOR = "#e2e2e1"
+const TIMELINE_SURFACE_ACTIVE_COLOR = "#dcdcd9"
+
+const getDateFromSpanningClick = (
+  eventClick: React.MouseEvent<HTMLElement>,
+  startDateKey: string,
+  spanDays: number
+) => {
+  if (spanDays <= 1) return new Date(`${startDateKey}T00:00:00`)
+  const rect = eventClick.currentTarget.getBoundingClientRect()
+  if (!rect.width || rect.width <= 0) return new Date(`${startDateKey}T00:00:00`)
+  const boundedX = Math.max(0, Math.min(eventClick.clientX - rect.left, rect.width - 1))
+  const dayWidth = rect.width / spanDays
+  const dayOffset = Math.max(0, Math.min(spanDays - 1, Math.floor(boundedX / dayWidth)))
+  return addDays(new Date(`${startDateKey}T00:00:00`), dayOffset)
+}
+
 const WeekView = () => {
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const setDate = useTimeStore((state) => state.setDate)
@@ -36,6 +53,13 @@ const WeekView = () => {
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const getEventById = useEventsStore((state) => state.getEventById)
+  const setLiveEventTime = useEventsStore((state) => state.setLiveEventTime)
+  const clearLiveEventTime = useEventsStore((state) => state.clearLiveEventTime)
+  const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
+  const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
+  const splitRecurringEvent = useEventsStore((state) => state.splitRecurringEvent)
+  const updateAllInSeries = useEventsStore((state) => state.updateAllInSeries)
+  const updateThisAndFollowing = useEventsStore((state) => state.updateThisAndFollowing)
   const eventsCache = useEventsStore((state) => state.eventsCache)
   const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
   const recurringEventsCache = useEventsStore((state) => state.recurringEventsCache)
@@ -46,8 +70,8 @@ const WeekView = () => {
   const suppressNextClickRef = useRef(false)
   const dayColumnRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [previewById, setPreviewById] = useState<Record<string, { date: string; start_time: number; end_time: number }>>({})
-  const [dragState, setDragState] = useState<{ id: string; duration: number; offsetMinutes: number } | null>(null)
-  const [pendingDrag, setPendingDrag] = useState<{ id: string; duration: number; offsetMinutes: number; startX: number; startY: number; date: string; start: number } | null>(null)
+  const [dragState, setDragState] = useState<{ id: string; duration: number; offsetMinutes: number; date: string; lockToDate: boolean } | null>(null)
+  const [pendingDrag, setPendingDrag] = useState<{ id: string; duration: number; offsetMinutes: number; startX: number; startY: number; date: string; start: number; lockToDate: boolean } | null>(null)
   const [resizeState, setResizeState] = useState<{ id: string; start: number; date: string } | null>(null)
   const [horizontalResizeState, setHorizontalResizeState] = useState<{
     id: string
@@ -83,6 +107,9 @@ const WeekView = () => {
 
   const topRowLayout = useMemo(() => {
     const baseByDay: Record<string, any[]> = Object.fromEntries(weekDateKeys.map((k) => [k, []]))
+    const continuationHitAreasByDay: Record<string, Array<{ event: any; lane: number }>> = Object.fromEntries(
+      weekDateKeys.map((k) => [k, []])
+    )
     const seen = new Set<string>()
 
     weekDays.forEach((day) => {
@@ -100,6 +127,39 @@ const WeekView = () => {
         baseByDay[startKey].push(event)
       })
     })
+
+    // Authoritative pass from raw cache: ensures immediate top-row updates when
+    // date/end_date/is_all_day changes happen locally before computed views settle.
+    Object.values(eventsCache).forEach((events) => {
+      events.forEach((event: any) => {
+        if (!(isAllDayLike(event) || isSpanningTopEvent(event))) return
+        const startKey = event.date
+        if (!weekDayIndexByKey.hasOwnProperty(startKey)) return
+
+        // Replace any stale copy with latest raw-cache version.
+        weekDateKeys.forEach((key) => {
+          baseByDay[key] = (baseByDay[key] || []).filter((entry: any) => entry.id !== event.id)
+        })
+        seen.add(event.id)
+        baseByDay[startKey].push(event)
+      })
+    })
+
+    // Ensure the currently edited/selected event reflects immediately in the top row,
+    // even while deferred cache writes are still settling.
+    if (selectedEventId) {
+      const selectedEvent = getEventById(selectedEventId) as any
+      if (selectedEvent && (isAllDayLike(selectedEvent) || isSpanningTopEvent(selectedEvent))) {
+        const selectedStartKey = selectedEvent.date
+        if (weekDayIndexByKey.hasOwnProperty(selectedStartKey)) {
+          weekDateKeys.forEach((key) => {
+            baseByDay[key] = (baseByDay[key] || []).filter((event) => event.id !== selectedEvent.id)
+          })
+          baseByDay[selectedStartKey].push(selectedEvent)
+          seen.add(selectedEvent.id)
+        }
+      }
+    }
 
     Object.keys(baseByDay).forEach((key) => {
       baseByDay[key].sort((a, b) => {
@@ -160,6 +220,17 @@ const WeekView = () => {
       })
     })
 
+    flattened.forEach((item) => {
+      const lane = laneByEventId[item.event.id] ?? 0
+      const isVisible = showAllTopEvents || lane < 2
+      if (!isVisible) return
+      for (let idx = item.startIdx + 1; idx <= item.endIdx; idx += 1) {
+        const dayKey = weekDateKeys[idx]
+        if (!dayKey) continue
+        continuationHitAreasByDay[dayKey].push({ event: item.event, lane })
+      }
+    })
+
     const rowHeight = Math.max(34, Math.max(visibleLaneLimit, 1) * 22 + 8)
 
     const hiddenCount = hiddenIds.size
@@ -170,11 +241,12 @@ const WeekView = () => {
       allByDay: baseByDay,
       visibleByDay,
       laneByEventId,
+      continuationHitAreasByDay,
       rowHeight,
       hasAnyMore,
       hiddenCount,
     }
-  }, [weekDays, weekDateKeys, weekDayIndexByKey, getEventsForDate, showAllTopEvents, eventsCache, computedEventsCache, recurringEventsCache, eventExceptionsCache])
+  }, [weekDays, weekDateKeys, weekDayIndexByKey, getEventsForDate, showAllTopEvents, eventsCache, computedEventsCache, recurringEventsCache, eventExceptionsCache, selectedEventId, getEventById])
 
   const timedWeekEvents = useMemo(() => {
     const unique = new Map<string, any>()
@@ -321,6 +393,14 @@ const WeekView = () => {
   }
 
   useEffect(() => {
+    const isRecurringEvent = (event: any) => !!(
+      event &&
+      (
+        event.isRecurringInstance === true ||
+        (event.repeat && event.repeat !== "None" && (event.series_start_date || event.series_end_date))
+      )
+    )
+
     const onMouseMove = (e: MouseEvent) => {
       if (!dragState && pendingDrag) {
         const moved = Math.abs(e.clientX - pendingDrag.startX) + Math.abs(e.clientY - pendingDrag.startY)
@@ -330,11 +410,18 @@ const WeekView = () => {
             start_time: pendingDrag.start,
             end_time: pendingDrag.start + pendingDrag.duration,
           }
-          setDragState({ id: pendingDrag.id, duration: pendingDrag.duration, offsetMinutes: pendingDrag.offsetMinutes })
+          setDragState({
+            id: pendingDrag.id,
+            duration: pendingDrag.duration,
+            offsetMinutes: pendingDrag.offsetMinutes,
+            date: pendingDrag.date,
+            lockToDate: pendingDrag.lockToDate,
+          })
           setPreviewById((prev) => ({
             ...prev,
             [pendingDrag.id]: initialPreview,
           }))
+          setLiveEventTime(pendingDrag.id, initialPreview.start_time, initialPreview.end_time)
           if (selectedEventId === pendingDrag.id) {
             applyLivePreviewToStore(pendingDrag.id, initialPreview)
           }
@@ -344,7 +431,12 @@ const WeekView = () => {
       }
 
       if (dragState) {
-        const target = findDayByClientX(e.clientX)
+        const target = dragState.lockToDate
+          ? (() => {
+              const el = dayColumnRefs.current[dragState.date]
+              return el ? { dayKey: dragState.date, el } : null
+            })()
+          : findDayByClientX(e.clientX)
         if (!target) return
         const pointerMinutes = getMinutesFromClientY(e.clientY, target.el)
         const start = pointerMinutes - dragState.offsetMinutes
@@ -356,8 +448,12 @@ const WeekView = () => {
           end_time: clampedStart + dragState.duration,
         }
         setPreviewById((prev) => ({ ...prev, [dragState.id]: next }))
+        setLiveEventTime(dragState.id, next.start_time, next.end_time)
         if (selectedEventId === dragState.id) {
-          applyLivePreviewToStore(dragState.id, next)
+          const selectedEvent = getEventById(dragState.id) as any
+          if (!isRecurringEvent(selectedEvent)) {
+            applyLivePreviewToStore(dragState.id, next)
+          }
         }
       } else if (resizeState) {
         const el = dayColumnRefs.current[resizeState.date]
@@ -372,12 +468,16 @@ const WeekView = () => {
             end_time: clampedEnd,
           },
         }))
+        setLiveEventTime(resizeState.id, resizeState.start, clampedEnd)
         if (selectedEventId === resizeState.id) {
-          applyLivePreviewToStore(resizeState.id, {
-            date: resizeState.date,
-            start_time: resizeState.start,
-            end_time: clampedEnd,
-          })
+          const selectedEvent = getEventById(resizeState.id) as any
+          if (!isRecurringEvent(selectedEvent)) {
+            applyLivePreviewToStore(resizeState.id, {
+              date: resizeState.date,
+              start_time: resizeState.start,
+              end_time: clampedEnd,
+            })
+          }
         }
       } else if (horizontalResizeState) {
         const target = findDayByClientX(e.clientX)
@@ -394,13 +494,17 @@ const WeekView = () => {
             end_date: clampedDay,
           } as any,
         }))
+        setLiveEventTime(horizontalResizeState.id, horizontalResizeState.start_time, horizontalResizeState.end_time)
         if (selectedEventId === horizontalResizeState.id) {
-          applyLivePreviewToStore(horizontalResizeState.id, {
-            date: horizontalResizeState.startDate,
-            start_time: horizontalResizeState.start_time,
-            end_time: horizontalResizeState.end_time,
-            end_date: clampedDay,
-          })
+          const selectedEvent = getEventById(horizontalResizeState.id) as any
+          if (!isRecurringEvent(selectedEvent)) {
+            applyLivePreviewToStore(horizontalResizeState.id, {
+              date: horizontalResizeState.startDate,
+              start_time: horizontalResizeState.start_time,
+              end_time: horizontalResizeState.end_time,
+              end_date: clampedDay,
+            })
+          }
         }
       }
     }
@@ -415,7 +519,12 @@ const WeekView = () => {
 
       // Fast-drag fallback: commit using mouse-up position even when no mousemove fired.
       if (!dragState && pendingDrag && pendingMoved >= 4) {
-        const target = findDayByClientX(e.clientX)
+        const target = pendingDrag.lockToDate
+          ? (() => {
+              const el = dayColumnRefs.current[pendingDrag.date]
+              return el ? { dayKey: pendingDrag.date, el } : null
+            })()
+          : findDayByClientX(e.clientX)
         if (target) {
           const pointerMinutes = getMinutesFromClientY(e.clientY, target.el)
           const start = pointerMinutes - pendingDrag.offsetMinutes
@@ -448,6 +557,7 @@ const WeekView = () => {
         setDragState(null)
         setResizeState(null)
         setHorizontalResizeState(null)
+        clearLiveEventTime(activeId)
         setPreviewById((prev) => {
           const next = { ...prev }
           delete next[activeId]
@@ -459,6 +569,7 @@ const WeekView = () => {
         setDragState(null)
         setResizeState(null)
         setHorizontalResizeState(null)
+        clearLiveEventTime(activeId)
       }
 
       const preview = derivedPreview || (previewById[activeId] as any)
@@ -480,6 +591,78 @@ const WeekView = () => {
         end_time: preview.end_time,
       }
 
+      const sourceEvent = getEventById(activeId) as any
+      const isVirtualRecurring = !!sourceEvent?.isRecurringInstance
+      const isSeriesRecurring = !!(
+        sourceEvent &&
+        sourceEvent.repeat &&
+        sourceEvent.repeat !== "None" &&
+        (sourceEvent.series_start_date || sourceEvent.series_end_date)
+      )
+
+      if (isVirtualRecurring) {
+        // Clean drag/resize visual state immediately while dialog is open.
+        clearInteractionState()
+
+        showRecurringDialog(sourceEvent, "edit", async (choice: string) => {
+          const original = interactionOriginalRef.current[activeId]
+          const occurrenceDate = (sourceEvent as any).occurrenceDate || sourceEvent.date
+
+          if (choice === "cancel") {
+            if (original && !sourceEvent.isRecurringInstance) {
+              updateEventFields(activeId, original)
+            }
+            delete interactionOriginalRef.current[activeId]
+            setSelectedEvent(null)
+            closeRecurringDialog()
+            return
+          }
+
+          if (choice === "only-this") {
+            await splitRecurringEvent(
+              sourceEvent,
+              occurrenceDate,
+              commit.start_time,
+              commit.end_time,
+              {
+                date: commit.date,
+                end_date: commit.end_date,
+                start_time: commit.start_time,
+                end_time: commit.end_time,
+              }
+            )
+          } else if (choice === "all-events") {
+            const seriesMasterId = sourceEvent.seriesMasterId || sourceEvent.id
+            await updateAllInSeries(seriesMasterId, commit)
+          } else if (choice === "this-and-following") {
+            await updateThisAndFollowing(
+              sourceEvent,
+              occurrenceDate,
+              commit.start_time,
+              commit.end_time,
+              {
+                date: commit.date,
+                end_date: commit.end_date,
+                start_time: commit.start_time,
+                end_time: commit.end_time,
+              }
+            )
+          }
+
+          delete interactionOriginalRef.current[activeId]
+          closeRecurringDialog()
+        })
+        return
+      }
+
+      if (isSeriesRecurring) {
+        clearInteractionState()
+        const seriesMasterId = sourceEvent.seriesMasterId || sourceEvent.id
+        void updateAllInSeries(seriesMasterId, commit)
+        delete interactionOriginalRef.current[activeId]
+        return
+      }
+
       updateEventFields(activeId, commit)
       delete interactionOriginalRef.current[activeId]
       clearInteractionState()
@@ -491,23 +674,73 @@ const WeekView = () => {
       window.removeEventListener("mousemove", onMouseMove)
       window.removeEventListener("mouseup", onMouseUp)
     }
-  }, [pendingDrag, dragState, resizeState, horizontalResizeState, previewById, updateEventFields, weekDateKeys, setDate, selectedEventId, getEventById])
+  }, [pendingDrag, dragState, resizeState, horizontalResizeState, previewById, updateEventFields, weekDateKeys, setDate, selectedEventId, getEventById, setLiveEventTime, clearLiveEventTime, showRecurringDialog, closeRecurringDialog, splitRecurringEvent, updateAllInSeries, updateThisAndFollowing])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || !selectedEventId) return
-      setDismissedEventIds((prev) => {
-        const next = new Set(prev)
-        next.add(selectedEventId)
-        return next
-      })
+
+      const selectedEvent = getEventById(selectedEventId) as any
+      if (!selectedEvent) return
+
+      const dismissEventId = (eventId: string) => {
+        setDismissedEventIds((prev) => {
+          const next = new Set(prev)
+          next.add(eventId)
+          return next
+        })
+      }
+
+      const isRecurringDeleteTarget = !!(
+        selectedEvent.isRecurringInstance === true ||
+        selectedEvent.seriesMasterId
+      )
+
+      if (selectedEvent.title === "New Event") {
+        dismissEventId(selectedEventId)
+        void deleteEvent(selectedEventId)
+        setSelectedEvent(null)
+        return
+      }
+
+      if (isRecurringDeleteTarget) {
+        const occurrenceDate = selectedEvent.occurrenceDate || selectedEvent.date
+        showRecurringDialog(selectedEvent, "delete", async (choice: string) => {
+          if (choice === "cancel") {
+            closeRecurringDialog()
+            return
+          }
+
+          if (choice === "only-this") {
+            const deleteSingleOccurrence = useEventsStore.getState().deleteSingleOccurrence
+            dismissEventId(selectedEvent.id)
+            await deleteSingleOccurrence(selectedEvent, occurrenceDate)
+          } else if (choice === "all-events" && selectedEvent.seriesMasterId) {
+            const seriesMasterId = selectedEvent.seriesMasterId
+            await deleteEvent(seriesMasterId)
+          } else if (choice === "this-and-following" && selectedEvent.seriesMasterId) {
+            const previousDay = (() => {
+              const d = new Date(`${occurrenceDate}T00:00:00`)
+              d.setDate(d.getDate() - 1)
+              return formatDate(d)
+            })()
+            await updateAllInSeries(selectedEvent.seriesMasterId, { series_end_date: previousDay })
+          }
+
+          setSelectedEvent(null)
+          closeRecurringDialog()
+        })
+        return
+      }
+
+      dismissEventId(selectedEventId)
       void deleteEvent(selectedEventId)
       setSelectedEvent(null)
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [selectedEventId, deleteEvent, setSelectedEvent])
+  }, [selectedEventId, deleteEvent, getEventById, setSelectedEvent, showRecurringDialog, closeRecurringDialog, updateAllInSeries])
 
   return (
     <div className="h-full w-full bg-[#f3f3f2] flex items-center justify-center overflow-hidden select-none">
@@ -524,8 +757,8 @@ const WeekView = () => {
           </h1>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar">
-          <div className="pb-14">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar bg-[#e2e2e1]">
+          <div className="pb-14 bg-[#e2e2e1]">
             <div ref={stickyHeaderRef} className="sticky top-0 z-[500] isolate bg-[#e2e2e1] border-b border-black/5">
               <div className="flex relative z-[520] bg-[#e2e2e1]">
                 <div className="w-[72px] shrink-0" />
@@ -592,6 +825,7 @@ const WeekView = () => {
                             const endKey = event.end_date || event.date
                             const spanDays = Math.max(1, Math.min(7 - dayIndex, daySpan(startKey, endKey) + 1))
                             const lane = topRowLayout.laneByEventId[event.id] ?? 0
+                            const isActive = selectedEventId === event.id
                             const { backgroundColor, textColor } = getEventVisualColors((event as any).goalColor || (event as any).color)
                             return (
                               <div
@@ -602,21 +836,39 @@ const WeekView = () => {
                                     setShowAllTopEvents(true)
                                   }
                                   setSelectedEvent(event.id)
-                                  setDate(new Date(`${event.date}T00:00:00`))
+                                  setDate(getDateFromSpanningClick(eventClick, event.date, spanDays))
                                   scrollToEventTime(0)
                                 }}
-                                className="truncate px-1.5 py-0.5 text-[11px] font-semibold border border-white/60 shadow-sm rounded-md absolute left-0 z-[60] cursor-pointer"
+                                className="truncate px-2 py-1 text-[11px] font-semibold border border-white/70 shadow-sm rounded-md absolute left-0 z-[60] cursor-pointer transition-[width,transform] duration-200 ease-out"
                                 style={{
                                   top: `${lane * 22}px`,
                                   backgroundColor,
                                   color: textColor,
                                   width: spanDays > 1 ? `${spanDays * 100}%` : "100%",
+                                  boxShadow: isActive ? "0 10px 24px rgba(0,0,0,0.18)" : undefined,
                                 }}
                               >
-                                {event.title}
+                                <div className="flex items-center gap-1.5 overflow-hidden">
+                                  <span className="truncate">{event.title}</span>
+                                </div>
                               </div>
                             )
                           })}
+                          {(topRowLayout.continuationHitAreasByDay[dayKey] || []).map(({ event, lane }) => (
+                            <button
+                              key={`top-hit-${event.id}-${dayKey}`}
+                              type="button"
+                              aria-label={`Edit ${event.title}`}
+                              onClick={(eventClick) => {
+                                eventClick.stopPropagation()
+                                setSelectedEvent(event.id)
+                                setDate(new Date(`${dayKey}T00:00:00`))
+                                scrollToEventTime(0)
+                              }}
+                              className="absolute left-0 z-[70] h-[20px] w-full cursor-pointer rounded bg-transparent p-0 border-0"
+                              style={{ top: `${lane * 22}px` }}
+                            />
+                          ))}
                         </div>
                       </div>
                     )
@@ -741,9 +993,16 @@ const WeekView = () => {
                             ((sourceEvent as any)?.repeat && (sourceEvent as any)?.repeat !== "None")
                           )
                           const position = positions[event.id] || { left: "0", width: "100%", zIndex: 10 }
-                          const { backgroundColor, textColor } = getEventVisualColors(event.color)
+                          const isActive =
+                            selectedEventId === event.id ||
+                            dragState?.id === event.id ||
+                            pendingDrag?.id === event.id ||
+                            resizeState?.id === event.id ||
+                            horizontalResizeState?.id === event.id
+                          const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors(event.color)
                           const startMins = event.startHour * 60 + event.startMin
                           const endMins = event.endHour * 60 + event.endMin
+                          const durationMins = getClockwiseDurationMinutes(startMins, endMins)
 
                           return (
                             <button
@@ -755,7 +1014,7 @@ const WeekView = () => {
                                 if (suppressNextClickRef.current) return
                                 setSelectedEvent(event.id)
                                 const sourceDate = sourceEvent?.date || dayKey
-                                setDate(new Date(`${sourceDate}T00:00:00`))
+                                setDate(getDateFromSpanningClick(eventClick, sourceDate, isExtendedEvent ? extensionDays + 1 : 1))
                                 scrollToEventElement(eventClick.currentTarget)
                               }}
                               onMouseDown={(eventMouseDown) => {
@@ -776,16 +1035,19 @@ const WeekView = () => {
                                   startY: eventMouseDown.clientY,
                                   date: dayKey,
                                   start,
+                                  lockToDate: isRecurringEvent,
                                 })
                               }}
-                              className={`group absolute rounded-md border border-white/70 px-2 py-1 text-left shadow-sm ${
+                              className={`group absolute rounded-md calendar-event cursor-grab active:cursor-grabbing select-none text-left bg-clip-padding ${
                                 selectedEventId === event.id &&
                                 dragState?.id !== event.id &&
                                 pendingDrag?.id !== event.id &&
                                 resizeState?.id !== event.id &&
                                 horizontalResizeState?.id !== event.id
-                                  ? "ring-2 ring-white"
-                                  : ""
+                                  ? "border-2 border-white"
+                                  : dragState?.id === event.id || resizeState?.id === event.id || horizontalResizeState?.id === event.id
+                                    ? "border-0"
+                                    : "border-r-2 border-b-0 border-t-4 border-transparent"
                               }`}
                               style={{
                                 top: event.slot + TOP_DEAD_ZONE,
@@ -799,15 +1061,29 @@ const WeekView = () => {
                                     : isRecurringEvent
                                     ? 60
                                     : position.zIndex,
-                                backgroundColor,
+                                backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
                                 color: textColor,
-                                borderColor: "rgba(255,255,255,0.7)",
-                                borderWidth: "1px",
-                                boxShadow: isHorizontalResizing ? "0 10px 24px rgba(0,0,0,0.24)" : undefined,
+                                boxShadow: isActive ? "0 10px 24px rgba(0,0,0,0.24)" : undefined,
+                                transition: dragState?.id === event.id || resizeState?.id === event.id || horizontalResizeState?.id === event.id
+                                  ? undefined
+                                  : "left 200ms ease, width 200ms ease",
                               }}
                             >
-                              <div className="truncate text-sm font-bold">{event.title}</div>
-                              <div className="truncate text-xs font-medium opacity-95">{formatTime(startMins)} - {formatTime(endMins)}</div>
+                              <div className="absolute top-1 bottom-1 left-[3px] w-[6px] rounded" style={{ backgroundColor: selectedEventId === event.id ? "#ffffff" : accentColor }} />
+                              {isRecurringEvent ? (
+                                <svg className="absolute top-2 right-3 z-20 h-4 w-4 opacity-70" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M2 13.0399V11C2 7.68629 4.68629 5 8 5H21V5" />
+                                  <path d="M19 2L22 5L19 8" />
+                                  <path d="M22 9.98004V12.02C22 15.3337 19.3137 18.02 16 18.02H3V18.02" />
+                                  <path d="M5 21L2 18L5 15" />
+                                </svg>
+                              ) : null}
+                              <div className={`absolute inset-x-0 top-0 z-10 pl-[18px] pr-3 ${durationMins <= 30 ? "pt-0" : "pt-1"}`} style={{ color: textColor }}>
+                                <div className="truncate text-base font-extrabold">{event.title}</div>
+                                {durationMins > 15 ? (
+                                  <div className="truncate text-sm font-medium opacity-95">{formatTime(startMins)} - {formatTime(endMins)}</div>
+                                ) : null}
+                              </div>
                               <div
                                 onMouseDown={(resizeMouseDown) => {
                                   resizeMouseDown.stopPropagation()
@@ -820,7 +1096,7 @@ const WeekView = () => {
                                     [event.id]: { date: dayKey, start_time: start, end_time: end },
                                   }))
                                 }}
-                                className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize opacity-0 hover:opacity-100 group-hover:opacity-100"
+                                className="absolute bottom-0 left-0 right-0 z-30 h-2 cursor-ns-resize rounded-b-md opacity-0 hover:opacity-100 group-hover:opacity-100"
                               />
                             </button>
                           )

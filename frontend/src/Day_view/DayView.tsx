@@ -9,6 +9,9 @@ import { useEffect, useRef, useMemo, useState } from "react"
 import { TOP_DEAD_ZONE } from "@/lib/eventUtils"
 import { useParams } from "react-router-dom"
 
+const TIMELINE_SURFACE_COLOR = "#e2e2e1"
+const TIMELINE_SURFACE_ACTIVE_COLOR = "#dcdcd9"
+
 const DayView = () => {
   const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
   const selectedDate = useTimeStore((state) => state.selectedDate)
@@ -221,8 +224,8 @@ if (isMultiDay && selectedDate) {
                   </div>
                   <div
                     onClick={() => handleAllDayEventClick(event.id)}
-                    className={`relative flex-1 px-3 py-1.5 text-s font-medium cursor-pointer truncate flex items-center gap-2 box-border ${isSelected ? 'event-same-day outline-2 outline-white' : shapeClass}`}
-                    style={{ backgroundColor, color: textColor }}
+                    className={`relative flex-1 px-3 py-1.5 text-s font-medium cursor-pointer truncate flex items-center gap-2 box-border border border-[#cfcfcb] ${isSelected ? 'event-same-day outline-2 outline-white' : shapeClass}`}
+                    style={{ backgroundColor: isSelected ? backgroundColor : backgroundColor, color: textColor }}
                   >
                     {GoalIcon ? <GoalIcon className="w-4 h-4 shrink-0" /> : null}
                     <span className="truncate">{event.title},</span>
