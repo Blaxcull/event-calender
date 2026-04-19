@@ -353,9 +353,9 @@ hover:scale-110 hover:shadow-xl"
           <img src={SearchIcon} alt="Search" className="h-8 w-8 opacity-60" />
         </Button>
 
-        <CardContent className="px-30 pb-9 pt-16 shrink-0">
+        <CardContent className="px-30 pb-9 pt-24 shrink-0">
           <div className="flex items-start gap-3">
-            <div className="w-[135px]  flex items-start justify-center pt-3">
+            <div className="w-[135px]  flex items-start justify-center pt-6">
               <div className="origin-top ">
                 <Calendar
                   mode="single"
@@ -366,7 +366,7 @@ hover:scale-110 hover:shadow-xl"
               </div>
             </div>
 
-            <div className="flex flex-1 justify-start pl-35 pt-5">
+            <div className="flex flex-1 justify-start pl-35 pt-8">
               <div className="flex items-center gap-3">
                 <Button
                   variant="secondary"

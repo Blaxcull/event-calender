@@ -230,19 +230,10 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
     const columnRefs = columnItemRefs.current.get(targetColumnType);
 
     if (!columnRefs) return null;
-    let firstItem: { itemId: string; top: number } | null = null;
-    let lastItem: { itemId: string; bottom: number } | null = null;
 
     columnRefs.forEach((el, itemId) => {
       if (itemId === excludeId) return;
       const rect = el.getBoundingClientRect();
-
-      if (!firstItem || rect.top < firstItem.top) {
-        firstItem = { itemId, top: rect.top };
-      }
-      if (!lastItem || rect.bottom > lastItem.bottom) {
-        lastItem = { itemId, bottom: rect.bottom };
-      }
 
       const midY = rect.top + rect.height / 2;
       const position: 'before' | 'after' = clientY < midY ? 'before' : 'after';
@@ -254,12 +245,6 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
     });
 
     if (!closest) return null;
-    if (firstItem && clientY <= firstItem.top) {
-      return { columnType: targetColumnType, itemId: firstItem.itemId, position: 'before' };
-    }
-    if (lastItem && clientY >= lastItem.bottom) {
-      return { columnType: targetColumnType, itemId: lastItem.itemId, position: 'after' };
-    }
     const c = closest as { itemId: string; position: 'before' | 'after'; distance: number };
     return { columnType: targetColumnType, itemId: c.itemId, position: c.position };
   };
