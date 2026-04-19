@@ -32,7 +32,7 @@ export default function TimeLine() {
   if (!isSameDay) return null
 
   return (
-    <div className="relative z-50 w-full h-full">
+    <div className="relative z-20 w-full h-full pointer-events-none">
       <div
         className="absolute -left-2 right-0 h-[2px] bg-red-500 z-10"
         style={{ top: `${correctTop}px` }}
@@ -44,4 +44,3 @@ export default function TimeLine() {
     </div>
   )
 }
-

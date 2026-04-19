@@ -7,6 +7,10 @@ import { getGoalIcon } from "./goal";
 import type { Goal } from "./goal";
 import { supabase } from "@/lib/supabase";
 import { useGoalsStore, type GoalColumnType } from "@/store/goalsStore";
+import { useEventsStore } from "@/store/eventsStore";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import SearchIcon from "@/assets/search.svg";
 
 interface TodoItem {
   id: string;
@@ -27,6 +31,7 @@ type TodoStore = Record<string, TodoItem[]>;
 interface DragState {
   itemId: string;
   sourceColumnType: ColumnType;
+  hoverColumnType: ColumnType | null;
   dropTarget: { columnType: ColumnType; itemId: string; position: 'before' | 'after' } | null;
 }
 
@@ -54,6 +59,40 @@ const getColumnTypeFromBucketKey = (bucketKey: string): GoalColumnType | null =>
   return null;
 };
 
+const parseBucketDate = (bucketKey: string): Date | null => {
+  if (bucketKey === "life") return null;
+
+  const parts = bucketKey.split("-");
+  if (parts[0] === "week" && parts.length === 4) {
+    return new Date(Number(parts[1]), Number(parts[2]), Number(parts[3]));
+  }
+  if (parts[0] === "month" && parts.length === 3) {
+    return new Date(Number(parts[1]), Number(parts[2]), 1);
+  }
+  if (parts[0] === "year" && parts.length === 2) {
+    return new Date(Number(parts[1]), 0, 1);
+  }
+
+  return null;
+};
+
+const getBucketLabel = (columnType: ColumnType, bucketKey: string): string => {
+  const bucketDate = parseBucketDate(bucketKey);
+
+  if (columnType === "life") return "All time";
+  if (!bucketDate) return columnType;
+
+  if (columnType === "week") {
+    const weekStart = startOfWeek(bucketDate, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(bucketDate, { weekStartsOn: 1 });
+    return `${format(weekStart, "d MMM")} - ${format(weekEnd, "d MMM")}`;
+  }
+  if (columnType === "month") {
+    return format(bucketDate, "MMMM yyyy");
+  }
+  return format(bucketDate, "yyyy");
+};
+
 interface GoalWriteRow {
   id: string;
   user_id: string;
@@ -68,6 +107,21 @@ interface GoalWriteRow {
   column_type: GoalColumnType;
   bucket_key: string;
   sort_order: number;
+}
+
+interface SearchGoalResult {
+  id: string;
+  text: string;
+  notes: string;
+  color?: string;
+  icon?: string;
+  targetValue?: number;
+  targetPeriod?: Goal["targetPeriod"];
+  status?: Goal["status"];
+  completed: boolean;
+  columnType: ColumnType;
+  bucketKey: string;
+  bucketLabel: string;
 }
 
 const slideVariants = {
@@ -101,14 +155,15 @@ interface GoalColumnProps {
   showNav?: boolean;
   dragState: DragState | null;
   onDragStart: (itemId: string, sourceColumnType: ColumnType, initialDropTarget: DragState['dropTarget']) => void;
-  onDragMove: (dropTarget: DragState['dropTarget']) => void;
+  onDragMove: (hoverColumnType: ColumnType | null, dropTarget: DragState['dropTarget']) => void;
   onDragEnd: (targetColumnType: ColumnType | null) => void;
+  columnContainerRefs: React.MutableRefObject<Map<ColumnType, HTMLDivElement>>;
   columnItemRefs: React.MutableRefObject<Map<ColumnType, Map<string, HTMLElement>>>;
   columnItemHeights: React.MutableRefObject<Map<ColumnType, number>>;
   onGoalClick: (item: TodoItem) => void;
 }
 
-function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPrev, onNext, onToday, showNav = true, dragState, onDragStart, onDragMove, onDragEnd, columnItemRefs, columnItemHeights, onGoalClick }: GoalColumnProps) {
+function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPrev, onNext, onToday, showNav = true, dragState, onDragStart, onDragMove, onDragEnd, columnContainerRefs, columnItemRefs, columnItemHeights, onGoalClick }: GoalColumnProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newText, setNewText] = useState("");
   const [isHovering, setIsHovering] = useState(false);
@@ -122,7 +177,8 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
   const isDropTarget = dragState?.dropTarget?.columnType === columnType;
   const dropTarget = isDropTarget ? dragState!.dropTarget : null;
   const draggedItemId = dragState?.itemId ?? null;
-  const itemHeight = columnItemHeights.current.get(columnType) || 0;
+  const itemHeight = columnItemHeights.current.get(columnType) || 44;
+  const visibleItemCount = items.filter((item) => !(isDragSource && draggedItemId === item.id)).length;
 
   useEffect(() => {
     if (isAdding && inputRef.current) inputRef.current.focus();
@@ -147,15 +203,47 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
     if (e.key === "Escape") { setNewText(""); setIsAdding(false); }
   };
 
+  const handleColumnBackgroundMouseDown = (e: React.MouseEvent) => {
+    if (isDragging) return;
+    e.preventDefault();
+    clearTimeout(blurTimerRef.current);
+    setIsAdding((prev) => !prev);
+  };
+
+  const getHoveredColumnType = (clientX: number, clientY: number): ColumnType | null => {
+    const orderedColumnTypes: ColumnType[] = ["week", "month", "year", "life"];
+
+    for (const candidate of orderedColumnTypes) {
+      const el = columnContainerRefs.current.get(candidate);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+        return candidate;
+      }
+    }
+
+    return null;
+  };
+
   const getDropTarget = (clientY: number, excludeId: string, targetColumnType: ColumnType): DragState['dropTarget'] => {
     let closest: { itemId: string; position: 'before' | 'after'; distance: number } | null = null;
     const columnRefs = columnItemRefs.current.get(targetColumnType);
 
     if (!columnRefs) return null;
+    let firstItem: { itemId: string; top: number } | null = null;
+    let lastItem: { itemId: string; bottom: number } | null = null;
 
     columnRefs.forEach((el, itemId) => {
       if (itemId === excludeId) return;
       const rect = el.getBoundingClientRect();
+
+      if (!firstItem || rect.top < firstItem.top) {
+        firstItem = { itemId, top: rect.top };
+      }
+      if (!lastItem || rect.bottom > lastItem.bottom) {
+        lastItem = { itemId, bottom: rect.bottom };
+      }
+
       const midY = rect.top + rect.height / 2;
       const position: 'before' | 'after' = clientY < midY ? 'before' : 'after';
       const dist = position === 'before' ? Math.abs(clientY - rect.top) : Math.abs(rect.bottom - clientY);
@@ -166,6 +254,12 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
     });
 
     if (!closest) return null;
+    if (firstItem && clientY <= firstItem.top) {
+      return { columnType: targetColumnType, itemId: firstItem.itemId, position: 'before' };
+    }
+    if (lastItem && clientY >= lastItem.bottom) {
+      return { columnType: targetColumnType, itemId: lastItem.itemId, position: 'after' };
+    }
     const c = closest as { itemId: string; position: 'before' | 'after'; distance: number };
     return { columnType: targetColumnType, itemId: c.itemId, position: c.position };
   };
@@ -224,16 +318,12 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
       ghost.style.left = ev.clientX - offsetX + "px";
       ghost.style.top = ev.clientY - offsetY + "px";
 
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const dropZone = el?.closest("[data-column-type]");
-      const hoverColumnType = dropZone?.getAttribute("data-column-type") as ColumnType | null;
+      const hoverColumnType = getHoveredColumnType(ev.clientX, ev.clientY);
       if (hoverColumnType) {
         const target = getDropTarget(ev.clientY, itemId, hoverColumnType);
-        if (target) {
-          onDragMove(target);
-        } else if (columnType !== hoverColumnType) {
-          onDragMove(null);
-        }
+        onDragMove(hoverColumnType, target);
+      } else {
+        onDragMove(null, null);
       }
     };
 
@@ -249,9 +339,7 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
         const clickedItem = items.find(i => i.id === itemId);
         onGoalClick(clickedItem || { id: itemId, text: "", completed: false });
       } else {
-        const el = document.elementFromPoint(ev.clientX, ev.clientY);
-        const dropZone = el?.closest("[data-column-type]");
-        const toType = dropZone?.getAttribute("data-column-type") as ColumnType | null;
+        const toType = getHoveredColumnType(ev.clientX, ev.clientY);
         ghost.remove();
         onDragEnd(toType);
       }
@@ -264,17 +352,24 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
 
   return (
       <div
-  className="flex flex-col flex-1 transition-all duration-200"
-  data-column-type={columnType}
-  onMouseEnter={() => {
-    setIsHovering(true);
-    setIsColumnHovered(true);
-  }}
-  onMouseLeave={() => {
-    setIsHovering(false);
-    setIsColumnHovered(false);
-  }}
->
+        ref={(el) => {
+          if (el) {
+            columnContainerRefs.current.set(columnType, el);
+          } else {
+            columnContainerRefs.current.delete(columnType);
+          }
+        }}
+        className="flex flex-col flex-1 transition-all duration-200"
+        data-column-type={columnType}
+        onMouseEnter={() => {
+          setIsHovering(true);
+          setIsColumnHovered(true);
+        }}
+        onMouseLeave={() => {
+          setIsHovering(false);
+          setIsColumnHovered(false);
+        }}
+      >
       <div className="flex-1 flex flex-col relative px-2 pt-4 overflow-hidden">
         <AnimatePresence mode="popLayout" initial={false} custom={direction}>
           <motion.div
@@ -291,7 +386,12 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
               {title}
             </h2>
 
-            <div className="flex flex-col overflow-y-auto no-scrollbar">
+            <div
+              className="flex flex-1 flex-col overflow-y-auto no-scrollbar min-h-0 cursor-pointer"
+              onMouseDown={handleColumnBackgroundMouseDown}
+              onMouseEnter={() => setIsAreaHovering(true)}
+              onMouseLeave={() => setIsAreaHovering(false)}
+            >
               {items.map((item) => {
                 const isDraggedItem = draggedItemId === item.id;
                 const showGapBefore = isDragging && dropTarget?.itemId === item.id && dropTarget?.position === 'before';
@@ -311,15 +411,18 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
                             columnItemRefs.current.set(columnType, new Map());
                           }
                           columnItemRefs.current.get(columnType)!.set(item.id, el);
-                          if (!columnItemHeights.current.has(columnType)) {
-                            columnItemHeights.current.set(columnType, el.offsetHeight);
-                          }
+                          columnItemHeights.current.set(columnType, el.offsetHeight || 44);
                         } else {
                           columnItemRefs.current.get(columnType)?.delete(item.id);
                         }
                       }}
-                      onMouseDown={(isDragSource || !isDragging) ? (e) => handleMouseDown(item.id, e) : undefined}
-                      style={{ cursor: "grab", display: isDraggedItem && isDragSource ? 'none' : undefined, boxShadow: isDragging && isDropTarget && dropTarget?.itemId === item.id ? "0 4px 12px rgba(0,0,0,0.08)" : "none" }}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseEnter={() => setIsAreaHovering(false)}
+                      onMouseDown={(isDragSource || !isDragging) ? (e) => {
+                        e.stopPropagation();
+                        handleMouseDown(item.id, e);
+                      } : undefined}
+                      style={{ cursor: "grab", display: isDraggedItem && isDragSource ? 'none' : undefined }}
                       className={`flex items-center gap-3 py-2 px-2 rounded-lg select-none ${!isDragging ? 'hover:bg-black/5' : ''} group transition-all duration-200`}
                     >
                       <input
@@ -349,18 +452,36 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
               })}
 
 
-              {isDragging && items.length === 0 && isColumnHovered && (
-  <div style={{ height: itemHeight || 32 }} />
-)}
+              {/* Do not change this placeholder behavior unless explicitly requested:
+                  when a column becomes visually empty during drag, the empty slot must
+                  match the goal row size exactly and only appear while the pointer is
+                  over that column. */}
+              {isDragging && visibleItemCount === 0 && (dragState?.hoverColumnType === columnType || isDragSource) && (
+                <div
+                  className="rounded-lg bg-white/45 transition-all duration-200"
+                  style={{ height: itemHeight || 44 }}
+                />
+              )}
 
               {isAdding ? (
-                  <div className="flex items-center gap-2 py-1.5 border border-black/20 rounded shadow-sm focus-within:shadow-md transition-shadow">
+                  <div
+                    className="flex items-center gap-2 py-1.5 border border-black/20 rounded-lg shadow-sm focus-within:shadow-md transition-shadow"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (e.target === e.currentTarget) {
+                        clearTimeout(blurTimerRef.current);
+                        setIsAdding(false);
+                      }
+                    }}
+                  >
                   <input type="checkbox" disabled className="h-5 ml-1 w-5 opacity-30" />
 
                   <input
                     ref={inputRef}
                     value={newText}
                     onChange={(e) => setNewText(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
                     onBlur={handleBlur}
                     onKeyDown={handleKeyDown}
                     className="bg-transparent border-none outline-none text-lg text-foreground w-full"
@@ -369,12 +490,13 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
                 </div>
               ) : (
                 <div
-                  onClick={() => setIsAdding(true)}
-                  className={`flex items-center gap-2 py-2 px-2 rounded-lg cursor-pointer transition-all duration-200
-                    ${isAreaHovering
-                      ? "text-foreground bg-black/5"
-                      : "text-muted-foreground hover:text-foreground hover:bg-black/5"
-                    }`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isDragging) return;
+                    setIsAdding(true);
+                  }}
+                  className={`flex items-center gap-2 py-2 px-2 rounded-lg cursor-pointer transition-all duration-200 ${isAreaHovering ? "text-foreground bg-black/5" : "text-muted-foreground hover:text-foreground hover:bg-black/5"}`}
                 >
                   <input
                     type="checkbox"
@@ -386,17 +508,14 @@ function GoalColumn({ title, columnType, items, direction, onToggle, onAdd, onPr
                   </span>
                 </div>
               )}
+
             </div>
 
             <div
               className="flex-1 min-h-0 cursor-pointer"
+              onMouseDown={handleColumnBackgroundMouseDown}
               onMouseEnter={() => setIsAreaHovering(true)}
               onMouseLeave={() => setIsAreaHovering(false)}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                clearTimeout(blurTimerRef.current);
-                setIsAdding(prev => !prev);
-              }}
             />
           </motion.div>
         </AnimatePresence>
@@ -429,11 +548,15 @@ const GoalView = () => {
   const [sidebarColumnType, setSidebarColumnType] = useState<ColumnType | null>(null);
   const [sidebarItemData, setSidebarItemData] = useState<{ notes?: string; color?: string; icon?: string; targetValue?: number; targetPeriod?: Goal["targetPeriod"]; status?: Goal["status"] }>({});
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const store = useGoalsStore((state) => state.store) as TodoStore;
   const setGoalsStore = useGoalsStore((state) => state.setStore);
   const fetchAllGoals = useGoalsStore((state) => state.fetchAllGoals);
   const hasLoadedAllGoals = useGoalsStore((state) => state.hasLoadedAll);
+  const syncGoalLinkedEvents = useEventsStore((state) => state.syncGoalLinkedEvents);
 
+  const columnContainerRefs = useRef<Map<ColumnType, HTMLDivElement>>(new Map());
   const columnItemRefs = useRef<Map<ColumnType, Map<string, HTMLElement>>>(new Map());
   const columnItemHeights = useRef<Map<ColumnType, number>>(new Map());
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -538,6 +661,120 @@ const GoalView = () => {
     return store[key] || [];
   };
 
+  const currentBucketKeys: Record<ColumnType, string> = {
+    week: getKey("week", currentDate),
+    month: getKey("month", currentDate),
+    year: getKey("year", yearDate),
+    life: "life",
+  };
+
+  const columnPriority: Record<ColumnType, number> = {
+    week: 0,
+    month: 1,
+    year: 2,
+    life: 3,
+  };
+
+  const searchableGoals: SearchGoalResult[] = Object.entries(store).flatMap(([bucketKey, items]) => {
+    const columnType = getColumnTypeFromBucketKey(bucketKey) as ColumnType | null;
+    if (!columnType) return [];
+
+    return items.map((item) => ({
+      id: item.id,
+      text: item.text,
+      notes: item.notes ?? "",
+      color: item.color,
+      icon: item.icon,
+      targetValue: item.targetValue,
+      targetPeriod: item.targetPeriod,
+      status: item.status,
+      completed: item.completed,
+      columnType,
+      bucketKey,
+      bucketLabel: getBucketLabel(columnType, bucketKey),
+    }));
+  });
+
+  const filteredGoals = (() => {
+    const baseResults = searchableGoals
+      .map((item) => ({
+        ...item,
+        textRank: 999,
+        isCurrentBucket: item.bucketKey === currentBucketKeys[item.columnType] ? 0 : 1,
+      }))
+      .sort((a, b) =>
+        a.isCurrentBucket - b.isCurrentBucket ||
+        columnPriority[a.columnType] - columnPriority[b.columnType] ||
+        a.text.localeCompare(b.text)
+      );
+
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return baseResults.slice(0, 3);
+
+    const matched = searchableGoals
+      .map((item) => {
+        const statusLabel = (item.completed ? "completed" : item.status || "active").toLowerCase();
+        const columnLabel = item.columnType.toLowerCase();
+        const bucketLabel = item.bucketLabel.toLowerCase();
+
+        let textRank = -1;
+        if (item.text.toLowerCase() === query) textRank = 0;
+        else if (item.text.toLowerCase().startsWith(query)) textRank = 1;
+        else if (item.text.toLowerCase().includes(query)) textRank = 2;
+        else if (item.notes.toLowerCase().includes(query)) textRank = 3;
+        else if (columnLabel === query) textRank = 4;
+        else if (columnLabel.includes(query)) textRank = 5;
+        else if (bucketLabel.includes(query)) textRank = 6;
+        else if (statusLabel === query) textRank = 7;
+        else if (statusLabel.includes(query)) textRank = 8;
+
+        return {
+          ...item,
+          textRank,
+          isCurrentBucket: item.bucketKey === currentBucketKeys[item.columnType] ? 0 : 1,
+        };
+      })
+      .filter((item) => item.textRank !== -1)
+      .sort((a, b) =>
+        a.isCurrentBucket - b.isCurrentBucket ||
+        columnPriority[a.columnType] - columnPriority[b.columnType] ||
+        a.textRank - b.textRank ||
+        a.text.localeCompare(b.text)
+      )
+      .slice(0, 3);
+
+    if (matched.length >= 3) return matched;
+
+    const usedIds = new Set(matched.map((item) => item.id));
+    const filler = baseResults.filter((item) => !usedIds.has(item.id)).slice(0, 3 - matched.length);
+    return [...matched, ...filler];
+  })();
+
+  const openSearchResult = (goal: SearchGoalResult) => {
+    const bucketDate = parseBucketDate(goal.bucketKey);
+
+    if ((goal.columnType === "week" || goal.columnType === "month") && bucketDate) {
+      setCurrentDate(bucketDate);
+    }
+    if (goal.columnType === "year" && bucketDate) {
+      setYearDate(bucketDate);
+    }
+
+    setSidebarItemId(goal.id);
+    setSidebarPrefillName(goal.text);
+    setSidebarColumnType(goal.columnType);
+    setSidebarItemData({
+      notes: goal.notes,
+      color: goal.color,
+      icon: goal.icon,
+      targetValue: goal.targetValue,
+      targetPeriod: goal.targetPeriod,
+      status: goal.status,
+    });
+    setSidebarOpen(true);
+    setSearchOpen(false);
+  };
+
   const addItem = (type: ColumnType, text: string) => {
     const key = getKey(type, getDate(type));
     const items = store[key] || [];
@@ -556,10 +793,30 @@ const GoalView = () => {
     if (!sidebarItemId || !sidebarColumnType) return;
     const key = getKey(sidebarColumnType, getDate(sidebarColumnType));
     const items = store[key] || [];
+    const previousItem = items.find((item) => item.id === sidebarItemId);
     const updated = items.map(item =>
       item.id === sidebarItemId ? { ...item, text: data.text, notes: data.notes, color: data.color, icon: data.icon, targetValue: data.targetValue, targetPeriod: data.targetPeriod, status: data.status } : item
     );
     save({ ...store, [key]: updated });
+
+    if (
+      previousItem &&
+      (
+        previousItem.text !== data.text ||
+        (previousItem.color || "") !== data.color ||
+        (previousItem.icon || "") !== data.icon
+      )
+    ) {
+      void syncGoalLinkedEvents({
+        columnType: sidebarColumnType,
+        bucketKey: key,
+        previousGoalText: previousItem.text,
+        nextGoalText: data.text,
+        color: data.color,
+        icon: data.icon,
+      });
+    }
+
     setSidebarOpen(false);
   };
 
@@ -569,7 +826,8 @@ const GoalView = () => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
 
-      const key = getKey(sidebarColumnType, getDate(sidebarColumnType));
+      const activeDate = sidebarColumnType === "year" ? yearDate : currentDate;
+      const key = getKey(sidebarColumnType, activeDate);
       const items = store[key] || [];
       const updated = items.filter((item) => item.id !== sidebarItemId);
       save({ ...store, [key]: updated });
@@ -582,7 +840,7 @@ const GoalView = () => {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [sidebarOpen, sidebarItemId, sidebarColumnType, store, currentDate, yearDate]);
+  }, [sidebarOpen, sidebarItemId, sidebarColumnType, store, currentDate, yearDate, save]);
 
   const moveItem = (fromType: ColumnType, toType: ColumnType, itemId: string, dropTarget?: DragState['dropTarget']) => {
     const fromKey = getKey(fromType, getDate(fromType));
@@ -629,15 +887,15 @@ const GoalView = () => {
   const dragStateRef = useRef<DragState | null>(null);
 
   const handleDragStart = (itemId: string, sourceColumnType: ColumnType, initialDropTarget: DragState['dropTarget']) => {
-    const state: DragState = { itemId, sourceColumnType, dropTarget: initialDropTarget };
+    const state: DragState = { itemId, sourceColumnType, hoverColumnType: sourceColumnType, dropTarget: initialDropTarget };
     dragStateRef.current = state;
     setSidebarOpen(false);
     setDragState(state);
   };
 
-  const handleDragMove = (dropTarget: DragState['dropTarget']) => {
+  const handleDragMove = (hoverColumnType: ColumnType | null, dropTarget: DragState['dropTarget']) => {
     setDragState(prev => {
-      const next = prev ? { ...prev, dropTarget } : null;
+      const next = prev ? { ...prev, hoverColumnType, dropTarget } : null;
       dragStateRef.current = next;
       return next;
     });
@@ -675,20 +933,104 @@ const GoalView = () => {
   };
 
   return (
-    <div className="flex w-full min-h-screen bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-200 p-4 pt-[120px] gap-4">
-      <div data-column-type="week" className="flex-1 flex flex-col min-w-0 rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
-        <GoalColumn title={weekLabel} columnType="week" items={getItems("week")} direction={direction} onToggle={(id) => toggleItem("week", id)} onAdd={(text) => addItem("week", text)} onPrev={() => navigate(d => addWeeks(d, -1), -1)} onNext={() => navigate(d => addWeeks(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("week"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
+    <div className="relative flex w-full min-h-screen bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-200 p-4 pt-[120px] gap-4">
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => setSearchOpen(true)}
+        className="fixed top-[17px] right-[17px] z-50 h-16 w-16 rounded-full border-[1px] shadow-lg text-slate-600 transition-all duration-200 ease-out hover:scale-110 hover:shadow-xl hover:text-slate-800"
+        aria-label="Open goal search"
+      >
+        <img src={SearchIcon} alt="Search" className="h-8 w-8 opacity-60" />
+      </Button>
+
+      <div className="flex w-full flex-col gap-4">
+        <div className="flex w-full flex-wrap gap-4">
+      <div data-column-type="week" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+        <GoalColumn title={weekLabel} columnType="week" items={getItems("week")} direction={direction} onToggle={(id) => toggleItem("week", id)} onAdd={(text) => addItem("week", text)} onPrev={() => navigate(d => addWeeks(d, -1), -1)} onNext={() => navigate(d => addWeeks(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("week"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
-      <div data-column-type="month" className="flex-1 flex flex-col min-w-0 rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
-        <GoalColumn title={monthLabel} columnType="month" items={getItems("month")} direction={direction} onToggle={(id) => toggleItem("month", id)} onAdd={(text) => addItem("month", text)} onPrev={() => navigate(d => addMonths(d, -1), -1)} onNext={() => navigate(d => addMonths(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("month"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
+      <div data-column-type="month" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+        <GoalColumn title={monthLabel} columnType="month" items={getItems("month")} direction={direction} onToggle={(id) => toggleItem("month", id)} onAdd={(text) => addItem("month", text)} onPrev={() => navigate(d => addMonths(d, -1), -1)} onNext={() => navigate(d => addMonths(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("month"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
-      <div data-column-type="year" className="flex-1 flex flex-col min-w-0 rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
-        <GoalColumn title={yearLabel} columnType="year" items={getItems("year")} direction={direction} onToggle={(id) => toggleItem("year", id)} onAdd={(text) => addItem("year", text)} onPrev={() => navigateYear(d => addYears(d, -1), -1)} onNext={() => navigateYear(d => addYears(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("year"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
+      <div data-column-type="year" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+        <GoalColumn title={yearLabel} columnType="year" items={getItems("year")} direction={direction} onToggle={(id) => toggleItem("year", id)} onAdd={(text) => addItem("year", text)} onPrev={() => navigateYear(d => addYears(d, -1), -1)} onNext={() => navigateYear(d => addYears(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("year"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
-      <div data-column-type="life" className="flex-1 flex flex-col min-w-0 rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
-        <GoalColumn title="Life" columnType="life" items={getItems("life")} direction={direction} onToggle={(id) => toggleItem("life", id)} onAdd={(text) => addItem("life", text)} onPrev={() => {}} onNext={() => {}} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} showNav={false} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("life"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
+      <div data-column-type="life" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+        <GoalColumn title="Life" columnType="life" items={getItems("life")} direction={direction} onToggle={(id) => toggleItem("life", id)} onAdd={(text) => addItem("life", text)} onPrev={() => {}} onNext={() => {}} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} showNav={false} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("life"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
+      </div>
+        </div>
       </div>
       <GoalSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} prefillName={sidebarPrefillName} prefillNotes={sidebarItemData.notes} prefillColor={sidebarItemData.color} prefillIcon={sidebarItemData.icon} prefillTargetValue={sidebarItemData.targetValue} prefillTargetPeriod={sidebarItemData.targetPeriod} prefillStatus={sidebarItemData.status} onSave={handleSidebarSave} onClearPrefill={() => { setSidebarItemId(""); setSidebarPrefillName(""); setSidebarColumnType(null); setSidebarItemData({}); }} />
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="w-[min(680px,92vw)] overflow-hidden rounded-[28px] border border-gray-200 bg-neutral-100 p-0 shadow-[0_24px_70px_rgba(0,0,0,0.14)]">
+          <div className="border-b border-gray-200 px-5 py-4">
+            <div className="flex items-center gap-3 rounded-[24px] border border-gray-200 bg-[#e7e7e6] px-4 py-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#dddddc]">
+                <img src={SearchIcon} alt="" className="h-5 w-5 opacity-60" />
+              </div>
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && filteredGoals.length > 0) {
+                    e.preventDefault();
+                    openSearchResult(filteredGoals[0]);
+                  }
+                }}
+                placeholder="Search Goals"
+                className="w-full bg-transparent text-2xl font-semibold text-neutral-700 outline-none placeholder:text-neutral-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto px-3 py-3">
+            {filteredGoals.length > 0 ? (
+              <div className="space-y-2">
+                {filteredGoals.map((goal) => (
+                  (() => {
+                    const showBucketLabel = goal.columnType !== "life";
+                    return (
+                  <button
+                    key={`${goal.bucketKey}-${goal.id}`}
+                    type="button"
+                    onClick={() => openSearchResult(goal)}
+                    className="group flex w-full items-start justify-between rounded-[24px] border border-transparent bg-[#ececeb] px-4 py-3 text-left transition-all duration-200 hover:border-gray-200 hover:bg-[#f3f3f2]"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[17px] font-semibold text-neutral-800">{goal.text}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-neutral-500">
+                        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                          {goal.columnType}
+                        </span>
+                        {showBucketLabel ? (
+                          <span className="rounded-full bg-white px-2.5 py-1">
+                            {goal.bucketLabel}
+                          </span>
+                        ) : null}
+                        <span className="rounded-full bg-white px-2.5 py-1">
+                          {goal.completed ? "completed" : goal.status || "active"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ml-4 flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full bg-white text-xl font-semibold leading-none text-neutral-300 transition-colors duration-200 group-hover:text-neutral-500">
+                      &gt;
+                    </div>
+                  </button>
+                    )
+                  })()
+                ))}
+              </div>
+            ) : (
+              <div className="flex min-h-[180px] items-center justify-center rounded-[24px] border border-dashed border-gray-200 bg-[#ececeb] text-center">
+                <div>
+                  <p className="text-base font-semibold text-neutral-500">No matching goals</p>
+                  <p className="mt-1 text-sm text-neutral-400">Try a goal title or note.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

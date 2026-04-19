@@ -5,6 +5,7 @@ import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE,
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 import { resolveGoalColorForEvent, resolveGoalIconForEvent, useGoalsStore } from "@/store/goalsStore"
+import { isSeriesActuallyRecurring, isSeriesAnchorEvent } from "@/store/recurringUtils"
 import { supabase } from "@/lib/supabase"
 import { getGoalIcon } from "@/Goal_view/goal"
 
@@ -51,6 +52,14 @@ const labelStartHour = event.originalStartHour ?? event.startHour
 const labelStartMin = event.originalStartMin ?? event.startMin
 const labelEndHour = event.originalEndHour ?? event.endHour
 const labelEndMin = event.originalEndMin ?? event.endMin
+const compactTimeLabel = `${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
+  .toString()
+  .padStart(2, "0")}`
+const rangeTimeLabel = `${compactTimeLabel} - ${labelEndHour
+  .toString()
+  .padStart(2, "0")}:${labelEndMin
+  .toString()
+  .padStart(2, "0")}`
 
  const isActive = isDragging || isResizing || isSelected
 
@@ -95,15 +104,30 @@ return (
 
     {/* Event content - adjust based on event height */}
 <div className="pl-[18px] pr-3 pt-0 relative z-10" style={{ color: textColor }}>
-  {calculateEventDuration(event) <= 20 ? (
-    // 20 MIN OR LESS (super compact)
+  {calculateEventDuration(event) <= 15 ? (
+    // 15 MIN OR LESS
     <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
       <span className="truncate font-semibold  ">{event.title}</span>
       <div className="flex items-center shrink-0 gap-1 ml-1">
+        <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span className="text-sm font-medium opacity-80">
+          {compactTimeLabel}
+        </span>
+      </div>
+    </div>
+
+  ) : calculateEventDuration(event) <= 20 ? (
+    // 16-20 MIN (super compact)
+    <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
+      <span className="truncate font-semibold  ">{event.title}</span>
+      <div className="flex items-center shrink-0 gap-1 ml-1">
+        <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
         <span className="text-xs opacity-70">
-          {`${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
-            .toString()
-            .padStart(2, "0")}`}
+          {compactTimeLabel}
         </span>
       </div>
     </div>
@@ -113,10 +137,11 @@ return (
     <div className=" flex pt-1 items-center pr-2 truncate justify-between">
       <span className="truncate font-semibold text-xl ">{event.title}</span>
       <div className="flex items-center shrink-0 gap-1 ml-1">
+        <svg className="h-4 w-4 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
         <span className="font-medium text-xl">
-          {`${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
-            .toString()
-            .padStart(2, "0")}`}
+          {compactTimeLabel}
         </span>
       </div>
     </div>
@@ -134,16 +159,8 @@ return (
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {showEndTime 
-            ? `${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
-              .toString()
-              .padStart(2, "0")} - ${labelEndHour
-              .toString()
-              .padStart(2, "0")}:${labelEndMin
-              .toString()
-              .padStart(2, "0")}`
-            : `${labelStartHour.toString().padStart(2, "0")}:${labelStartMin
-              .toString()
-              .padStart(2, "0")}`}
+            ? rangeTimeLabel
+            : compactTimeLabel}
         </div>
       </div>
     </>
@@ -168,6 +185,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
   const addEventLocal = useEventsStore((state) => state.addEventLocal)
   const updateEvent = useEventsStore((state) => state.updateEvent)
   const deleteEvent = useEventsStore((state) => state.deleteEvent)
+  const getEventById = useEventsStore((state) => state.getEventById)
   const eventsCache = useEventsStore((state) => state.eventsCache)
   const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
@@ -419,10 +437,17 @@ const TimeView: React.FC<TimeViewProps> = () => {
             removeEventLocally(selectedEvent.id)
             void deleteEvent(selectedEvent.id)
             setSelectedEvent(null)
-          } else if (selectedEvent.isRecurringInstance || selectedEvent.seriesMasterId) {
+          } else if (isSeriesActuallyRecurring(selectedEvent as any)) {
             const eventDateStr = selectedEvent.date instanceof Date
               ? formatDate(selectedEvent.date)
               : selectedEvent.date
+
+            if (isSeriesAnchorEvent(selectedEvent as any)) {
+              removeEventLocally(selectedEvent.id)
+              void deleteEvent((selectedEvent as any).seriesMasterId || selectedEvent.id)
+              setSelectedEvent(null)
+              return
+            }
 
             showRecurringDialog(selectedEvent as any, "delete", async (choice: string) => {
               if (choice === "only-this") {
@@ -477,31 +502,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   d.setDate(d.getDate() - 1)
                   return d.toISOString().split('T')[0]
                 })()
-                
-                // Immediately update cache (optimistic)
-                const { eventsCache } = useEventsStore.getState()
-                const newCache = { ...eventsCache }
-                for (const dateKey of Object.keys(newCache)) {
-                  newCache[dateKey] = newCache[dateKey].map(e => {
-                    if (e.id === selectedEvent.seriesMasterId) {
-                      return { ...e, series_end_date: prevDay, updated_at: new Date().toISOString() }
-                    }
-                    return e
-                  })
-                }
-                useEventsStore.setState({
-                  eventsCache: newCache,
-                  computedEventsCache: {},
-                  recurringEventsCache: {},
-                  eventExceptionsCache: {},
-                })
-                
-                // Fire DB update in background
-                supabase.from('events').update({ series_end_date: prevDay }).eq('id', selectedEvent.seriesMasterId).then(({ error }) => {
-                  if (error) console.error('Failed to update series_end_date:', error)
-                })
-                
-                // Immediately remove affected virtual events from local state
+                const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+                await updateAllInSeries(selectedEvent.seriesMasterId, { series_end_date: prevDay })
+
+                // Immediately remove affected recurring instances from local state
                 setLocalEvents(prev => prev.filter(e => {
                   if (e.seriesMasterId === selectedEvent.seriesMasterId) {
                     const eventDate = e.date instanceof Date
@@ -814,6 +818,21 @@ const TimeView: React.FC<TimeViewProps> = () => {
           const end = yToTimeSnapped(resizedEvent.slot + newHeight)
           const startMinutes = resizedEvent.startHour * 60 + resizedEvent.startMin
           const endMinutes = end.hour * 60 + end.min
+          console.log("[DayView resize move]", {
+            id: resizingId,
+            eventDate: resizedEvent.date instanceof Date ? formatDate(resizedEvent.date) : resizedEvent.date,
+            slot: resizedEvent.slot,
+            height: resizedEvent.height,
+            newHeight,
+            start_time: startMinutes,
+            end_time: endMinutes,
+            start_label: `${String(resizedEvent.startHour).padStart(2, "0")}:${String(resizedEvent.startMin).padStart(2, "0")}`,
+            end_label: `${String(end.hour).padStart(2, "0")}:${String(end.min).padStart(2, "0")}`,
+            originalStartHour: resizedEvent.originalStartHour,
+            originalStartMin: resizedEvent.originalStartMin,
+            originalEndHour: resizedEvent.originalEndHour,
+            originalEndMin: resizedEvent.originalEndMin,
+          })
           const previousPreview = livePreviewRef.current
           if (
             !previousPreview ||
@@ -1026,12 +1045,19 @@ const TimeView: React.FC<TimeViewProps> = () => {
           const end = yToTimeSnapped(snappedY + draggedEvent.height)
           const dateStr = formatDate(selectedDate)
           
-          const isRecurring = !!(
-            draggedEvent.isRecurringInstance === true ||
-            (draggedEvent.repeat && draggedEvent.repeat !== 'None' && ((draggedEvent as any).series_start_date || (draggedEvent as any).series_end_date))
-          )
+          const isRecurring = isSeriesActuallyRecurring(draggedEvent as any)
           
           if (isRecurring) {
+            if (isSeriesAnchorEvent(draggedEvent as any)) {
+              const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+              void updateAllInSeries(draggedEvent.seriesMasterId || draggedEvent.id, {
+                start_time: start.hour * 60 + start.min,
+                end_time: end.hour * 60 + end.min,
+              })
+              originalEventRef.current = null
+              return
+            }
+
             // Show recurring dialog - cleanup drag state immediately
             el.style.boxShadow = "none"
             isDraggingRef.current = false
@@ -1135,15 +1161,34 @@ const TimeView: React.FC<TimeViewProps> = () => {
         const resizedEvent = localEventsRef.current.find(e => e.id === wasResizingId)
         
         if (resizedEvent && selectedDate) {
-           const end = yToTimeSnapped(resizedEvent.slot + snappedHeight)
+          const end = yToTimeSnapped(resizedEvent.slot + snappedHeight)
           const dateStr = formatDate(selectedDate)
+          const sourceEvent = getEventById(wasResizingId)
+          const sourceStartTime = sourceEvent?.start_time ?? (resizedEvent.startHour * 60 + resizedEvent.startMin)
+          const sourceDate = sourceEvent?.date ?? dateStr
+          const sourceEndDate = sourceEvent?.end_date || sourceEvent?.date || dateStr
+          const isResizingOvernightSegment =
+            !!sourceEvent &&
+            sourceDate !== dateStr &&
+            sourceEndDate >= dateStr
+          const commitStartTime = isResizingOvernightSegment
+            ? sourceStartTime
+            : (resizedEvent.startHour * 60 + resizedEvent.startMin)
+          const commitDate = isResizingOvernightSegment ? sourceDate : dateStr
+          const commitEndDate = isResizingOvernightSegment ? sourceEndDate : undefined
           
-          const isRecurring = !!(
-            resizedEvent.isRecurringInstance === true ||
-            (resizedEvent.repeat && resizedEvent.repeat !== 'None' && ((resizedEvent as any).series_start_date || (resizedEvent as any).series_end_date))
-          )
+          const isRecurring = isSeriesActuallyRecurring(resizedEvent as any)
           
           if (isRecurring) {
+            if (isSeriesAnchorEvent(resizedEvent as any)) {
+              const updateAllInSeries = useEventsStore.getState().updateAllInSeries
+              void updateAllInSeries(resizedEvent.seriesMasterId || resizedEvent.id, {
+                end_time: end.hour * 60 + end.min,
+              })
+              originalEventRef.current = null
+              return
+            }
+
             // Show recurring dialog - cleanup resize state immediately
             el.style.boxShadow = "none"
             isDraggingRef.current = false
@@ -1185,7 +1230,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   await splitRecurringEvent(
                     resizedEvent as any,
                     dateStr,
-                    resizedEvent.startHour * 60 + resizedEvent.startMin,
+                    commitStartTime,
                     end.hour * 60 + end.min
                   )
                   // Remove the resized virtual event from local state since it's been replaced
@@ -1229,8 +1274,9 @@ const TimeView: React.FC<TimeViewProps> = () => {
             // Non-recurring: update directly
             updateEvent(wasResizingId, {
               title: resizedEvent.title,
-              date: dateStr,
-              start_time: resizedEvent.startHour * 60 + resizedEvent.startMin,
+              date: commitDate,
+              ...(commitEndDate ? { end_date: commitEndDate } : {}),
+              start_time: commitStartTime,
               end_time: end.hour * 60 + end.min,
             })
           }

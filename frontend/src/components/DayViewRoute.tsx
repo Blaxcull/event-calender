@@ -4,6 +4,7 @@ import { useTimeStore } from '@/store/timeStore'
 import { useEventsStore } from '@/store/eventsStore'
 import DayView from '@/Day_view/DayView'
 import WeekView from '@/Week_view/WeekView'
+import MonthView from '@/Month_view/MonthView'
 
 export function DayViewRoute() {
   const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
@@ -106,6 +107,47 @@ export function WeekViewRoute() {
   }
 
   return <WeekView />
+}
+
+export function MonthViewRoute() {
+  const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
+  const setDate = useTimeStore(state => state.setDate)
+  const setToday = useTimeStore(state => state.setToday)
+  const fetchEventsWindow = useEventsStore(state => state.fetchEventsWindow)
+  const setSelectedEvent = useEventsStore(state => state.setSelectedEvent)
+
+  const yearNum = parseInt(year || '', 10)
+  const monthNum = parseInt(month || '', 10) - 1
+  const dayNum = parseInt(day || '', 10)
+  const date = new Date(yearNum, monthNum, dayNum)
+  const isValidDate =
+    !Number.isNaN(yearNum) &&
+    !Number.isNaN(monthNum) &&
+    !Number.isNaN(dayNum) &&
+    date.getFullYear() === yearNum &&
+    date.getMonth() === monthNum &&
+    date.getDate() === dayNum
+
+  useEffect(() => {
+    if (!isValidDate) {
+      setToday()
+      return
+    }
+
+    setDate(date)
+    setSelectedEvent(null)
+
+    const fetchCenter = new Date(yearNum, monthNum, 15)
+    queueMicrotask(() => {
+      fetchEventsWindow(fetchCenter)
+    })
+  }, [date, fetchEventsWindow, isValidDate, monthNum, setDate, setSelectedEvent, setToday, yearNum])
+
+  if (!isValidDate) {
+    return <Navigate to="/" replace />
+  }
+
+  return <MonthView />
 }
 
 export function TodayRedirect() {

@@ -1,8 +1,7 @@
 "use client"
 import React from "react"
-import { LogOut } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
-import ChevronLeft from "@/assets/chevron-left.svg"
+import ChevronLeftIcon from "@/assets/chevron-left.svg"
 import SearchIcon from "@/assets/search.svg"
 
 import { Button } from "@/components/ui/button"
@@ -15,14 +14,20 @@ import { resolveGoalColorForEvent, useGoalsStore } from "@/store/goalsStore"
 import { supabase } from "@/lib/supabase"
 import EventTitle from "./components/EventTitle"
 import RecurringActionDialog from "@/components/RecurringActionDialog"
-import { getEventDurationMinutes, getEventVisualColors } from "@/lib/eventUtils"
+import { getEventVisualColors, isAllDayEvent, isMultiDayEvent, isTimedMultiDayEvent } from "@/lib/eventUtils"
 
-function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date, isWeekRoute: boolean) {
+type CalendarRouteView = "day" | "week" | "month"
+
+function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date, view: CalendarRouteView) {
   const year = date.getFullYear()
   const month = date.getMonth() + 1 // 1-indexed for URL
   const day = date.getDate()
-  if (isWeekRoute) {
+  if (view === "week") {
     navigate(`/week/${year}/${month}/${day}`)
+    return
+  }
+  if (view === "month") {
+    navigate(`/month/${year}/${month}/${day}`)
     return
   }
   navigate(`/day/${year}/${month}/${day}`)
@@ -31,7 +36,11 @@ function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date, is
 export function SideBar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const isWeekRoute = location.pathname.startsWith("/week")
+  const currentCalendarView: CalendarRouteView = location.pathname.startsWith("/week")
+    ? "week"
+    : location.pathname.startsWith("/month")
+      ? "month"
+      : "day"
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const setDate = useTimeStore((state) => state.setDate)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -44,37 +53,52 @@ export function SideBar() {
   const wasRecurringWhenSelectedRef = React.useRef(false)
   const previousEventIdRef = React.useRef<string | null>(null)
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    navigate('/login')
-  }
-
   const goToToday = () => {
     const today = new Date()
     setDate(today)
-    navigateToDate(navigate, today, isWeekRoute)
+    navigateToDate(navigate, today, currentCalendarView)
   }
 
   const goToPreviousDay = () => {
     if (!selectedDate) return
     const prev = new Date(selectedDate)
-    prev.setDate(prev.getDate() - (isWeekRoute ? 7 : 1))
+    if (currentCalendarView === "week") {
+      prev.setDate(prev.getDate() - 7)
+    } else if (currentCalendarView === "month") {
+      const originalDay = prev.getDate()
+      prev.setDate(1)
+      prev.setMonth(prev.getMonth() - 1)
+      const lastDay = new Date(prev.getFullYear(), prev.getMonth() + 1, 0).getDate()
+      prev.setDate(Math.min(originalDay, lastDay))
+    } else {
+      prev.setDate(prev.getDate() - 1)
+    }
     setDate(prev)
-    navigateToDate(navigate, prev, isWeekRoute)
+    navigateToDate(navigate, prev, currentCalendarView)
   }
 
   const goToNextDay = () => {
     if (!selectedDate) return
     const next = new Date(selectedDate)
-    next.setDate(next.getDate() + (isWeekRoute ? 7 : 1))
+    if (currentCalendarView === "week") {
+      next.setDate(next.getDate() + 7)
+    } else if (currentCalendarView === "month") {
+      const originalDay = next.getDate()
+      next.setDate(1)
+      next.setMonth(next.getMonth() + 1)
+      const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()
+      next.setDate(Math.min(originalDay, lastDay))
+    } else {
+      next.setDate(next.getDate() + 1)
+    }
     setDate(next)
-    navigateToDate(navigate, next, isWeekRoute)
+    navigateToDate(navigate, next, currentCalendarView)
   }
 
   const handleCalendarSelect = (date: Date | undefined) => {
     if (!date) return
     setDate(date)
-    navigateToDate(navigate, date, isWeekRoute)
+    navigateToDate(navigate, date, currentCalendarView)
   }
 
   const saveSelectedEvent = useEventsStore((state) => state.saveSelectedEvent)
@@ -126,9 +150,9 @@ export function SideBar() {
 
     const addEntry = (event: any) => {
       const endDate = event.end_date || event.date
-      const durationMinutes = getEventDurationMinutes(event)
-      const isAllDay = !!event.is_all_day || durationMinutes >= 1440
-      const isMultiDay = endDate > event.date
+      const isAllDay = isAllDayEvent(event)
+      const isMultiDay = isMultiDayEvent(event)
+      const isTimedMultiDay = isTimedMultiDayEvent(event)
       const isRecurring = !!event.isRecurringInstance || !!(event.repeat && event.repeat !== "None")
 
       let bucketPriority = 5
@@ -169,7 +193,13 @@ export function SideBar() {
         isAllDay,
         isMultiDay,
         isRecurring,
-        timeLabel: isMultiDay ? "Multi Day" : isAllDay ? "All Day" : buildTimeLabel(event.start_time, event.end_time),
+        timeLabel: isTimedMultiDay
+          ? `${buildTimeLabel(event.start_time, event.end_time)}`
+          : isMultiDay
+            ? "All Day"
+            : isAllDay
+              ? "All Day"
+              : buildTimeLabel(event.start_time, event.end_time),
         dateRangeLabel: `${formatShortDate(event.date)} - ${formatShortDate(endDate)}`,
         bucketPriority,
         bucketLabel,
@@ -241,13 +271,13 @@ export function SideBar() {
     setSearchQuery("")
 
     const targetDate = new Date(`${dateStr}T00:00:00`)
-    navigateToDate(navigate, targetDate, isWeekRoute)
+    navigateToDate(navigate, targetDate, currentCalendarView)
 
     window.setTimeout(() => {
       setScrollToEventId(eventId)
       setSelectedEvent(eventId)
     }, 80)
-  }, [isWeekRoute, navigate, setScrollToEventId, setSelectedEvent])
+  }, [currentCalendarView, navigate, setScrollToEventId, setSelectedEvent])
 
   React.useEffect(() => {
     if (!searchOpen) {
@@ -306,221 +336,203 @@ export function SideBar() {
     }
   }, [selectedEventId, saveSelectedEvent])
 
-  return (
-      <>
-    <Card className="h-full w-[630px] flex flex-col bg-neutral-100 text-slate-800 border border-gray-300 py-3 relative overflow-y-auto">
-      {/* Search button */}
-      <Button
-        variant="ghost"
-        onClick={() => setSearchOpen(true)}
-        className="absolute top-4 right-4 z-10
+  const sidebarContent = (
+    <>
+      <Card className="h-full w-[630px] flex flex-col bg-neutral-100 text-slate-800 border border-gray-300 py-3 relative overflow-y-auto">
+        <Button
+          variant="ghost"
+          onClick={() => setSearchOpen(true)}
+          className="absolute top-4 right-4 z-10
 shadow-lg text-slate-600
 border-[1px]
 hover:text-slate-800 
 rounded-full h-16 w-16
 transition-all duration-200 ease-out
 hover:scale-110 hover:shadow-xl"
-      >
-        <img src={SearchIcon} alt="Search" className="h-8 w-8 opacity-60" />
-      </Button>
-
-      {/* Sign out button */}
-      <div className="px-4 pb-2 shrink-0">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleSignOut}
-          className="text-slate-600 hover:text-slate-800 hover:bg-gray-200"
         >
-          <LogOut className="h-4 w-4 mr-2" />
-          Sign out
+          <img src={SearchIcon} alt="Search" className="h-8 w-8 opacity-60" />
         </Button>
-      </div>
 
-      {/* Calendar section */}
-     <CardContent className="px-30 pb-9 pt-16 shrink-0">
-        <div className="flex items-start gap-3">
-          {/* Calendar */}
-         <div className="w-[135px]  flex items-start justify-center pt-3">
-            <div className="origin-top ">
-              <Calendar
-                mode="single"
-                selected={selectedDate || undefined}
-                onSelect={handleCalendarSelect}
-                className="bg-neutral-100 text-white rounded-md"
-              />
+        <CardContent className="px-30 pb-9 pt-16 shrink-0">
+          <div className="flex items-start gap-3">
+            <div className="w-[135px]  flex items-start justify-center pt-3">
+              <div className="origin-top ">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate || undefined}
+                  onSelect={handleCalendarSelect}
+                  className="bg-neutral-100 text-white rounded-md"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Date controls */}
-          <div className="flex flex-1 justify-start pl-35 pt-5">
-  <div className="flex items-center gap-3">
-
-    <Button
-      variant="secondary"
-      size="icon-xl"
-      onClick={goToPreviousDay}
-      aria-label="Previous day"
-      className="rounded-full text-[#404040] bg-[#e2e2e1] hover:bg-[#d6d6d5]
+            <div className="flex flex-1 justify-start pl-35 pt-5">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="secondary"
+                  size="icon-xl"
+                  onClick={goToPreviousDay}
+                  aria-label="Previous day"
+                  className="rounded-full text-[#404040] bg-[#e2e2e1] hover:bg-[#d6d6d5]
       transition-all duration-200 ease-out
       hover:scale-110 hover:shadow-md
       active:scale-95"
-    >
-      <img src={ChevronLeft} alt="Previous" className="h-5 w-5 transition-transform duration-200 group-hover:-translate-x-0.5" />
-    </Button>
+                >
+                  <img src={ChevronLeftIcon} alt="Previous" className="h-5 w-5 transition-transform duration-200 group-hover:-translate-x-0.5" />
+                </Button>
 
-    <Button
-      variant="secondary"
-      size="xl"
-      onClick={goToToday}
-      className="text-xl text-[#404040] font-semibold bg-[#e2e2e1] hover:bg-[#d6d6d5]
+                <Button
+                  variant="secondary"
+                  size="xl"
+                  onClick={goToToday}
+                  className="text-xl text-[#404040] font-semibold bg-[#e2e2e1] hover:bg-[#d6d6d5]
       transition-all duration-200 ease-out
       hover:scale-105 hover:shadow-md
       active:scale-95"
-    >
-      Today
-    </Button>
+                >
+                  Today
+                </Button>
 
-    <Button
-      variant="secondary"
-      size="icon-xl"
-      onClick={goToNextDay}
-      aria-label="Next day"
-      className="rounded-full bg-[#e2e2e1] hover:bg-[#d6d6d5]
+                <Button
+                  variant="secondary"
+                  size="icon-xl"
+                  onClick={goToNextDay}
+                  aria-label="Next day"
+                  className="rounded-full bg-[#e2e2e1] hover:bg-[#d6d6d5]
       transition-all duration-200 ease-out
       hover:scale-110 hover:shadow-md
       active:scale-95"
-    >
-      <img
-        src={ChevronLeft}
-        alt="Next"
-        className="h-5 w-5 rotate-180 transition-transform duration-200"
-      />
-    </Button>
-
-  </div>
-</div>
-        </div>
-      </CardContent>
-
-
-      {/* Event title */}
-      <EventTitle />
-
-      {/* Save button */}
-      {selectedEventId && (
-      <div className="mt-auto pt-4 px-4 pb-4 flex justify-end">
-        <Button
-          variant="secondary"
-          onClick={handleSave}
-          className="bg-red-600 text-white hover:bg-red-700 px-8 py-6 text-lg rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          Save
-        </Button>
-      </div>
-      )}
-
-      {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
-        <RecurringActionDialog
-          open={recurringDialogOpen}
-          onChoice={(choice) => {
-            const callback = useEventsStore.getState().recurringDialogCallback
-            if (callback) callback(choice)
-          }}
-          actionType={recurringDialogActionType}
-          eventTitle={recurringDialogEvent?.title || ""}
-        />
-      )}
-
-    </Card>
-    <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-      <DialogContent className="w-[min(680px,92vw)] overflow-hidden rounded-[28px] border border-gray-200 bg-neutral-100 p-0 shadow-[0_24px_70px_rgba(0,0,0,0.14)]">
-        <div className="border-b border-gray-200 px-5 py-4">
-          <div className="flex items-center gap-3 rounded-[24px] border border-gray-200 bg-[#e7e7e6] px-4 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#dddddc]">
-              <img src={SearchIcon} alt="" className="h-5 w-5 opacity-60" />
-            </div>
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && filteredEvents.length > 0) {
-                  e.preventDefault()
-                  const first = filteredEvents[0]
-                  openSearchResult(first.id, first.date)
-                }
-              }}
-              placeholder="Search Events"
-              className="w-full bg-transparent text-2xl font-semibold text-neutral-700 outline-none placeholder:text-neutral-400"
-            />
-          </div>
-        </div>
-        <div className="max-h-[420px] overflow-y-auto px-3 py-3">
-          {filteredEvents.length > 0 ? (
-            <div className="space-y-2">
-              {filteredEvents.map((event) => {
-                const { backgroundColor } = getEventVisualColors(event.color)
-                const showTypeLabel = event.isMultiDay || event.isAllDay
-                const typeLabel = event.isMultiDay ? "MULTI DAY" : event.isAllDay ? "ALL DAY" : null
-                const showBucketLabel = !showTypeLabel
-                return (
-                  <button
-                    key={event.id}
-                    type="button"
-                    onClick={() => openSearchResult(event.id, event.date)}
-                    className="group flex w-full items-start justify-between rounded-[24px] border border-transparent bg-[#ececeb] px-4 py-3 text-left transition-all duration-200 hover:border-gray-200 hover:bg-[#f3f3f2]"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2.5">
-                        <span className="mt-0.5 inline-flex h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ backgroundColor }} />
-                        <div className="truncate text-[17px] font-semibold text-neutral-800">{event.title}</div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-neutral-500">
-                        {showBucketLabel && (
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
-                            {event.bucketLabel}
-                          </span>
-                        )}
-                        {showTypeLabel ? (
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold tracking-[0.14em] text-neutral-500">
-                            {typeLabel}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-white px-2.5 py-1">
-                            {event.timeLabel}
-                          </span>
-                        )}
-                        {event.isMultiDay && (
-                          <span className="rounded-full bg-white px-2.5 py-1">
-                            {event.dateRangeLabel}
-                          </span>
-                        )}
-                        {!event.isMultiDay && (
-                          <span className="rounded-full bg-white px-2.5 py-1">
-                            {event.date}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="ml-4 flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full bg-white text-xl font-semibold leading-none text-neutral-300 transition-colors duration-200 group-hover:text-neutral-500">
-                      &gt;
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="flex min-h-[180px] items-center justify-center rounded-[24px] border border-dashed border-gray-200 bg-[#ececeb] text-center">
-              <div>
-                <p className="text-base font-semibold text-neutral-500">No matching events</p>
-                <p className="mt-1 text-sm text-neutral-400">Try a title, place, or repeat event name.</p>
+                >
+                  <img
+                    src={ChevronLeftIcon}
+                    alt="Next"
+                    className="h-5 w-5 rotate-180 transition-transform duration-200"
+                  />
+                </Button>
               </div>
             </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </CardContent>
+
+        <EventTitle />
+
+        {selectedEventId && (
+          <div className="mt-auto pt-4 px-4 pb-4 flex justify-end">
+            <Button
+              variant="secondary"
+              onClick={handleSave}
+              className="bg-red-600 text-white hover:bg-red-700 px-8 py-6 text-lg rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              Save
+            </Button>
+          </div>
+        )}
+
+        {recurringDialogOpen && recurringDialogEvent && recurringDialogActionType && (
+          <RecurringActionDialog
+            open={recurringDialogOpen}
+            onChoice={(choice) => {
+              const callback = useEventsStore.getState().recurringDialogCallback
+              if (callback) callback(choice)
+            }}
+            actionType={recurringDialogActionType}
+            eventTitle={recurringDialogEvent?.title || ""}
+          />
+        )}
+      </Card>
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="w-[min(680px,92vw)] overflow-hidden rounded-[28px] border border-gray-200 bg-neutral-100 p-0 shadow-[0_24px_70px_rgba(0,0,0,0.14)]">
+          <div className="border-b border-gray-200 px-5 py-4">
+            <div className="flex items-center gap-3 rounded-[24px] border border-gray-200 bg-[#e7e7e6] px-4 py-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#dddddc]">
+                <img src={SearchIcon} alt="" className="h-5 w-5 opacity-60" />
+              </div>
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && filteredEvents.length > 0) {
+                    e.preventDefault()
+                    const first = filteredEvents[0]
+                    openSearchResult(first.id, first.date)
+                  }
+                }}
+                placeholder="Search Events"
+                className="w-full bg-transparent text-2xl font-semibold text-neutral-700 outline-none placeholder:text-neutral-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto px-3 py-3">
+            {filteredEvents.length > 0 ? (
+              <div className="space-y-2">
+                {filteredEvents.map((event) => {
+                  const { backgroundColor } = getEventVisualColors(event.color)
+                  const showTypeLabel = event.isMultiDay || event.isAllDay
+                  const typeLabel = event.isMultiDay ? "MULTI DAY" : event.isAllDay ? "ALL DAY" : null
+                  const showBucketLabel = !showTypeLabel
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => openSearchResult(event.id, event.date)}
+                      className="group flex w-full items-start justify-between rounded-[24px] border border-transparent bg-[#ececeb] px-4 py-3 text-left transition-all duration-200 hover:border-gray-200 hover:bg-[#f3f3f2]"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2.5">
+                          <span className="mt-0.5 inline-flex h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ backgroundColor }} />
+                          <div className="truncate text-[17px] font-semibold text-neutral-800">{event.title}</div>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-neutral-500">
+                          {showBucketLabel && (
+                            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                              {event.bucketLabel}
+                            </span>
+                          )}
+                          {showTypeLabel ? (
+                            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold tracking-[0.14em] text-neutral-500">
+                              {typeLabel}
+                            </span>
+                          ) : null}
+                          {(event.timeLabel && (!showTypeLabel || event.isMultiDay)) ? (
+                            <span className="rounded-full bg-white px-2.5 py-1">
+                              {event.timeLabel}
+                            </span>
+                          ) : null}
+                          {event.isMultiDay && (
+                            <span className="rounded-full bg-white px-2.5 py-1">
+                              {event.dateRangeLabel}
+                            </span>
+                          )}
+                          {!event.isMultiDay && (
+                            <span className="rounded-full bg-white px-2.5 py-1">
+                              {event.date}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="ml-4 flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full bg-white text-xl font-semibold leading-none text-neutral-300 transition-colors duration-200 group-hover:text-neutral-500">
+                        &gt;
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="flex min-h-[180px] items-center justify-center rounded-[24px] border border-dashed border-gray-200 bg-[#ececeb] text-center">
+                <div>
+                  <p className="text-base font-semibold text-neutral-500">No matching events</p>
+                  <p className="mt-1 text-sm text-neutral-400">Try a title, place, or repeat event name.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
+  )
+
+  return (
+    <>{sidebarContent}</>
   )
 }

@@ -33,6 +33,7 @@ import {
 import {
   generateRecurringDatesForMonth,
   generateRecurringInstances,
+  getNextOccurrence,
 } from './recurringUtils'
 
 import {
@@ -105,6 +106,14 @@ interface EventsState {
   setScrollToTop: (value: boolean) => void
   updateEventField: (id: string, field: keyof NewEvent, value: EventFieldValue) => void
   updateEventFields: (id: string, updates: Partial<NewEvent>) => void
+  syncGoalLinkedEvents: (params: {
+    columnType: 'week' | 'month' | 'year' | 'life'
+    bucketKey: string
+    previousGoalText: string
+    nextGoalText: string
+    color?: string
+    icon?: string
+  }) => Promise<void>
   saveSelectedEvent: () => Promise<void>
   showRecurringDialog: (event: CalendarEvent, actionType: 'edit' | 'delete', callback: (choice: string) => void) => void
   closeRecurringDialog: () => void
@@ -132,16 +141,90 @@ function extractMasterId(virtualId: string): string {
 
 /** Find an event in the eventsCache by ID, returning [event, dateKey] or null */
 function findEventInCache(cache: EventsCache, id: string): { event: Event; dateKey: string } | null {
+  let best: { event: Event; dateKey: string } | null = null
+
   for (const dateKey of Object.keys(cache)) {
     const event = cache[dateKey].find(e => e.id === id)
-    if (event) return { event, dateKey }
+    if (!event) continue
+
+    if (!best) {
+      best = { event, dateKey }
+      continue
+    }
+
+    const bestEndDate = best.event.end_date || best.event.date
+    const eventEndDate = event.end_date || event.date
+    const shouldReplace =
+      event.date < best.event.date ||
+      (event.date === best.event.date && eventEndDate > bestEndDate)
+
+    if (shouldReplace) {
+      best = { event, dateKey }
+    }
   }
-  return null
+
+  return best
 }
 
 function getClockwiseDurationMinutes(startMinutes: number, endMinutes: number): number {
   if (endMinutes >= startMinutes) return endMinutes - startMinutes
   return (1440 - startMinutes) + endMinutes
+}
+
+function getGoalTypeLabel(columnType: 'week' | 'month' | 'year' | 'life'): string {
+  switch (columnType) {
+    case 'week':
+      return 'Weekly'
+    case 'month':
+      return 'Monthly'
+    case 'year':
+      return 'Yearly'
+    case 'life':
+      return 'Lifetime'
+  }
+}
+
+function getBucketDateRange(bucketKey: string): { start: string; end: string } | null {
+  if (bucketKey === 'life') return null
+
+  if (bucketKey.startsWith('week-')) {
+    const [, year, month, day] = bucketKey.split('-')
+    const start = new Date(Number(year), Number(month), Number(day))
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    return {
+      start: formatDate(start),
+      end: formatDate(end),
+    }
+  }
+
+  if (bucketKey.startsWith('month-')) {
+    const [, year, month] = bucketKey.split('-')
+    const start = new Date(Number(year), Number(month), 1)
+    const end = new Date(Number(year), Number(month) + 1, 0)
+    return {
+      start: formatDate(start),
+      end: formatDate(end),
+    }
+  }
+
+  if (bucketKey.startsWith('year-')) {
+    const [, year] = bucketKey.split('-')
+    const start = new Date(Number(year), 0, 1)
+    const end = new Date(Number(year), 11, 31)
+    return {
+      start: formatDate(start),
+      end: formatDate(end),
+    }
+  }
+
+  return null
+}
+
+function eventMatchesGoalSyncRange(event: Event, bucketKey: string): boolean {
+  const range = getBucketDateRange(bucketKey)
+  if (!range) return true
+  return event.date >= range.start && event.date <= range.end
 }
 
 /** Find a master recurring event by ID across all cache dates */
@@ -263,12 +346,22 @@ export const useEventsStore = create<EventsState>()(
             }
           }
 
-          // Fetch exceptions for all master events in the window
+          // Fetch exceptions for all recurring masters currently present in cache.
+          // This covers masters that started outside the current fetch window but
+          // still generate occurrences inside it.
           const masterIds = new Set<string>()
-          data?.forEach((row: Record<string, any>) => {
-            if (row.repeat && row.repeat !== 'None' && row.id) {
-              masterIds.add(row.id)
-            }
+          Object.values(newCache).forEach((events) => {
+            events.forEach((event) => {
+              if (
+                event.id &&
+                event.repeat &&
+                event.repeat !== 'None' &&
+                event.series_start_date &&
+                event.series_end_date
+              ) {
+                masterIds.add(event.id)
+              }
+            })
           })
 
           let newExceptionsCache = { ...get().eventExceptionsCache }
@@ -289,6 +382,7 @@ export const useEventsStore = create<EventsState>()(
                 newExceptionsCache[seriesId].push({
                   id: exc.id,
                   series_id: exc.series_id,
+                  user_id: exc.user_id,
                   date: exc.date,
                   start_time: exc.start_time,
                   end_time: exc.end_time,
@@ -614,14 +708,13 @@ export const useEventsStore = create<EventsState>()(
       // ---- Update ----
 
       updateEvent: async (id: string, updates: Partial<NewEvent>) => {
-        const { eventsCache, computedEventsCache, pendingSyncs, pendingUpdates } = get()
+        const { eventsCache, pendingSyncs, pendingUpdates } = get()
         const found = findEventInCache(eventsCache, id)
 
         if (!found) return null
 
         const { event: currentEvent, dateKey: oldDate } = found
         const newCache = { ...eventsCache }
-        const newComputedCache = { ...computedEventsCache }
 
         const updatedEvent = {
           ...currentEvent,
@@ -629,30 +722,21 @@ export const useEventsStore = create<EventsState>()(
           updated_at: new Date().toISOString(),
         }
 
-        // Remove from old date
-        const eventIndex = newCache[oldDate].findIndex(e => e.id === id)
-        const oldEvents = [...newCache[oldDate]]
-        oldEvents.splice(eventIndex, 1)
-
-        // Add to new date (or same date)
         const newDate = updates.date || oldDate
-        if (!newCache[newDate]) newCache[newDate] = []
-        const newDateEvents = newDate === oldDate ? oldEvents : [...newCache[newDate]]
-        newDateEvents.push(updatedEvent)
-        newDateEvents.sort((a, b) => a.start_time - b.start_time)
-        newCache[newDate] = newDateEvents
 
-        if (newDate !== oldDate) {
-          newCache[oldDate] = oldEvents
-          if (newCache[oldDate].length === 0) delete newCache[oldDate]
+        // Remove any stale copies of this event from every cached date bucket first.
+        for (const cacheDateKey of Object.keys(newCache)) {
+          const filtered = newCache[cacheDateKey].filter(e => e.id !== id)
+          if (filtered.length === 0) delete newCache[cacheDateKey]
+          else newCache[cacheDateKey] = filtered
         }
 
-        delete newComputedCache[oldDate]
-        delete newComputedCache[newDate]
+        if (!newCache[newDate]) newCache[newDate] = []
+        newCache[newDate] = [...newCache[newDate], updatedEvent].sort((a, b) => a.start_time - b.start_time)
 
         set({
           eventsCache: newCache,
-          computedEventsCache: newComputedCache,
+          computedEventsCache: {},
           recurringEventsCache: {},
           eventExceptionsCache: {},
         })
@@ -678,7 +762,28 @@ export const useEventsStore = create<EventsState>()(
       },
 
       updateAllInSeries: async (seriesMasterId: string, updates: Partial<NewEvent>) => {
-        await get().updateEvent(seriesMasterId, updates)
+        const currentEvent = findMasterEvent(get().eventsCache, seriesMasterId)
+        if (!currentEvent) return
+
+        const nextSeriesStartDate = updates.series_start_date ?? currentEvent.series_start_date
+        const nextSeriesEndDate = updates.series_end_date ?? currentEvent.series_end_date
+        const shouldCollapseToSingleEvent =
+          !!currentEvent.repeat &&
+          currentEvent.repeat !== 'None' &&
+          !!nextSeriesStartDate &&
+          !!nextSeriesEndDate &&
+          nextSeriesEndDate <= nextSeriesStartDate
+
+        const normalizedUpdates = shouldCollapseToSingleEvent
+          ? {
+              ...updates,
+              repeat: 'None',
+              series_start_date: undefined,
+              series_end_date: undefined,
+            }
+          : updates
+
+        await get().updateEvent(seriesMasterId, normalizedUpdates)
         set({
           recurringEventsCache: {},
           computedEventsCache: {},
@@ -828,14 +933,27 @@ export const useEventsStore = create<EventsState>()(
           recurringEvents = generatedRecurring.filter(e => e.date === dateKey)
         }
 
-        // Combine and deduplicate
+        // Combine and deduplicate, preferring the canonical earliest-date copy.
         const allEvents = [...realEvents, ...recurringEvents]
-        const seenIds = new Set<string>()
-        const uniqueEvents = allEvents.filter(event => {
-          if (seenIds.has(event.id)) return false
-          seenIds.add(event.id)
-          return true
-        })
+        const canonicalById = new Map<string, CalendarEvent>()
+        for (const event of allEvents) {
+          const existing = canonicalById.get(event.id)
+          if (!existing) {
+            canonicalById.set(event.id, event)
+            continue
+          }
+
+          const existingEndDate = existing.end_date || existing.date
+          const eventEndDate = event.end_date || event.date
+          const shouldReplace =
+            event.date < existing.date ||
+            (event.date === existing.date && eventEndDate > existingEndDate)
+
+          if (shouldReplace) {
+            canonicalById.set(event.id, event)
+          }
+        }
+        const uniqueEvents = Array.from(canonicalById.values())
         uniqueEvents.sort((a, b) => a.start_time - b.start_time)
 
         // Cache computed result (deferred)
@@ -921,11 +1039,9 @@ export const useEventsStore = create<EventsState>()(
           }
         }
 
-        // Search real events
-        for (const dateKey of Object.keys(eventsCache)) {
-          const event = eventsCache[dateKey].find(e => e.id === id)
-          if (event) return event as CalendarEvent
-        }
+        // Search real events, preferring the canonical earliest-date copy.
+        const found = findEventInCache(eventsCache, id)
+        if (found) return found.event as CalendarEvent
 
         return null
       },
@@ -1103,17 +1219,15 @@ export const useEventsStore = create<EventsState>()(
         const nextDateKey = typeof nextEvent.date === 'string' ? nextEvent.date : dateKey
         const newCache = { ...eventsCache }
 
-        if (nextDateKey !== dateKey) {
-          newCache[dateKey] = newCache[dateKey].filter(e => e.id !== id)
-          if (newCache[dateKey].length === 0) delete newCache[dateKey]
-          if (!newCache[nextDateKey]) newCache[nextDateKey] = []
-          newCache[nextDateKey] = [...newCache[nextDateKey].filter(e => e.id !== id), nextEvent]
-        } else {
-          const eventIndex = newCache[dateKey].findIndex(e => e.id === id)
-          if (eventIndex === -1) return
-          newCache[dateKey] = [...newCache[dateKey]]
-          newCache[dateKey][eventIndex] = nextEvent
+        // Remove any stale copies of this event from every cached date bucket first.
+        for (const cacheDateKey of Object.keys(newCache)) {
+          const filtered = newCache[cacheDateKey].filter(e => e.id !== id)
+          if (filtered.length === 0) delete newCache[cacheDateKey]
+          else newCache[cacheDateKey] = filtered
         }
+
+        if (!newCache[nextDateKey]) newCache[nextDateKey] = []
+        newCache[nextDateKey] = [...newCache[nextDateKey], nextEvent]
 
         if (newCache[nextDateKey]) {
           newCache[nextDateKey] = [...newCache[nextDateKey]].sort((a, b) => a.start_time - b.start_time)
@@ -1134,6 +1248,70 @@ export const useEventsStore = create<EventsState>()(
             await supabase.from('events').update(filterUpdatesForDb(updates)).eq('id', id)
           } catch { /* background field update failed silently */ }
         }, 0)
+      },
+
+      syncGoalLinkedEvents: async ({ columnType, bucketKey, previousGoalText, nextGoalText, color, icon }) => {
+        const goalType = getGoalTypeLabel(columnType)
+        const updates: Partial<NewEvent> = {
+          goal: nextGoalText,
+          goalColor: color || '',
+          goalIcon: icon || '',
+        }
+
+        set((state) => {
+          const nextCache: EventsCache = {}
+          let didChange = false
+
+          for (const [dateKey, events] of Object.entries(state.eventsCache)) {
+            nextCache[dateKey] = events.map((event) => {
+              if (
+                event.goalType !== goalType ||
+                event.goal !== previousGoalText ||
+                !eventMatchesGoalSyncRange(event, bucketKey)
+              ) {
+                return event
+              }
+
+              didChange = true
+              return {
+                ...event,
+                goal: updates.goal,
+                goalColor: updates.goalColor,
+                goalIcon: updates.goalIcon,
+                updated_at: new Date().toISOString(),
+              }
+            })
+          }
+
+          if (!didChange) return {}
+
+          return {
+            eventsCache: nextCache,
+            computedEventsCache: {},
+            recurringEventsCache: {},
+            eventExceptionsCache: {},
+          }
+        })
+
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        if (userError || !user) return
+
+        let query = supabase
+          .from('events')
+          .update(filterUpdatesForDb(updates))
+          .eq('user_id', user.id)
+          .eq('goal_type', goalType)
+          .eq('goal', previousGoalText)
+
+        const range = getBucketDateRange(bucketKey)
+        if (range) {
+          query = query.gte('date', range.start).lte('date', range.end)
+        }
+
+        const { error } = await query
+        if (error) {
+          console.error('Failed to sync goal-linked events:', error)
+        }
       },
 
       saveSelectedEvent: async () => {
@@ -1451,7 +1629,7 @@ export const useEventsStore = create<EventsState>()(
 
         const nextOccurrence = getNextDate()
         if (nextOccurrence <= originalSeriesEndDate) {
-          const nextSeriesEndDate = addYearsToDateStr(nextOccurrence, 10)
+          const nextSeriesEndDate = originalSeriesEndDate
           const tempNextSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
           const tempNextSeriesEvent: Event = {
             id: tempNextSeriesId,
@@ -1590,7 +1768,7 @@ export const useEventsStore = create<EventsState>()(
 
         const originalSeriesEndDate = masterEvent?.series_end_date || event.series_end_date || event.date
         const originalRepeat = masterEvent?.repeat || event.repeat || 'None'
-        const nextSeriesEndDate = addYearsToDateStr(selectedDate, 10)
+        const nextSeriesEndDate = originalSeriesEndDate
         const prevDay = (() => {
           const d = new Date(selectedDate + 'T00:00:00')
           d.setDate(d.getDate() - 1)
@@ -1760,6 +1938,31 @@ export const useEventsStore = create<EventsState>()(
         const masterEvent = findMasterEvent(eventsCache, masterEventId)
         if (!masterEvent) return
 
+        const isMasterOccurrence = selectedDate === masterEvent.date
+        if (isMasterOccurrence) {
+          const repeatType = masterEvent.repeat || event.repeat || 'None'
+          const seriesEndDate = masterEvent.series_end_date || event.series_end_date || masterEvent.date
+          const nextOccurrence = getNextOccurrence(selectedDate, repeatType)
+
+          if (repeatType === 'None' || nextOccurrence > seriesEndDate) {
+            await get().deleteEvent(masterEventId)
+            return
+          }
+
+          const durationDays = (() => {
+            const start = new Date(masterEvent.date + 'T00:00:00')
+            const end = new Date((masterEvent.end_date || masterEvent.date) + 'T00:00:00')
+            return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000))
+          })()
+
+          await get().updateEvent(masterEventId, {
+            date: nextOccurrence,
+            end_date: addDaysToDateStr(nextOccurrence, durationDays),
+            series_start_date: nextOccurrence,
+          })
+          return
+        }
+
         // Optimistically add exception to cache
         const newException: EventException = {
           id: `temp-exception-${Date.now()}`,
@@ -1786,14 +1989,67 @@ export const useEventsStore = create<EventsState>()(
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
 
-            await supabase
+            const { data: existingExceptions, error: selectError } = await supabase
               .from('exceptions')
-              .insert([{
+              .select('id')
+              .eq('series_id', masterEventId)
+              .eq('date', selectedDate)
+              .limit(1)
+
+            if (selectError) throw selectError
+
+            const existingExceptionId = existingExceptions?.[0]?.id
+
+            if (existingExceptionId) {
+              const { error: updateError } = await supabase
+                .from('exceptions')
+                .update({ deleted: true })
+                .eq('id', existingExceptionId)
+
+              if (updateError) throw updateError
+            } else {
+              const payloadWithUser = {
                 series_id: masterEventId,
+                user_id: user.id,
                 date: selectedDate,
                 deleted: true,
-              }])
-          } catch {
+              }
+
+              let insertError: Error | null = null
+
+              const withUserResult = await supabase
+                .from('exceptions')
+                .insert([payloadWithUser])
+
+              if (withUserResult.error) {
+                const message = withUserResult.error.message || ''
+                const details = withUserResult.error.details || ''
+                const hints = withUserResult.error.hint || ''
+                const combined = `${message} ${details} ${hints}`.toLowerCase()
+
+                const unknownUserColumn =
+                  combined.includes('user_id') &&
+                  (combined.includes('column') || combined.includes('schema cache'))
+
+                if (!unknownUserColumn) {
+                  throw withUserResult.error
+                }
+
+                const fallbackResult = await supabase
+                  .from('exceptions')
+                  .insert([{
+                    series_id: masterEventId,
+                    date: selectedDate,
+                    deleted: true,
+                  }])
+
+                insertError = fallbackResult.error
+              }
+
+              if (insertError) throw insertError
+            }
+          } catch (error) {
+            console.error('Failed to persist deleted recurring occurrence:', error)
             // Rollback on failure
             set({
               eventExceptionsCache: {
@@ -1827,6 +2083,7 @@ export const useEventsStore = create<EventsState>()(
             .map(([dateKey, events]) => [dateKey, events.filter((event) => event.isTemp !== true)])
             .filter(([, events]) => events.length > 0)
         ),
+        eventExceptionsCache: state.eventExceptionsCache,
         cacheStartDate: state.cacheStartDate,
         cacheEndDate: state.cacheEndDate,
         cachedUserId: state.cachedUserId,

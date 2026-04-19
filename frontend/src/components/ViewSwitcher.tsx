@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useNavigate, useLocation } from "react-router-dom"
+import { useTimeStore } from "@/store/timeStore"
 
 type ViewType = "day" | "week" | "month" | "year"
 
@@ -14,18 +15,28 @@ const views: ViewType[] = ["day", "week", "month", "year"]
 export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const selectedDate = useTimeStore((state) => state.selectedDate)
   const isDayRoute = location.pathname.startsWith('/day')
   const isWeekRoute = location.pathname.startsWith('/week')
+  const isMonthRoute = location.pathname.startsWith('/month')
 
   const handleViewClick = (view: ViewType) => {
     onViewChange(view)
-    const now = new Date()
+    const targetDate = selectedDate || new Date()
+    const year = targetDate.getFullYear()
+    const month = targetDate.getMonth() + 1
+    const day = targetDate.getDate()
+
     if (view === "day") {
-      navigate(`/day/${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`)
+      navigate(`/day/${year}/${month}/${day}`)
       return
     }
     if (view === "week") {
-      navigate(`/week/${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`)
+      navigate(`/week/${year}/${month}/${day}`)
+      return
+    }
+    if (view === "month") {
+      navigate(`/month/${year}/${month}/${day}`)
     }
   }
 
@@ -36,12 +47,14 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
   const routeMatched =
     (view === "day" && isDayRoute) ||
     (view === "week" && isWeekRoute) ||
+    (view === "month" && isMonthRoute) ||
     (view !== "day" && view !== "week" && currentView === view)
 
   const nextView = views[i + 1]
   const nextRouteMatched =
     (nextView === "day" && isDayRoute) ||
     (nextView === "week" && isWeekRoute) ||
+    (nextView === "month" && isMonthRoute) ||
     (nextView !== "day" && nextView !== "week" && currentView === nextView)
 
   const isActive = routeMatched

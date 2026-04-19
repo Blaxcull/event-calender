@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { useLocation } from 'react-router-dom'
 import { useEventsStore, type NewEvent, type EventFieldValue, type CalendarEvent } from '@/store/eventsStore'
+import { isSeriesActuallyRecurring, isSeriesAnchorEvent } from '@/store/recurringUtils'
 import { Input } from '@/components/ui/input'
 
 interface URLChip {
@@ -30,8 +30,6 @@ const EventEditor: React.FC = () => {
   const lastProcessedSaveTriggerRef = useRef<number>(0)
 
   const getEventById = useEventsStore((state) => state.getEventById)
-  const location = useLocation()
-  const isWeekRoute = location.pathname.startsWith('/week')
   
   // Get the selected event from reactive cache slices above
   const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
@@ -65,31 +63,9 @@ const EventEditor: React.FC = () => {
       return
     }
     
-    const isVirtualRecurring = !!((currentEvent as any)?.isRecurringInstance)
-    const eventIsRecurring = currentEvent && 
-                        (
-                          isVirtualRecurring ||
-                          ((currentEvent as any).repeat && (currentEvent as any).repeat !== "None" && ((currentEvent as any).series_start_date || (currentEvent as any).series_end_date))
-                        )
+    const eventIsRecurring = isSeriesActuallyRecurring(currentEvent)
 
     if (eventIsRecurring) {
-      if (isWeekRoute && !isVirtualRecurring) {
-        const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-        const updates: Record<string, EventFieldValue> = {}
-        if (field && value !== undefined) {
-          updates[field] = value
-        }
-        if (extraFields) {
-          Object.entries(extraFields).forEach(([key, val]) => {
-            if (val !== undefined) {
-              updates[key] = val
-            }
-          })
-        }
-        void updateAllInSeries(currentEvent.id, updates as Partial<NewEvent>)
-        return
-      }
-
       // Capture values at this moment
       const eventId = currentEvent.id
       const eventDate = (currentEvent as any).date
@@ -170,7 +146,7 @@ const EventEditor: React.FC = () => {
         })
       }
     }
-  }, [updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute])
+  }, [updateEventField, showRecurringDialog, closeRecurringDialog])
 
   // Save local state to cache when saveTrigger changes
   const titleRef = useRef(title)
@@ -282,21 +258,17 @@ const EventEditor: React.FC = () => {
       return
     }
     
-    const isVirtualRecurring = !!(currentEvent as any)?.isRecurringInstance
-    const eventIsRecurring = currentEvent && 
-                        (
-                          isVirtualRecurring ||
-                          ((currentEvent as any).repeat && (currentEvent as any).repeat !== "None" && ((currentEvent as any).series_start_date || (currentEvent as any).series_end_date))
-                        )
+    const eventIsRecurring = isSeriesActuallyRecurring(currentEvent)
     
     const capturedTitle = titleRef.current || 'New Event'
     const capturedNotes = notesRef.current
     const capturedUrls = urlChipsRef.current.map(c => c.url)
     
     if (eventIsRecurring) {
-      if (isWeekRoute && !isVirtualRecurring) {
+      if (isSeriesAnchorEvent(currentEvent as any)) {
         const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-        void updateAllInSeries(currentEventId, {
+        const seriesMasterId = (currentEvent as any).seriesMasterId || currentEventId
+        void updateAllInSeries(seriesMasterId, {
           title: capturedTitle,
           notes: capturedNotes,
           urls: capturedUrls
@@ -372,7 +344,7 @@ const EventEditor: React.FC = () => {
         updateEventField(currentEventId, 'series_end_date', seriesEndDate)
       }
     }
-  }, [saveTrigger, selectedEventId, getEventById, updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute])
+  }, [saveTrigger, selectedEventId, getEventById, updateEventField, showRecurringDialog, closeRecurringDialog])
 
   // Clear title on blur without Enter
   useEffect(() => {

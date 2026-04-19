@@ -1,16 +1,13 @@
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 import { resolveGoalColorForEvent, resolveGoalIconForEvent, useGoalsStore } from "@/store/goalsStore"
-import { getEventDurationMinutes, getEventVisualColors } from "@/lib/eventUtils"
+import { getEventVisualColors, isAllDayEvent, isMultiDayEvent, isTimedMultiDayEvent, isTopBarEventType } from "@/lib/eventUtils"
 import { getGoalIcon } from "@/Goal_view/goal"
 import TimeLine from "./TimeLine"
 import TimeView from "./TimeView"
 import { useEffect, useRef, useMemo, useState } from "react"
 import { TOP_DEAD_ZONE } from "@/lib/eventUtils"
 import { useParams } from "react-router-dom"
-
-const TIMELINE_SURFACE_COLOR = "#e2e2e1"
-const TIMELINE_SURFACE_ACTIVE_COLOR = "#dcdcd9"
 
 const DayView = () => {
   const { year, month, day } = useParams<{ year: string; month: string; day: string }>()
@@ -28,16 +25,14 @@ const DayView = () => {
   useEventsStore((state) => state.eventsCache)
   const scrollRef = useRef<HTMLDivElement>(null)
   const hourHeight = 100
+  const selectedDateKey = selectedDate ? formatDate(selectedDate) : null
 
   // Compute all-day events for selected date
   const allDayEvents = (() => {
     if (!selectedDate) return []
     const events = getEventsForDate(selectedDate)
 
-    const filtered = events.filter(event => {
-      const isFullDay = getEventDurationMinutes(event) >= 1440
-      return event.is_all_day || isFullDay
-    })
+    const filtered = events.filter(event => isTopBarEventType(event))
 
     // Multi-day events above single-day all-day events
     return filtered.sort((a, b) => {
@@ -70,12 +65,15 @@ const DayView = () => {
     return `${startMonth} ${startDay} - ${endMonth} ${endDay}`
   }
 
-  const prevDateRef = useRef<string | null>(null)
-  const [showAllAllDay, setShowAllAllDay] = useState(false)
+  const formatTime = (minutes: number) => {
+    const hours = Math.floor(minutes / 60) % 24
+    const mins = minutes % 60
+    return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`
+  }
 
-  useEffect(() => {
-    setShowAllAllDay(false)
-  }, [selectedDate])
+  const prevDateRef = useRef<string | null>(null)
+  const [expandedAllDayDate, setExpandedAllDayDate] = useState<string | null>(null)
+  const showAllAllDay = !!selectedDateKey && expandedAllDayDate === selectedDateKey
 
   useEffect(() => {
     if (!selectedDate || !scrollRef.current) return
@@ -178,14 +176,15 @@ const DayView = () => {
           const visibleEvents = showAllAllDay ? allDayEvents : allDayEvents.slice(0, 2)
           return (
           <div className="sticky top-0 z-30 -mx-4 px-4 pt-2 pb-2 bg-[#e2e2e1]/95 backdrop-blur supports-[backdrop-filter]:bg-[#e2e2e1]/80">
-          <div className="shrink-0 text-white rounded-l-2xl flex flex-col gap-0.5">
+          <div className="shrink-0 text-white rounded-l-2xl flex flex-col gap-0.2 py-1">
             {visibleEvents.map((event, index) => {
               const endDate = event.end_date || event.date
-              const isMultiDay = endDate > event.date
+              const isMultiDay = isMultiDayEvent(event)
+              const isTimedMultiDay = isTimedMultiDayEvent(event)
 let shapeClass = ''
 
 if (isMultiDay && selectedDate) {
-  const currentDate = formatDate(selectedDate)
+  const currentDate = selectedDateKey
 
   if (currentDate === event.date) {
     shapeClass = 'event-start'
@@ -204,7 +203,7 @@ if (isMultiDay && selectedDate) {
               const resolvedGoalIcon = resolveGoalIconForEvent(goalsStore, event)
               const eventColor = event.goalColor || resolvedGoalColor || event.color
               const eventGoalIcon = event.goalIcon || resolvedGoalIcon
-              const { backgroundColor, textColor } = getEventVisualColors(eventColor)
+              const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors(eventColor)
               const goalIconEntry = eventGoalIcon ? getGoalIcon(eventGoalIcon) : null
               const GoalIcon = goalIconEntry?.icon
 
@@ -213,7 +212,7 @@ if (isMultiDay && selectedDate) {
                   <div className="w-[70px] shrink-0 flex items-center justify-center">
                     {showArrow && (
                       <button
-                        onClick={() => setShowAllAllDay(prev => !prev)}
+                        onClick={() => setExpandedAllDayDate(showAllAllDay ? null : selectedDateKey)}
                         className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/20 transition-colors"
                       >
                         <svg className={`w-4 h-4 text-black transition-transform ${showAllAllDay ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -224,11 +223,29 @@ if (isMultiDay && selectedDate) {
                   </div>
                   <div
                     onClick={() => handleAllDayEventClick(event.id)}
-                    className={`relative flex-1 px-3 py-1.5 text-s font-medium cursor-pointer truncate flex items-center gap-2 box-border border border-[#cfcfcb] ${isSelected ? 'event-same-day outline-2 outline-white' : shapeClass}`}
-                    style={{ backgroundColor: isSelected ? backgroundColor : backgroundColor, color: textColor }}
+                    className={`relative flex-1 px-3 py-2 text-s font-medium cursor-pointer truncate flex items-center gap-2 box-border transition-shadow duration-200 ${
+                      isSelected ? 'z-[9999] border-2 border-white shadow-2xl rounded-xl' : 'border border-[#cfcfcb]'
+                    } ${isSelected ? '' : shapeClass}`}
+                    style={{
+                      backgroundColor: isSelected ? backgroundColor : mutedBackgroundColor,
+                      color: textColor,
+                      clipPath: isSelected ? 'none' : undefined,
+                      borderRadius: isSelected ? '20px' : undefined,
+                    }}
                   >
+                    {isTimedMultiDay ? (
+                      <span
+                        className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
+                        style={{ backgroundColor: "rgba(255,255,255,0.5)", color: accentColor }}
+                      >
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 8v4l2.5 2.5m6-2.5a8.5 8.5 0 11-17 0 8.5 8.5 0 0117 0z" />
+                        </svg>
+                        {formatTime(event.start_time)} - {formatTime(event.end_time)}
+                      </span>
+                    ) : null}
                     {GoalIcon ? <GoalIcon className="w-4 h-4 shrink-0" /> : null}
-                    <span className="truncate">{event.title},</span>
+                    <span className="truncate">{event.title}{isMultiDay ? "," : ""}</span>
                     {isMultiDay && (
                       <span className="text-s opacity-70 shrink-0">{formatDateRange(event.date, endDate)}</span>
                     )}

@@ -1,12 +1,12 @@
 import React, { useCallback, useState, useEffect, useRef } from "react"
-import { useLocation } from "react-router-dom"
 import { useEventsStore, type CalendarEvent, type NewEvent } from "@/store/eventsStore"
 import { addYearsToDateStr } from "@/store/dateUtils"
+import { isSeriesActuallyRecurring, isSeriesAnchorEvent } from "@/store/recurringUtils"
 import RepeatRow from "./RepeatRow"
 import EarlyReminderRow from "./EarlyReminderRow"
 import AllDayRow from "./AllDayRow"
 import { useRecurringPropertyChange } from "@/hooks/useRecurringPropertyChange"
-import { getEventDurationMinutes } from "@/lib/eventUtils"
+import { getEventDurationMinutes, isMultiDayEvent } from "@/lib/eventUtils"
 
 const RepeatReminderPanel: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -16,8 +16,6 @@ const RepeatReminderPanel: React.FC = () => {
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
   const saveTrigger = useEventsStore((state) => state.saveTrigger)
-  const location = useLocation()
-  const isWeekRoute = location.pathname.startsWith("/week")
 
   const [pendingRepeat, setPendingRepeat] = useState<string | null>(null)
 
@@ -98,11 +96,7 @@ const RepeatReminderPanel: React.FC = () => {
     
     lastProcessedSaveTriggerRef.current = saveTrigger
 
-    const isVirtualRecurring = selectedEvent.isRecurringInstance === true
-    const isRecurring = !!(
-      isVirtualRecurring ||
-      (selectedEvent.repeat && selectedEvent.repeat !== "None" && ((selectedEvent as any).series_start_date || (selectedEvent as any).series_end_date))
-    )
+    const isRecurring = isSeriesActuallyRecurring(selectedEvent)
     const buildRepeatUpdates = (): Partial<NewEvent> => {
       const updates: Partial<NewEvent> = { repeat: pendingRepeat }
       if (pendingRepeat === "None") {
@@ -113,16 +107,13 @@ const RepeatReminderPanel: React.FC = () => {
     }
 
     if (isRecurring) {
-      if (isWeekRoute && !isVirtualRecurring) {
+      if (isSeriesAnchorEvent(selectedEvent)) {
         const updateAllInSeries = useEventsStore.getState().updateAllInSeries
         const seriesMasterId = (selectedEvent as any).seriesMasterId || selectedEvent.id
         const updates: Partial<NewEvent> = { repeat: pendingRepeat }
         if (pendingRepeat !== "None") {
           updates.series_start_date = selectedEvent.date
           updates.series_end_date = addYearsToDateStr(selectedEvent.date, 10)
-        } else {
-          updates.series_start_date = undefined
-          updates.series_end_date = undefined
         }
         void updateAllInSeries(seriesMasterId, updates)
         setPendingRepeat(null)
@@ -178,7 +169,7 @@ const RepeatReminderPanel: React.FC = () => {
       }
       setPendingRepeat(null)
     }
-  }, [saveTrigger, selectedEventId, pendingRepeat, selectedEvent, updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute])
+  }, [saveTrigger, selectedEventId, pendingRepeat, selectedEvent, updateEventField, showRecurringDialog, closeRecurringDialog])
 
   // Use shared hook for non-repeat property changes
   const handlePropertyChange = useRecurringPropertyChange()
@@ -206,7 +197,7 @@ const RepeatReminderPanel: React.FC = () => {
   // Compute whether all-day should be forced (24h+ duration only)
   const shouldForceAllDay = React.useMemo(() => {
     if (!selectedEvent) return false
-    return getEventDurationMinutes(selectedEvent) >= 1440
+    return !isMultiDayEvent(selectedEvent) && getEventDurationMinutes(selectedEvent) >= 1440
   }, [selectedEvent])
 
   // Auto-enable all-day when duration is 24h+; disable when reverting
@@ -215,14 +206,10 @@ const RepeatReminderPanel: React.FC = () => {
     if (!selectedEvent) return
     const wasForced = prevForceAllDay.current
     prevForceAllDay.current = shouldForceAllDay
-    const endDate = selectedEvent.end_date || selectedEvent.date
-    const isCrossDateUnder24h =
-      endDate > selectedEvent.date &&
-      !shouldForceAllDay
 
     if (shouldForceAllDay && !selectedEvent.is_all_day) {
       handlePropertyChange(selectedEvent, "is_all_day", true)
-    } else if ((!shouldForceAllDay && wasForced && selectedEvent.is_all_day) || (isCrossDateUnder24h && selectedEvent.is_all_day)) {
+    } else if (!shouldForceAllDay && wasForced && selectedEvent.is_all_day) {
       handlePropertyChange(selectedEvent, "is_all_day", false)
     }
   }, [selectedEvent?.id, selectedEvent?.date, selectedEvent?.end_date, selectedEvent?.is_all_day, shouldForceAllDay])
@@ -230,8 +217,7 @@ const RepeatReminderPanel: React.FC = () => {
   // Whether the event is multi-day (repeat doesn't make sense for multi-day)
   const isMultiDay = React.useMemo(() => {
     if (!selectedEvent) return false
-    const endDate = selectedEvent.end_date || selectedEvent.date
-    return endDate > selectedEvent.date
+    return isMultiDayEvent(selectedEvent)
   }, [selectedEvent])
 
   if (!selectedEvent) return null

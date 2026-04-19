@@ -4,7 +4,7 @@ import TimeUpdater from "./components/TimeUpdater"
 import { ViewSwitcher } from "./components/ViewSwitcher"
 import { TopBarLeft } from "./components/TopBarLeft"
 import {SideBar} from "./SideBar/SideBar.tsx"
-import { DayViewRoute, TodayRedirect, WeekViewRoute } from "./components/DayViewRoute"
+import { DayViewRoute, MonthViewRoute, TodayRedirect, WeekViewRoute } from "./components/DayViewRoute"
 import { Login } from "./pages/Login"
 import { Signup } from "./pages/Signup"
 import GoalView from "./Goal_view/GoalView"
@@ -63,6 +63,7 @@ function App() {
             <Route path="/" element={isAuthenticated ? <TodayRedirect /> : <Navigate to="/login" replace />} />
             <Route path="/day/:year/:month/:day" element={isAuthenticated ? <DayViewRoute /> : <Navigate to="/login" replace />} />
             <Route path="/week/:year/:month/:day" element={isAuthenticated ? <WeekViewRoute /> : <Navigate to="/login" replace />} />
+            <Route path="/month/:year/:month/:day" element={isAuthenticated ? <MonthViewRoute /> : <Navigate to="/login" replace />} />
             <Route path="/goalview" element={isAuthenticated ? <GoalView /> : <Navigate to="/login" replace />} />
             <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
             <Route path="/signup" element={isAuthenticated ? <Navigate to="/" replace /> : <Signup />} />

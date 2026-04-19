@@ -41,6 +41,7 @@ export interface CalendarEvent extends Event {
 export interface EventException {
   id: string
   series_id: string
+  user_id?: string
   date: string
   start_time?: number
   end_time?: number

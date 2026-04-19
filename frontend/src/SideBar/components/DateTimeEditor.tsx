@@ -440,16 +440,23 @@ const DateTimeEditor: React.FC = () => {
     handleRecurringPropertyChange(freshEvent, field, value, extraFields)
   }, [handleRecurringPropertyChange])
 
+  const [draftDate, setDraftDate] = useState("")
+  const [draftEndDate, setDraftEndDate] = useState("")
+
+  useEffect(() => {
+    if (!selectedEvent) return
+    setDraftDate(selectedEvent.date)
+    setDraftEndDate(selectedEvent.end_date || selectedEvent.date)
+  }, [selectedEvent])
+
   if (!selectedEvent) return null
 
   const livePreview = liveEventTimes[selectedEvent.id]
   const displayStartTime = livePreview?.start_time ?? selectedEvent.start_time
   const displayEndTime = livePreview?.end_time ?? selectedEvent.end_time
 
-  const endDate = selectedEvent.end_date || selectedEvent.date
-  const isMultiDay = endDate > selectedEvent.date
-  // Only disable time for true all-day (single-day, 24h+), not for multi-day
-  const disableTime = selectedEvent.is_all_day && !isMultiDay
+  const isMultiDay = draftEndDate > draftDate
+  const disableTime = !!selectedEvent.is_all_day
 
   return (
     <>
@@ -461,9 +468,11 @@ const DateTimeEditor: React.FC = () => {
           </span>
           <DatePickerButton
             key={`date-${selectedEvent.id}`}
-            value={selectedEvent.date}
+            value={draftDate}
             onChange={(date) => {
               const newDate = formatDate(date)
+              setDraftDate(newDate)
+              setDraftEndDate(newDate)
               handlePropertyChange('date', newDate, {
                 end_date: newDate,
                 ...getSingleDayTimeFix(displayStartTime, displayEndTime),
@@ -473,11 +482,12 @@ const DateTimeEditor: React.FC = () => {
           <span className="text-neutral-600">-</span>
           <DatePickerButton
             key={`enddate-${selectedEvent.id}`}
-            value={selectedEvent.end_date || selectedEvent.date}
+            value={draftEndDate}
             onChange={(date) => {
               const newDate = formatDate(date)
+              setDraftEndDate(newDate)
               const extraFields =
-                newDate === selectedEvent.date
+                newDate === draftDate
                   ? getSingleDayTimeFix(displayStartTime, displayEndTime)
                   : undefined
 

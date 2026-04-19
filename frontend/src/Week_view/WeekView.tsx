@@ -3,27 +3,33 @@ import { addDays, format, startOfWeek } from "date-fns"
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 import { resolveGoalColorForEvent, useGoalsStore } from "@/store/goalsStore"
-import { TOP_DEAD_ZONE, SLOT_HEIGHT, addEventOnClick, calculateEventPositions, getClockwiseDurationMinutes, getEventVisualColors, storeEventToUIEvent, uiEventToStoreEvent } from "@/lib/eventUtils"
+import { isSeriesActuallyRecurring, isSeriesAnchorEvent } from "@/store/recurringUtils"
+import { TOP_DEAD_ZONE, SLOT_HEIGHT, addEventOnClick, calculateEventPositions, getClockwiseDurationMinutes, getEventVisualColors, isAllDayEvent, isMultiDayEvent, isTimedMultiDayEvent, isTopBarEventType, isOvernightTimedEvent, storeEventToUIEvent, uiEventToStoreEvent } from "@/lib/eventUtils"
 
 const hourSlots = Array.from({ length: 24 }, (_, i) => i)
 const gridLines = Array.from({ length: 23 }, (_, i) => i)
-
-const isAllDayLike = (event: { is_all_day?: boolean; start_time: number; end_time: number }) => {
-  const durationMinutes = event.end_time >= event.start_time
-    ? event.end_time - event.start_time
-    : (1440 - event.start_time) + event.end_time
-  return !!event.is_all_day || durationMinutes >= 1440
-}
-
-const isSpanningTopEvent = (event: { date: string; end_date?: string | null; is_all_day?: boolean; start_time: number; end_time: number }) => {
-  const endDate = event.end_date || event.date
-  return endDate > event.date
-}
+const TOP_ROW_LANE_PITCH = 34
+const TOP_ROW_ITEM_OFFSET = 2
 
 const formatTime = (minutes: number) => {
   const h = Math.floor(minutes / 60) % 24
   const m = minutes % 60
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
+
+const formatTimedSpanLabel = (startMinutes: number, endMinutes: number) =>
+  `${formatTime(startMinutes)} - ${formatTime(endMinutes)}`
+
+const formatTopRowDateRange = (startDate: string, endDate: string) => {
+  const start = new Date(`${startDate}T00:00:00`)
+  const end = new Date(`${endDate}T00:00:00`)
+  const startMonth = format(start, "MMM")
+  const endMonth = format(end, "MMM")
+  const startDay = start.getDate()
+  const endDay = end.getDate()
+
+  if (startMonth === endMonth) return `${startMonth} ${startDay}-${endDay}`
+  return `${startMonth} ${startDay} - ${endMonth} ${endDay}`
 }
 
 const TIMELINE_SURFACE_COLOR = "#e2e2e1"
@@ -49,10 +55,13 @@ const WeekView = () => {
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const addEventLocal = useEventsStore((state) => state.addEventLocal)
   const deleteEvent = useEventsStore((state) => state.deleteEvent)
+  const updateEventField = useEventsStore((state) => state.updateEventField)
   const updateEventFields = useEventsStore((state) => state.updateEventFields)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
+  const scrollToEventId = useEventsStore((state) => state.scrollToEventId)
   const getEventById = useEventsStore((state) => state.getEventById)
+  const setScrollToEventId = useEventsStore((state) => state.setScrollToEventId)
   const setLiveEventTime = useEventsStore((state) => state.setLiveEventTime)
   const clearLiveEventTime = useEventsStore((state) => state.clearLiveEventTime)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
@@ -72,7 +81,7 @@ const WeekView = () => {
   const [previewById, setPreviewById] = useState<Record<string, { date: string; start_time: number; end_time: number }>>({})
   const [dragState, setDragState] = useState<{ id: string; duration: number; offsetMinutes: number; date: string; lockToDate: boolean } | null>(null)
   const [pendingDrag, setPendingDrag] = useState<{ id: string; duration: number; offsetMinutes: number; startX: number; startY: number; date: string; start: number; lockToDate: boolean } | null>(null)
-  const [resizeState, setResizeState] = useState<{ id: string; start: number; date: string } | null>(null)
+  const [resizeState, setResizeState] = useState<{ id: string; start: number; resizeBaseStart: number; date: string; eventDate: string; endDate: string } | null>(null)
   const [horizontalResizeState, setHorizontalResizeState] = useState<{
     id: string
     startDate: string
@@ -81,7 +90,7 @@ const WeekView = () => {
   } | null>(null)
   const [dismissedEventIds, setDismissedEventIds] = useState<Set<string>>(new Set())
   const [now, setNow] = useState(new Date())
-  const [showAllTopEvents, setShowAllTopEvents] = useState(true)
+  const [showAllTopEvents, setShowAllTopEvents] = useState(false)
   const interactionOriginalRef = useRef<Record<string, { date: string; end_date: string; start_time: number; end_time: number }>>({})
 
   const weekStart = useMemo(() => {
@@ -111,20 +120,24 @@ const WeekView = () => {
       weekDateKeys.map((k) => [k, []])
     )
     const seen = new Set<string>()
+    const firstWeekKey = weekDateKeys[0]
+    const lastWeekKey = weekDateKeys[weekDateKeys.length - 1]
 
     weekDays.forEach((day) => {
       const dayKey = formatDate(day)
       const events = getEventsForDate(day)
       events.forEach((event) => {
-        if (!(isAllDayLike(event as any) || isSpanningTopEvent(event as any))) return
+        if (!isTopBarEventType(event as any)) return
         const startKey = event.date
         const endKey = event.end_date || event.date
         const isSpan = endKey > startKey
-        if (isSpan && startKey !== dayKey) return
-        if (!weekDayIndexByKey.hasOwnProperty(startKey)) return
+        const visibleStartKey = startKey < firstWeekKey ? firstWeekKey : startKey
+        if (endKey < firstWeekKey || startKey > lastWeekKey) return
+        if (isSpan && visibleStartKey !== dayKey) return
+        if (!weekDayIndexByKey.hasOwnProperty(visibleStartKey)) return
         if (seen.has(event.id)) return
         seen.add(event.id)
-        baseByDay[startKey].push(event)
+        baseByDay[visibleStartKey].push(event)
       })
     })
 
@@ -132,16 +145,19 @@ const WeekView = () => {
     // date/end_date/is_all_day changes happen locally before computed views settle.
     Object.values(eventsCache).forEach((events) => {
       events.forEach((event: any) => {
-        if (!(isAllDayLike(event) || isSpanningTopEvent(event))) return
+        if (!isTopBarEventType(event)) return
         const startKey = event.date
-        if (!weekDayIndexByKey.hasOwnProperty(startKey)) return
+        const endKey = event.end_date || event.date
+        const visibleStartKey = startKey < firstWeekKey ? firstWeekKey : startKey
+        if (endKey < firstWeekKey || startKey > lastWeekKey) return
+        if (!weekDayIndexByKey.hasOwnProperty(visibleStartKey)) return
 
         // Replace any stale copy with latest raw-cache version.
         weekDateKeys.forEach((key) => {
           baseByDay[key] = (baseByDay[key] || []).filter((entry: any) => entry.id !== event.id)
         })
         seen.add(event.id)
-        baseByDay[startKey].push(event)
+        baseByDay[visibleStartKey].push(event)
       })
     })
 
@@ -149,13 +165,15 @@ const WeekView = () => {
     // even while deferred cache writes are still settling.
     if (selectedEventId) {
       const selectedEvent = getEventById(selectedEventId) as any
-      if (selectedEvent && (isAllDayLike(selectedEvent) || isSpanningTopEvent(selectedEvent))) {
+      if (selectedEvent && isTopBarEventType(selectedEvent)) {
         const selectedStartKey = selectedEvent.date
-        if (weekDayIndexByKey.hasOwnProperty(selectedStartKey)) {
+        const selectedEndKey = selectedEvent.end_date || selectedEvent.date
+        const visibleSelectedStartKey = selectedStartKey < firstWeekKey ? firstWeekKey : selectedStartKey
+        if (!(selectedEndKey < firstWeekKey || selectedStartKey > lastWeekKey) && weekDayIndexByKey.hasOwnProperty(visibleSelectedStartKey)) {
           weekDateKeys.forEach((key) => {
             baseByDay[key] = (baseByDay[key] || []).filter((event) => event.id !== selectedEvent.id)
           })
-          baseByDay[selectedStartKey].push(selectedEvent)
+          baseByDay[visibleSelectedStartKey].push(selectedEvent)
           seen.add(selectedEvent.id)
         }
       }
@@ -204,7 +222,7 @@ const WeekView = () => {
       laneByEventId[item.event.id] = lane
     })
 
-    const visibleLaneLimit = showAllTopEvents ? laneEnds.length : 2
+    const visibleLaneLimit = showAllTopEvents ? laneEnds.length : Math.min(laneEnds.length, 2)
     const allEventIds = new Set(flattened.map((f) => f.event.id))
     const hiddenIds = new Set<string>()
     if (!showAllTopEvents) {
@@ -231,10 +249,11 @@ const WeekView = () => {
       }
     })
 
-    const rowHeight = Math.max(34, Math.max(visibleLaneLimit, 1) * 22 + 8)
-
     const hiddenCount = hiddenIds.size
     const totalLaneCount = laneEnds.length
+    const rowHeight = totalLaneCount === 0
+      ? 0
+      : Math.max(34, Math.max(visibleLaneLimit, 1) * TOP_ROW_LANE_PITCH + 8)
     const hasAnyMore = totalLaneCount > 2
 
     return {
@@ -245,6 +264,8 @@ const WeekView = () => {
       rowHeight,
       hasAnyMore,
       hiddenCount,
+      totalLaneCount,
+      visibleLaneCount: Math.max(1, visibleLaneLimit),
     }
   }, [weekDays, weekDateKeys, weekDayIndexByKey, getEventsForDate, showAllTopEvents, eventsCache, computedEventsCache, recurringEventsCache, eventExceptionsCache, selectedEventId, getEventById])
 
@@ -252,24 +273,45 @@ const WeekView = () => {
     const unique = new Map<string, any>()
     weekDays.forEach((day) => {
       getEventsForDate(day).forEach((event) => {
-        const endDate = event.end_date || event.date
-        const isMultiDay = endDate > event.date
-        if (!isAllDayLike(event) && !isMultiDay) unique.set(event.id, event)
+        if (isTopBarEventType(event as any)) return
+
+        const existing = unique.get(event.id)
+        if (!existing) {
+          unique.set(event.id, event)
+          return
+        }
+
+        const existingEndDate = existing.end_date || existing.date
+        const eventEndDate = event.end_date || event.date
+        const shouldReplace =
+          event.date < existing.date ||
+          (event.date === existing.date && eventEndDate > existingEndDate)
+
+        if (shouldReplace) {
+          unique.set(event.id, event)
+        }
       })
     })
     return Array.from(unique.values()).filter((event) => !dismissedEventIds.has(event.id))
   }, [getEventsForDate, weekDays, goalsStore, selectedEventId, dismissedEventIds, eventsCache, computedEventsCache, recurringEventsCache, eventExceptionsCache])
 
   useEffect(() => {
-    if (!selectedEventId) return
+    if (!selectedEventId || showAllTopEvents) return
     const selectedEvent = getEventById(selectedEventId)
     if (!selectedEvent) return
+
     const endDate = selectedEvent.end_date || selectedEvent.date
-    const isMultiDay = endDate > selectedEvent.date
-    if (selectedEvent.is_all_day || isMultiDay) {
-      setShowAllTopEvents(true)
+    const isTopRowEvent = isTopBarEventType(selectedEvent as any)
+    if (!isTopRowEvent) return
+
+    const eventLane = topRowLayout.laneByEventId[selectedEventId] ?? -1
+    if (eventLane >= 2) {
+      const frame = window.requestAnimationFrame(() => {
+        setShowAllTopEvents(true)
+      })
+      return () => window.cancelAnimationFrame(frame)
     }
-  }, [selectedEventId, eventsCache, getEventById])
+  }, [selectedEventId, showAllTopEvents, getEventById, topRowLayout.laneByEventId])
 
   useEffect(() => {
     if (dismissedEventIds.size === 0) return
@@ -286,21 +328,32 @@ const WeekView = () => {
     })
   }, [weekDays, getEventsForDate, selectedDate, eventsCache])
 
-  const scrollToEventTime = (startMinutes: number) => {
-    if (!scrollRef.current) return
-    const top = TOP_DEAD_ZONE + (startMinutes / 60) * SLOT_HEIGHT - 24
-    scrollRef.current.scrollTo({ top: Math.max(0, top), behavior: "auto" })
-  }
+  useEffect(() => {
+    if (!scrollToEventId) return
 
-  const scrollToEventElement = (el: HTMLElement) => {
+    const event = getEventById(scrollToEventId) as any
+    if (!event) return
+
+    const endDate = event.end_date || event.date
+    const isTopRowEvent = isTopBarEventType(event as any)
+    if (isTopRowEvent) {
+      if (!showAllTopEvents) {
+        const eventLane = topRowLayout.laneByEventId[scrollToEventId] ?? -1
+        if (eventLane >= 2) {
+          window.requestAnimationFrame(() => {
+            setShowAllTopEvents(true)
+          })
+        }
+      }
+      setScrollToEventId(null)
+      return
+    }
+
     if (!scrollRef.current) return
-    const stickyHeight = stickyHeaderRef.current?.offsetHeight ?? 0
-    const containerRect = scrollRef.current.getBoundingClientRect()
-    const eventRect = el.getBoundingClientRect()
-    const absoluteTop = eventRect.top - containerRect.top + scrollRef.current.scrollTop
-    const nextTop = absoluteTop - stickyHeight - 8
-    scrollRef.current.scrollTo({ top: Math.max(0, nextTop), behavior: "auto" })
-  }
+    const scrollPosition = TOP_DEAD_ZONE + (event.start_time / 60) * SLOT_HEIGHT - 24
+    scrollRef.current.scrollTo({ top: Math.max(0, scrollPosition), behavior: "auto" })
+    setScrollToEventId(null)
+  }, [scrollToEventId, getEventById, setScrollToEventId, showAllTopEvents, topRowLayout.laneByEventId])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -312,6 +365,22 @@ const WeekView = () => {
   const snapToQuarter = (minutes: number) => Math.round(minutes / 15) * 15
   const toDayStamp = (dateKey: string) => new Date(`${dateKey}T00:00:00`).getTime()
   const daySpan = (from: string, to: string) => Math.max(0, Math.floor((toDayStamp(to) - toDayStamp(from)) / 86400000))
+
+  const findCanonicalCachedEvent = (eventId: string) => {
+    const { eventsCache } = useEventsStore.getState()
+    let canonical: any = null
+
+    for (const events of Object.values(eventsCache)) {
+      for (const event of events as any[]) {
+        if (event.id !== eventId) continue
+        if (!canonical || event.date < canonical.date || (event.date === canonical.date && (event.end_date || event.date) > (canonical.end_date || canonical.date))) {
+          canonical = event
+        }
+      }
+    }
+
+    return canonical
+  }
 
   const findDayByClientX = (clientX: number) => {
     for (const dayKey of weekDateKeys) {
@@ -333,19 +402,9 @@ const WeekView = () => {
 
   const applyLivePreviewToStore = (eventId: string, preview: { date: string; start_time: number; end_time: number; end_date?: string }) => {
     const { eventsCache } = useEventsStore.getState()
-    let fromDateKey: string | null = null
-    let sourceEvent: any = null
+    const sourceEvent = findCanonicalCachedEvent(eventId)
 
-    for (const [dateKey, events] of Object.entries(eventsCache)) {
-      const found = events.find((e: any) => e.id === eventId)
-      if (found) {
-        fromDateKey = dateKey
-        sourceEvent = found
-        break
-      }
-    }
-
-    if (!fromDateKey || !sourceEvent) return
+    if (!sourceEvent) return
 
     const toDateKey = preview.date
     const updatedEvent = {
@@ -359,14 +418,14 @@ const WeekView = () => {
 
     const nextCache: Record<string, any[]> = { ...eventsCache }
 
-    if (fromDateKey !== toDateKey) {
-      nextCache[fromDateKey] = (nextCache[fromDateKey] || []).filter((e: any) => e.id !== eventId)
-      if (nextCache[fromDateKey].length === 0) delete nextCache[fromDateKey]
-      if (!nextCache[toDateKey]) nextCache[toDateKey] = []
-      nextCache[toDateKey] = [...nextCache[toDateKey].filter((e: any) => e.id !== eventId), updatedEvent]
-    } else {
-      nextCache[fromDateKey] = (nextCache[fromDateKey] || []).map((e: any) => (e.id === eventId ? updatedEvent : e))
+    for (const cacheDateKey of Object.keys(nextCache)) {
+      const filtered = (nextCache[cacheDateKey] || []).filter((e: any) => e.id !== eventId)
+      if (filtered.length === 0) delete nextCache[cacheDateKey]
+      else nextCache[cacheDateKey] = filtered
     }
+
+    if (!nextCache[toDateKey]) nextCache[toDateKey] = []
+    nextCache[toDateKey] = [...nextCache[toDateKey], updatedEvent]
 
     if (nextCache[toDateKey]) {
       nextCache[toDateKey] = [...nextCache[toDateKey]].sort((a: any, b: any) => a.start_time - b.start_time)
@@ -382,7 +441,7 @@ const WeekView = () => {
 
   const captureOriginalIfNeeded = (eventId: string) => {
     if (interactionOriginalRef.current[eventId]) return
-    const sourceEvent = getEventById(eventId)
+    const sourceEvent = findCanonicalCachedEvent(eventId) || getEventById(eventId)
     if (!sourceEvent) return
     interactionOriginalRef.current[eventId] = {
       date: sourceEvent.date,
@@ -393,13 +452,7 @@ const WeekView = () => {
   }
 
   useEffect(() => {
-    const isRecurringEvent = (event: any) => !!(
-      event &&
-      (
-        event.isRecurringInstance === true ||
-        (event.repeat && event.repeat !== "None" && (event.series_start_date || event.series_end_date))
-      )
-    )
+    const isRecurringEvent = (event: any) => isSeriesActuallyRecurring(event)
 
     const onMouseMove = (e: MouseEvent) => {
       if (!dragState && pendingDrag) {
@@ -458,27 +511,20 @@ const WeekView = () => {
       } else if (resizeState) {
         const el = dayColumnRefs.current[resizeState.date]
         if (!el) return
-        const end = Math.max(resizeState.start + 15, getMinutesFromClientY(e.clientY, el))
+        const end = Math.max(resizeState.resizeBaseStart + 15, getMinutesFromClientY(e.clientY, el))
         const clampedEnd = Math.min(end, 24 * 60)
+        const original = interactionOriginalRef.current[resizeState.id]
+        const nextPreview = {
+          date: original?.date || resizeState.eventDate,
+          start_time: resizeState.start,
+          end_time: clampedEnd,
+          end_date: original?.end_date || resizeState.endDate,
+        }
         setPreviewById((prev) => ({
           ...prev,
-          [resizeState.id]: {
-            date: resizeState.date,
-            start_time: resizeState.start,
-            end_time: clampedEnd,
-          },
+          [resizeState.id]: nextPreview,
         }))
         setLiveEventTime(resizeState.id, resizeState.start, clampedEnd)
-        if (selectedEventId === resizeState.id) {
-          const selectedEvent = getEventById(resizeState.id) as any
-          if (!isRecurringEvent(selectedEvent)) {
-            applyLivePreviewToStore(resizeState.id, {
-              date: resizeState.date,
-              start_time: resizeState.start,
-              end_time: clampedEnd,
-            })
-          }
-        }
       } else if (horizontalResizeState) {
         const target = findDayByClientX(e.clientX)
         if (!target) return
@@ -565,13 +611,6 @@ const WeekView = () => {
         })
       }
 
-      const clearInteractionOnly = () => {
-        setDragState(null)
-        setResizeState(null)
-        setHorizontalResizeState(null)
-        clearLiveEventTime(activeId)
-      }
-
       const preview = derivedPreview || (previewById[activeId] as any)
       if (!preview) {
         const original = interactionOriginalRef.current[activeId]
@@ -584,34 +623,40 @@ const WeekView = () => {
         return
       }
 
-      const commit = {
-        date: preview.date,
-        end_date: preview.end_date || preview.date,
-        start_time: preview.start_time,
-        end_time: preview.end_time,
-      }
+      const original = interactionOriginalRef.current[activeId]
+      const commit = resizeState && original
+        ? {
+            date: original.date,
+            end_date: original.end_date,
+            start_time: preview.start_time,
+            end_time: preview.end_time,
+          }
+        : {
+            date: preview.date,
+            end_date: preview.end_date || preview.date,
+            start_time: preview.start_time,
+            end_time: preview.end_time,
+          }
 
       const sourceEvent = getEventById(activeId) as any
-      const isVirtualRecurring = !!sourceEvent?.isRecurringInstance
-      const isSeriesRecurring = !!(
-        sourceEvent &&
-        sourceEvent.repeat &&
-        sourceEvent.repeat !== "None" &&
-        (sourceEvent.series_start_date || sourceEvent.series_end_date)
-      )
+      const isRecurringSourceEvent = isRecurringEvent(sourceEvent)
 
-      if (isVirtualRecurring) {
+      if (isRecurringSourceEvent) {
+        if (isSeriesAnchorEvent(sourceEvent)) {
+          const seriesMasterId = sourceEvent.seriesMasterId || sourceEvent.id
+          void updateAllInSeries(seriesMasterId, commit)
+          delete interactionOriginalRef.current[activeId]
+          clearInteractionState()
+          return
+        }
+
         // Clean drag/resize visual state immediately while dialog is open.
         clearInteractionState()
 
         showRecurringDialog(sourceEvent, "edit", async (choice: string) => {
-          const original = interactionOriginalRef.current[activeId]
           const occurrenceDate = (sourceEvent as any).occurrenceDate || sourceEvent.date
 
           if (choice === "cancel") {
-            if (original && !sourceEvent.isRecurringInstance) {
-              updateEventFields(activeId, original)
-            }
             delete interactionOriginalRef.current[activeId]
             setSelectedEvent(null)
             closeRecurringDialog()
@@ -655,15 +700,11 @@ const WeekView = () => {
         return
       }
 
-      if (isSeriesRecurring) {
-        clearInteractionState()
-        const seriesMasterId = sourceEvent.seriesMasterId || sourceEvent.id
-        void updateAllInSeries(seriesMasterId, commit)
-        delete interactionOriginalRef.current[activeId]
-        return
+      if (resizeState) {
+        updateEventField(activeId, "end_time", commit.end_time)
+      } else {
+        updateEventFields(activeId, commit)
       }
-
-      updateEventFields(activeId, commit)
       delete interactionOriginalRef.current[activeId]
       clearInteractionState()
     }
@@ -674,7 +715,7 @@ const WeekView = () => {
       window.removeEventListener("mousemove", onMouseMove)
       window.removeEventListener("mouseup", onMouseUp)
     }
-  }, [pendingDrag, dragState, resizeState, horizontalResizeState, previewById, updateEventFields, weekDateKeys, setDate, selectedEventId, getEventById, setLiveEventTime, clearLiveEventTime, showRecurringDialog, closeRecurringDialog, splitRecurringEvent, updateAllInSeries, updateThisAndFollowing])
+  }, [pendingDrag, dragState, resizeState, horizontalResizeState, previewById, updateEventField, updateEventFields, weekDateKeys, setDate, selectedEventId, getEventById, setLiveEventTime, clearLiveEventTime, showRecurringDialog, closeRecurringDialog, splitRecurringEvent, updateAllInSeries, updateThisAndFollowing])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -692,8 +733,11 @@ const WeekView = () => {
       }
 
       const isRecurringDeleteTarget = !!(
-        selectedEvent.isRecurringInstance === true ||
-        selectedEvent.seriesMasterId
+        selectedEvent &&
+        (
+          isSeriesActuallyRecurring(selectedEvent) ||
+          selectedEvent.seriesMasterId
+        )
       )
 
       if (selectedEvent.title === "New Event") {
@@ -705,6 +749,14 @@ const WeekView = () => {
 
       if (isRecurringDeleteTarget) {
         const occurrenceDate = selectedEvent.occurrenceDate || selectedEvent.date
+        if (isSeriesAnchorEvent(selectedEvent)) {
+          const seriesMasterId = selectedEvent.seriesMasterId || selectedEvent.id
+          dismissEventId(selectedEvent.id)
+          void deleteEvent(seriesMasterId)
+          setSelectedEvent(null)
+          return
+        }
+
         showRecurringDialog(selectedEvent, "delete", async (choice: string) => {
           if (choice === "cancel") {
             closeRecurringDialog()
@@ -715,16 +767,17 @@ const WeekView = () => {
             const deleteSingleOccurrence = useEventsStore.getState().deleteSingleOccurrence
             dismissEventId(selectedEvent.id)
             await deleteSingleOccurrence(selectedEvent, occurrenceDate)
-          } else if (choice === "all-events" && selectedEvent.seriesMasterId) {
-            const seriesMasterId = selectedEvent.seriesMasterId
+          } else if (choice === "all-events") {
+            const seriesMasterId = selectedEvent.seriesMasterId || selectedEvent.id
             await deleteEvent(seriesMasterId)
-          } else if (choice === "this-and-following" && selectedEvent.seriesMasterId) {
+          } else if (choice === "this-and-following") {
+            const seriesMasterId = selectedEvent.seriesMasterId || selectedEvent.id
             const previousDay = (() => {
               const d = new Date(`${occurrenceDate}T00:00:00`)
               d.setDate(d.getDate() - 1)
               return formatDate(d)
             })()
-            await updateAllInSeries(selectedEvent.seriesMasterId, { series_end_date: previousDay })
+            await updateAllInSeries(seriesMasterId, { series_end_date: previousDay })
           }
 
           setSelectedEvent(null)
@@ -746,11 +799,11 @@ const WeekView = () => {
     <div className="h-full w-full bg-[#f3f3f2] flex items-center justify-center overflow-hidden select-none">
       <div className="h-[100%] w-[100%] rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden">
         <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0">
-          <h1 className="text-6xl pb-7 font-semibold text-neutral-800 tracking-tight">
-            <span style={{ fontFamily: "SF Pro Display", fontWeight: 700 }} className="text-black">
+          <h1 className="text-6xl pb-0 font-semibold text-neutral-800 tracking-tight">
+            <span style={{ fontFamily: "SF Pro Display Bold" }} className="text-black">
               {format(weekStart, "d MMM")} - {format(addDays(weekStart, 6), "d MMM")},
             </span>
-            <span style={{ fontFamily: "SF Pro Display", fontWeight: 400 }} className="text-neutral-400">
+            <span style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }} className="text-neutral-400">
               {" "}
               {format(addDays(weekStart, 6), "yyyy")}
             </span>
@@ -759,7 +812,7 @@ const WeekView = () => {
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar bg-[#e2e2e1]">
           <div className="pb-14 bg-[#e2e2e1]">
-            <div ref={stickyHeaderRef} className="sticky top-0 z-[500] isolate bg-[#e2e2e1] border-b border-black/5">
+            <div ref={stickyHeaderRef} className="sticky top-0 z-[500] isolate relative bg-[#e2e2e1]">
               <div className="flex relative z-[520] bg-[#e2e2e1]">
                 <div className="w-[72px] shrink-0" />
                 <div className="flex-1 grid grid-cols-7 gap-0">
@@ -771,17 +824,28 @@ const WeekView = () => {
                         key={day.toISOString()}
                         type="button"
                         onClick={() => setDate(day)}
-                        className={`border-l border-black/5 px-2 py-2 text-left transition-colors ${isSelected ? "bg-[#dcdcd9]" : "bg-transparent hover:bg-[#e9e9e7]"}`}
+                        className="group border-l border-black/5 px-2 py-2 text-left transition-all duration-200 bg-transparent"
                       >
-                        <div className="text-sm text-neutral-500">{format(day, "EEE")}</div>
-                        <div className="text-2xl font-semibold text-neutral-800">{format(day, "d")}</div>
+                      <div className="flex flex-col items-center justify-center  py-2 w-10">
+  <div className={`text-sm ${isSelected ? "text-neutral-600" : "text-neutral-500"}`}>
+    {format(day, "EEE")}
+  </div>
+
+  <div className={`mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl font-semibold leading-none transition-colors ${
+    isSelected 
+      ? "bg-black text-white" 
+      : "text-neutral-800 group-hover:bg-[#e9e9e7]"
+  }`}>
+    {format(day, "d")}
+  </div>
+</div>
                       </button>
                     )
                   })}
                 </div>
               </div>
-              <div className="flex border-t border-black/5 bg-[#e2e2e1] relative z-[510]">
-                <div className="w-[72px] shrink-0 flex items-start justify-end pr-2 pt-1">
+              <div className="flex bg-[#e2e2e1] relative z-[510]">
+                <div className="w-[72px] shrink-0 relative">
                   {topRowLayout.hasAnyMore ? (
                     <button
                       type="button"
@@ -789,20 +853,13 @@ const WeekView = () => {
                         e.stopPropagation()
                         setShowAllTopEvents((prev) => !prev)
                       }}
-                      className="z-30 h-6 rounded-full bg-white/90 hover:bg-white text-neutral-700 flex items-center justify-center border border-black/10 px-2 gap-1"
+                      className="absolute right-2 z-30 w-6 h-6 flex items-center justify-center rounded hover:bg-white/20 transition-colors"
+                              style={{ top: `${(topRowLayout.visibleLaneCount - 1) * TOP_ROW_LANE_PITCH + TOP_ROW_ITEM_OFFSET}px` }}
                       aria-label={showAllTopEvents ? "Collapse events" : "Show all events"}
                       title={showAllTopEvents ? "Show less" : "Show all"}
                     >
-                      <span className="text-[10px] font-semibold leading-none">
-                        {showAllTopEvents ? "Less" : `+${topRowLayout.hiddenCount}`}
-                      </span>
-                      <svg
-                        className={`h-3 w-3 transition-transform ${showAllTopEvents ? "rotate-180" : ""}`}
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path d="M5 8L10 13L15 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <svg className={`w-4 h-4 text-black transition-transform ${showAllTopEvents ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     </button>
                   ) : null}
@@ -816,40 +873,82 @@ const WeekView = () => {
                     return (
                       <div
                         key={`top-${day.toISOString()}`}
-                        className="border-l border-black/5 px-2 py-1 relative z-40"
+                        className="border-l border-black/5 px-0 py-1 relative z-40"
                         style={{ minHeight: `${topRowLayout.rowHeight}px` }}
                       >
                         <div className="relative z-50" style={{ minHeight: `${topRowLayout.rowHeight - 8}px` }}>
                           {visibleTopEvents.map((event) => {
                             const startKey = event.date
                             const endKey = event.end_date || event.date
+                            const continuesFromPreviousWeek = startKey < weekDateKeys[0]
+                            const continuesIntoNextWeek = endKey > weekDateKeys[weekDateKeys.length - 1]
                             const spanDays = Math.max(1, Math.min(7 - dayIndex, daySpan(startKey, endKey) + 1))
                             const lane = topRowLayout.laneByEventId[event.id] ?? 0
                             const isActive = selectedEventId === event.id
-                            const { backgroundColor, textColor } = getEventVisualColors((event as any).goalColor || (event as any).color)
+                            const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors((event as any).goalColor || (event as any).color)
+                            const isTimedMultiDay = isTimedMultiDayEvent(event as any)
+                            const topRowDateRange = formatTopRowDateRange(event.date, endKey)
                             return (
                               <div
                                 key={`top-sticky-${event.id}`}
                                 onClick={(eventClick) => {
                                   eventClick.stopPropagation()
-                                  if (!showAllTopEvents && topRowLayout.hasAnyMore) {
-                                    setShowAllTopEvents(true)
-                                  }
                                   setSelectedEvent(event.id)
                                   setDate(getDateFromSpanningClick(eventClick, event.date, spanDays))
-                                  scrollToEventTime(0)
                                 }}
-                                className="truncate px-2 py-1 text-[11px] font-semibold border border-white/70 shadow-sm rounded-md absolute left-0 z-[60] cursor-pointer transition-[width,transform] duration-200 ease-out"
+                                className={`truncate py-1 text-[13px] font-semibold absolute left-0 cursor-pointer transition-[width,transform,box-shadow] duration-200 ease-out ${
+                                  isActive ? "z-[9999] border-2 border-white shadow-2xl rounded-xl" : "z-[60] shadow-sm border border-white/70"
+                                } ${
+                                  isActive
+                                    ? continuesFromPreviousWeek && continuesIntoNextWeek
+                                      ? "pl-4 pr-4"
+                                      : continuesFromPreviousWeek
+                                        ? "pl-4 pr-2"
+                                        : continuesIntoNextWeek
+                                          ? "pl-2 pr-4"
+                                          : "px-2"
+                                    : continuesFromPreviousWeek && continuesIntoNextWeek
+                                    ? "rounded-none pl-4 pr-4"
+                                    : continuesFromPreviousWeek
+                                      ? "rounded-r-xl rounded-l-none pl-4 pr-2"
+                                      : continuesIntoNextWeek
+                                        ? "rounded-l-xl rounded-r-none pl-2 pr-4"
+                                        : "rounded-xl px-2"
+                                }`}
                                 style={{
-                                  top: `${lane * 22}px`,
-                                  backgroundColor,
+                                  top: `${lane * TOP_ROW_LANE_PITCH + TOP_ROW_ITEM_OFFSET}px`,
+                                  backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
                                   color: textColor,
+                                  left: "0px",
                                   width: spanDays > 1 ? `${spanDays * 100}%` : "100%",
-                                  boxShadow: isActive ? "0 10px 24px rgba(0,0,0,0.18)" : undefined,
+                                  clipPath: isActive
+                                    ? "none"
+                                    : continuesFromPreviousWeek && continuesIntoNextWeek
+                                    ? "polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%)"
+                                    : continuesFromPreviousWeek
+                                      ? "polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%)"
+                                      : continuesIntoNextWeek
+                                        ? "polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)"
+                                        : undefined,
+                                  borderRadius: isActive ? "20px" : undefined,
                                 }}
                               >
                                 <div className="flex items-center gap-1.5 overflow-hidden">
-                                  <span className="truncate">{event.title}</span>
+                                  {isTimedMultiDay ? (
+                                    <span
+                                      className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
+                                      style={{ backgroundColor: "rgba(255,255,255,0.5)", color: accentColor }}
+                                    >
+                                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 8v4l2.5 2.5m6-2.5a8.5 8.5 0 11-17 0 8.5 8.5 0 0117 0z" />
+                                      </svg>
+                                      {formatTimedSpanLabel(event.start_time, event.end_time)}
+                                    </span>
+                                  ) : null}
+                                  <span className="truncate">{event.title},</span>
+                                  {endKey > event.date ? (
+                                    <span className="shrink-0 opacity-70"> {topRowDateRange}</span>
+                                  ) : null}
                                 </div>
                               </div>
                             )
@@ -863,10 +962,9 @@ const WeekView = () => {
                                 eventClick.stopPropagation()
                                 setSelectedEvent(event.id)
                                 setDate(new Date(`${dayKey}T00:00:00`))
-                                scrollToEventTime(0)
                               }}
                               className="absolute left-0 z-[70] h-[20px] w-full cursor-pointer rounded bg-transparent p-0 border-0"
-                              style={{ top: `${lane * 22}px` }}
+                              style={{ top: `${lane * TOP_ROW_LANE_PITCH + TOP_ROW_ITEM_OFFSET}px` }}
                             />
                           ))}
                         </div>
@@ -875,6 +973,7 @@ const WeekView = () => {
                   })}
                 </div>
               </div>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[530] h-px bg-[linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.3)_12%,rgba(0,0,0,0.3)_88%,transparent_100%)]" />
             </div>
 
             <div className="flex relative">
@@ -908,13 +1007,6 @@ const WeekView = () => {
                       const endDate = event.end_date || event.date
                       return event.date <= dayKey && endDate >= dayKey
                     })
-                    .filter((event) => {
-                      const endDate = event.end_date || event.date
-                      const spansMultipleDays = endDate > event.date
-                      // Render cross-day timed events once (on their start day) as a single continuous block.
-                      if (spansMultipleDays) return event.date === dayKey
-                      return true
-                    })
 
                   const uiEvents = dayTimedEvents.map((event) => {
                     const resolvedGoalColor = resolveGoalColorForEvent(goalsStore, event as any)
@@ -931,6 +1023,27 @@ const WeekView = () => {
                     const target = e.target as HTMLElement
                     if (target.closest("[data-week-event='true']")) return
                     if (selectedEventId) {
+                      const datePattern = /-(\d{4}-\d{2}-\d{2})$/
+                      const isVirtualEventId = datePattern.test(selectedEventId)
+
+                      if (!isVirtualEventId) {
+                        let eventInStore: any = null
+
+                        for (const events of Object.values(eventsCache)) {
+                          const found = events.find((event: any) => event.id === selectedEventId)
+                          if (found) {
+                            eventInStore = found
+                            break
+                          }
+                        }
+
+                        if (eventInStore && eventInStore.isTemp === true && eventInStore.created_at === eventInStore.updated_at) {
+                          void deleteEvent(selectedEventId)
+                          setSelectedEvent(null)
+                          return
+                        }
+                      }
+
                       setSelectedEvent(null)
                       return
                     }
@@ -984,8 +1097,9 @@ const WeekView = () => {
                         {uiEvents.map((event) => {
                           const sourceEvent = dayTimedEvents.find((entry) => entry.id === event.id)
                           const eventEndDate = (sourceEvent?.end_date || sourceEvent?.date || dayKey)
+                          const isOvernightLinkedEvent = sourceEvent ? isOvernightTimedEvent(sourceEvent as any) : false
                           const isStartColumn = (sourceEvent?.date || dayKey) === dayKey
-                          const extensionDays = isStartColumn ? daySpan(dayKey, eventEndDate) : 0
+                          const extensionDays = isStartColumn && !isOvernightLinkedEvent ? daySpan(dayKey, eventEndDate) : 0
                           const isExtendedEvent = extensionDays > 0
                           const isHorizontalResizing = horizontalResizeState?.id === event.id
                           const isRecurringEvent = !!(
@@ -1002,7 +1116,15 @@ const WeekView = () => {
                           const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors(event.color)
                           const startMins = event.startHour * 60 + event.startMin
                           const endMins = event.endHour * 60 + event.endMin
+                          const labelStartMins = isOvernightLinkedEvent && sourceEvent ? sourceEvent.start_time : startMins
+                          const labelEndMins = isOvernightLinkedEvent && sourceEvent ? sourceEvent.end_time : endMins
                           const durationMins = getClockwiseDurationMinutes(startMins, endMins)
+                          const compactTimeLabel = formatTime(labelStartMins)
+                          const titleSizeClass = durationMins <= 15
+                            ? "text-sm"
+                            : durationMins <= 30
+                              ? "text-sm"
+                              : "text-xl"
 
                           return (
                             <button
@@ -1015,7 +1137,6 @@ const WeekView = () => {
                                 setSelectedEvent(event.id)
                                 const sourceDate = sourceEvent?.date || dayKey
                                 setDate(getDateFromSpanningClick(eventClick, sourceDate, isExtendedEvent ? extensionDays + 1 : 1))
-                                scrollToEventElement(eventClick.currentTarget)
                               }}
                               onMouseDown={(eventMouseDown) => {
                                 eventMouseDown.stopPropagation()
@@ -1038,7 +1159,7 @@ const WeekView = () => {
                                   lockToDate: isRecurringEvent,
                                 })
                               }}
-                              className={`group absolute rounded-md calendar-event cursor-grab active:cursor-grabbing select-none text-left bg-clip-padding ${
+                              className={`group absolute rounded-md calendar-event cursor-grab active:cursor-grabbing select-none text-left ${
                                 selectedEventId === event.id &&
                                 dragState?.id !== event.id &&
                                 pendingDrag?.id !== event.id &&
@@ -1054,7 +1175,9 @@ const WeekView = () => {
                                 height: event.height,
                                 left: isExtendedEvent ? "0%" : position.left,
                                 width: isExtendedEvent ? `calc(${extensionDays + 1} * 100%)` : position.width,
-                                zIndex: isHorizontalResizing
+                                zIndex: selectedEventId === event.id
+                                  ? 1000
+                                  : isHorizontalResizing
                                   ? 999
                                   : isExtendedEvent
                                     ? 120
@@ -1064,6 +1187,7 @@ const WeekView = () => {
                                 backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
                                 color: textColor,
                                 boxShadow: isActive ? "0 10px 24px rgba(0,0,0,0.24)" : undefined,
+                                backgroundClip: selectedEventId === event.id ? "border-box" : "padding-box",
                                 transition: dragState?.id === event.id || resizeState?.id === event.id || horizontalResizeState?.id === event.id
                                   ? undefined
                                   : "left 200ms ease, width 200ms ease",
@@ -1078,22 +1202,43 @@ const WeekView = () => {
                                   <path d="M5 21L2 18L5 15" />
                                 </svg>
                               ) : null}
-                              <div className={`absolute inset-x-0 top-0 z-10 pl-[18px] pr-3 ${durationMins <= 30 ? "pt-0" : "pt-1"}`} style={{ color: textColor }}>
-                                <div className="truncate text-base font-extrabold">{event.title}</div>
-                                {durationMins > 15 ? (
-                                  <div className="truncate text-sm font-medium opacity-95">{formatTime(startMins)} - {formatTime(endMins)}</div>
+                              <div className={`absolute inset-x-0 z-10 pl-[18px] pr-3 ${durationMins <= 15 ? "inset-y-0" : "top-0"} ${durationMins > 15 && durationMins <= 30 ? "pt-0" : durationMins > 30 ? "pt-1" : ""}`} style={{ color: textColor }}>
+                                {durationMins <= 15 ? (
+                                  <div className="relative h-full pr-[58px]">
+                                    <div className={`min-w-0 truncate font-extrabold ${titleSizeClass}`}>{event.title}</div>
+                                    <div className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-1 text-[11px] font-medium opacity-95">
+                                      <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                      <span>{compactTimeLabel}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className={`truncate font-extrabold ${titleSizeClass}`}>{event.title}</div>
+                                )}
+                                {durationMins > 20 ? (
+                                  <div className="flex items-center gap-1.5 truncate text-sm font-medium opacity-95">
+                                    <svg className="h-4 w-4 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span className="truncate">{formatTime(labelStartMins)} - {formatTime(labelEndMins)}</span>
+                                  </div>
                                 ) : null}
                               </div>
                               <div
                                 onMouseDown={(resizeMouseDown) => {
                                   resizeMouseDown.stopPropagation()
-                                  const start = event.startHour * 60 + event.startMin
+                                  const eventStartDate = sourceEvent?.date || dayKey
+                                  const eventEndDate = sourceEvent?.end_date || sourceEvent?.date || dayKey
+                                  const localStart = event.startHour * 60 + event.startMin
+                                  const start = isOvernightLinkedEvent && sourceEvent ? sourceEvent.start_time : localStart
+                                  const resizeBaseStart = isOvernightLinkedEvent && !isStartColumn ? localStart : start
                                   const end = event.endHour * 60 + event.endMin
                                   captureOriginalIfNeeded(event.id)
-                                  setResizeState({ id: event.id, start, date: dayKey })
+                                  setResizeState({ id: event.id, start, resizeBaseStart, date: dayKey, eventDate: eventStartDate, endDate: eventEndDate })
                                   setPreviewById((prev) => ({
                                     ...prev,
-                                    [event.id]: { date: dayKey, start_time: start, end_time: end },
+                                    [event.id]: { date: eventStartDate, start_time: start, end_time: end, end_date: eventEndDate },
                                   }))
                                 }}
                                 className="absolute bottom-0 left-0 right-0 z-30 h-2 cursor-ns-resize rounded-b-md opacity-0 hover:opacity-100 group-hover:opacity-100"

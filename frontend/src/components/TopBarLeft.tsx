@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { useNavigate, useLocation } from "react-router-dom"
+import { useTimeStore } from "@/store/timeStore"
 import goalIcon from "@/assets/goal.png"
 import calendarIcon from "@/assets/calendar2.png"
 import plusIcon from "@/assets/plus.png"
@@ -11,10 +12,16 @@ interface TopBarLeftProps {
 export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const selectedDate = useTimeStore((state) => state.selectedDate)
 
   const isGoalSelected = location.pathname === '/goalview'
-  const isCalendarSelected = location.pathname === '/calendar'
+  const isCalendarSelected =
+    location.pathname.startsWith('/day') ||
+    location.pathname.startsWith('/week') ||
+    location.pathname.startsWith('/month')
   const isDayRoute = /^\/day\/\d+\/\d+\/\d+$/.test(location.pathname)
+  const calendarDate = selectedDate || new Date()
+  const calendarPath = `/day/${calendarDate.getFullYear()}/${calendarDate.getMonth() + 1}/${calendarDate.getDate()}`
 
   const isAnySelected = isGoalSelected || isCalendarSelected
 
@@ -82,7 +89,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
 
         {/* Calendar */}
         <div
-          onClick={() => navigate('/calendar')}
+          onClick={() => navigate(calendarPath)}
           className={`
             h-16 w-16 flex items-center justify-center
             cursor-pointer rounded-full

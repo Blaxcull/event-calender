@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
-import { useLocation } from "react-router-dom"
 import { useEventsStore, type NewEvent } from "@/store/eventsStore"
 import { getGoalBucketKey, useGoalsStore, type GoalColumnType } from "@/store/goalsStore"
+import { isSeriesActuallyRecurring, isSeriesAnchorEvent } from "@/store/recurringUtils"
 import GoalTypeRow from "./GoalTypeRow"
 import GoalRow from "./GoalRow"
 
@@ -27,8 +27,6 @@ const GoalPanel: React.FC = () => {
   const fetchAllGoals = useGoalsStore((state) => state.fetchAllGoals)
   const [goalTypeValue, setGoalTypeValue] = useState("None")
   const [goalValue, setGoalValue] = useState("None")
-  const location = useLocation()
-  const isWeekRoute = location.pathname.startsWith("/week")
 
   const selectedEvent = selectedEventId ? getEventById(selectedEventId) : null
 
@@ -143,16 +141,13 @@ const GoalPanel: React.FC = () => {
       goalIcon: pendingGoalIcon,
     }
 
-    const isVirtualRecurring = !!(selectedEvent as any).isRecurringInstance
-    const isRecurring = !!(
-      isVirtualRecurring ||
-      (selectedEvent.repeat && selectedEvent.repeat !== "None" && ((selectedEvent as any).series_start_date || (selectedEvent as any).series_end_date))
-    )
+    const isRecurring = isSeriesActuallyRecurring(selectedEvent)
 
     if (isRecurring) {
-      if (isWeekRoute && !isVirtualRecurring) {
+      if (isSeriesAnchorEvent(selectedEvent)) {
         const updateAllInSeries = useEventsStore.getState().updateAllInSeries
-        void updateAllInSeries(selectedEvent.id, updates)
+        const seriesMasterId = (selectedEvent as any).seriesMasterId || selectedEvent.id
+        void updateAllInSeries(seriesMasterId, updates)
         return
       }
 
@@ -199,7 +194,6 @@ const GoalPanel: React.FC = () => {
     selectedEventId,
     showRecurringDialog,
     updateEventFields,
-    isWeekRoute,
   ])
 
   const handleGoalTypeChange = useCallback(

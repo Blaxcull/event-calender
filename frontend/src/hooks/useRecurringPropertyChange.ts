@@ -6,13 +6,13 @@
  * For non-recurring events, it updates directly.
  */
 import { useCallback } from 'react'
-import { useLocation } from 'react-router-dom'
 import {
   useEventsStore,
   type CalendarEvent,
   type NewEvent,
   type EventFieldValue,
 } from '@/store/eventsStore'
+import { isSeriesActuallyRecurring, isSeriesAnchorEvent } from '@/store/recurringUtils'
 
 /**
  * Returns a function to update event properties with proper recurring dialog handling.
@@ -22,8 +22,6 @@ export function useRecurringPropertyChange() {
   const updateEventField = useEventsStore((state) => state.updateEventField)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
-  const location = useLocation()
-  const isWeekRoute = location.pathname.startsWith('/week')
 
   const handlePropertyChange = useCallback(
     (
@@ -34,9 +32,7 @@ export function useRecurringPropertyChange() {
     ) => {
       if (!event) return
 
-      const isVirtualRecurring = event.isRecurringInstance === true
-      const isSeriesRecurring = !!(event.repeat && event.repeat !== 'None' && ((event as any).series_start_date || (event as any).series_end_date))
-      const isRecurring = !!(isVirtualRecurring || isSeriesRecurring)
+      const isRecurring = isSeriesActuallyRecurring(event)
 
       if (isRecurring) {
         const eventId = event.id
@@ -55,8 +51,7 @@ export function useRecurringPropertyChange() {
           return updates
         }
 
-        // In week view, editing the real/master recurring event applies to the whole series directly.
-        if (isWeekRoute && !isVirtualRecurring) {
+        if (isSeriesAnchorEvent(event)) {
           const updateAllInSeries = useEventsStore.getState().updateAllInSeries
           const seriesMasterId = (event as any).seriesMasterId || eventId
           void updateAllInSeries(seriesMasterId, buildUpdates() as Partial<NewEvent>)
@@ -102,7 +97,7 @@ export function useRecurringPropertyChange() {
         }
       }
     },
-    [updateEventField, showRecurringDialog, closeRecurringDialog, isWeekRoute]
+    [updateEventField, showRecurringDialog, closeRecurringDialog]
   )
 
   return handlePropertyChange

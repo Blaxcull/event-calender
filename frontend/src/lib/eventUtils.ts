@@ -148,14 +148,42 @@ export function getEventDurationMinutes(event: Pick<Event, 'date' | 'end_date' |
   return (daySpan * 1440) + (event.end_time - event.start_time)
 }
 
+export function isMultiDayEvent(event: Pick<Event, 'date' | 'end_date'>): boolean {
+  return (event.end_date || event.date) > event.date
+}
+
+export function isAllDayEvent(event: Pick<Event, 'date' | 'end_date' | 'start_time' | 'end_time' | 'is_all_day'>): boolean {
+  if (isMultiDayEvent(event)) return !!event.is_all_day
+  return !!event.is_all_day || getEventDurationMinutes(event) >= 1440
+}
+
+export function isTimedMultiDayEvent(event: Pick<Event, 'date' | 'end_date' | 'start_time' | 'end_time' | 'is_all_day'>): boolean {
+  return isMultiDayEvent(event) && !isAllDayEvent(event)
+}
+
+export function isOvernightTimedEvent(event: Pick<Event, 'date' | 'end_date' | 'start_time' | 'end_time' | 'is_all_day'>): boolean {
+  return isTimedMultiDayEvent(event) && getEventDurationMinutes(event) < 1440
+}
+
+function isCrossDateMidnightBoundaryEvent(event: Pick<Event, 'date' | 'end_date' | 'start_time' | 'end_time' | 'is_all_day'>): boolean {
+  return isMultiDayEvent(event) && !isAllDayEvent(event) && event.end_time === 0
+}
+
+export function isTopBarEventType(event: Pick<Event, 'date' | 'end_date' | 'start_time' | 'end_time' | 'is_all_day'>): boolean {
+  return (
+    isAllDayEvent(event) ||
+    isCrossDateMidnightBoundaryEvent(event) ||
+    (isMultiDayEvent(event) && !isOvernightTimedEvent(event))
+  )
+}
+
 // Convert store event to UI event
 export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): EventType {
   const storeEndDate = storeEvent.end_date || storeEvent.date
-  const isMultiDay = storeEndDate > storeEvent.date
+  const isMultiDay = isMultiDayEvent(storeEvent)
   const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
   
-  const totalDurationMinutes = getEventDurationMinutes(storeEvent)
-  const isFullDay = totalDurationMinutes >= 1440
+  const isFullDay = isAllDayEvent(storeEvent)
 
   let visibleStartMinutes = storeEvent.start_time
   let visibleEndMinutes = storeEvent.end_time
@@ -175,7 +203,13 @@ export function storeEventToUIEvent(storeEvent: Event, selectedDate: Date): Even
   const endTime = yToTime(endY)
   const visibleDurationMinutes = getClockwiseDurationMinutes(visibleStartMinutes, visibleEndMinutes)
   const durationHeight = timeToY(visibleDurationMinutes)
-  const isAllDay = isFullDay || (storeEvent.is_all_day && !isMultiDay)
+  // True all-day / long multi-day events live in the sticky top row.
+  // Special case: cross-date events ending exactly at 00:00 also live there.
+  // Other overnight timed events stay in the timed grid and split across days.
+  const isAllDay =
+    isFullDay ||
+    isCrossDateMidnightBoundaryEvent(storeEvent) ||
+    (isMultiDay && !isOvernightTimedEvent(storeEvent))
 
   // Parse end_date for the UI event
   const endDate = storeEndDate ? new Date(storeEndDate + 'T00:00:00') : selectedDate

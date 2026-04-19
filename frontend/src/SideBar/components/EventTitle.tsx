@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useEventsStore } from '@/store/eventsStore'
 import { useTimeStore } from '@/store/timeStore'
 import { useGoalsStore, resolveGoalColorForEvent, resolveGoalIconForEvent } from '@/store/goalsStore'
@@ -7,7 +8,7 @@ import EventEditor from './EventEditor'
 import DateTimeEditor from './DateTimeEditor'
 import GoalPanel from './GoalSetter'
 import RepeatReminderPanel from './RepeatReminderPanel'
-import { getEventDurationMinutes } from '@/lib/eventUtils'
+import { isAllDayEvent, isMultiDayEvent, isTimedMultiDayEvent, isTopBarEventType } from '@/lib/eventUtils'
 
 const EventTitle: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -16,11 +17,11 @@ const EventTitle: React.FC = () => {
   const setScrollToTop = useEventsStore((state) => state.setScrollToTop)
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const liveEventTimes = useEventsStore((state) => state.liveEventTimes)
-  const eventsCache = useEventsStore((state) => state.eventsCache)
-  const computedEventsCache = useEventsStore((state) => state.computedEventsCache)
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const goalsStore = useGoalsStore((state) => state.store)
+  const location = useLocation()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const isWeekView = location.pathname.startsWith('/week')
   
   // Scroll to top when a new event is selected
   useEffect(() => {
@@ -30,9 +31,24 @@ const EventTitle: React.FC = () => {
   }, [selectedEventId])
 
   const todaysEvents = selectedDate ? getEventsForDate(selectedDate) : []
+  const selectedDateKey = selectedDate
+    ? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
+    : null
   const eventsWithLiveTimes = todaysEvents.map((event) => {
     const live = liveEventTimes[event.id]
     if (!live) return event
+
+    const endDate = event.end_date || event.date
+    const isTimedMultiDayContinuation =
+      !!selectedDateKey &&
+      isTimedMultiDayEvent(event) &&
+      event.date !== selectedDateKey &&
+      endDate >= selectedDateKey
+
+    if (isTimedMultiDayContinuation) {
+      return event
+    }
+
     return {
       ...event,
       start_time: live.start_time,
@@ -40,31 +56,26 @@ const EventTitle: React.FC = () => {
     }
   })
   const sortedEvents = [...eventsWithLiveTimes].sort((a, b) => {
-    const aEndDate = a.end_date || a.date
-    const bEndDate = b.end_date || b.date
-    const aIsMultiDay = aEndDate > a.date
-    const bIsMultiDay = bEndDate > b.date
-    const aIsAllDay = a.is_all_day || getEventDurationMinutes(a) >= 1440
-    const bIsAllDay = b.is_all_day || getEventDurationMinutes(b) >= 1440
+    const aIsTopRow = isTopBarEventType(a)
+    const bIsTopRow = isTopBarEventType(b)
+    const aIsAllDay = isAllDayEvent(a)
+    const bIsAllDay = isAllDayEvent(b)
 
-    const rank = (isMultiDay: boolean, isAllDay: boolean) => {
-      if (isMultiDay) return 0
-      if (isAllDay) return 1
+    const rank = (isTopRow: boolean, isAllDayValue: boolean) => {
+      if (isTopRow && !isAllDayValue) return 0
+      if (isAllDayValue) return 1
       return 2
     }
 
-    const rankDiff = rank(aIsMultiDay, aIsAllDay) - rank(bIsMultiDay, bIsAllDay)
+    const rankDiff = rank(aIsTopRow, aIsAllDay) - rank(bIsTopRow, bIsAllDay)
     if (rankDiff !== 0) return rankDiff
     return a.start_time - b.start_time
   })
 
   const handleEventClick = (eventId: string) => {
     const event = eventsWithLiveTimes.find(e => e.id === eventId)
-    const isAllDay = event && (
-      event.is_all_day ||
-      getEventDurationMinutes(event) >= 1440
-    )
-    if (isAllDay) {
+    const isTopRowEvent = event && isTopBarEventType(event)
+    if (isTopRowEvent) {
       setScrollToTop(true)
     } else {
       setScrollToEventId(eventId)
@@ -93,10 +104,6 @@ const EventTitle: React.FC = () => {
     return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`
   }
 
-  const getTimeRange = (start: number, end: number): string => {
-    return `${formatTime(start)} - ${formatTime(end)}`
-  }
-
   const getDuration = (start: number, end: number): string => {
     let diff = end - start
     if (diff < 0) diff += 1440
@@ -116,10 +123,12 @@ const EventTitle: React.FC = () => {
     <div className="px-6 flex-1 flex flex-col min-h-0">
       <h3 className="text-m px-2 font-semibold text-slate-400 uppercase tracking-wider mb-3 shrink-0">
         {selectedDate ? (
-          selectedDate.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-          })
+          isWeekView
+            ? selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
+            : selectedDate.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+              })
         ) : (
           'Events'
         )}
@@ -148,22 +157,28 @@ const EventTitle: React.FC = () => {
           <div className="pb-3 space-y-2.5">
             {sortedEvents.map((event) => {
               const endDate = event.end_date || event.date
-              const isMultiDay = endDate > event.date
-              const isAllDay = event.is_all_day || getEventDurationMinutes(event) >= 1440
+              const isMultiDay = isMultiDayEvent(event)
+              const isAllDay = isAllDayEvent(event)
+              const isTimedMultiDay = isTimedMultiDayEvent(event)
               const isRecurring = (event as any).isRecurringInstance || (event.repeat && event.repeat !== 'None')
-              const resolvedGoalColor = resolveGoalColorForEvent(goalsStore, event)
               const resolvedGoalIcon = resolveGoalIconForEvent(goalsStore, event)
               const eventGoalIcon = event.goalIcon || resolvedGoalIcon
               const goalIconEntry = eventGoalIcon ? getGoalIcon(eventGoalIcon) : null
               const GoalIcon = goalIconEntry?.icon
-              const startLabel = isMultiDay
-                ? 'Multi Day'
-                : isAllDay
-                ? 'All Day'
-                : formatTime(event.start_time)
-              const endLabel = isAllDay || isMultiDay
-                ? ''
-                : formatTime(event.end_time)
+              const isStartDay = selectedDateKey === event.date
+              const isEndDay = selectedDateKey === endDate
+              const startLabel = isTimedMultiDay
+                ? formatTime(event.start_time)
+                : isMultiDay
+                  ? 'Multi Day'
+                  : isAllDay
+                    ? 'All Day'
+                    : formatTime(event.start_time)
+              const endLabel = isTimedMultiDay
+                ? formatTime(event.end_time)
+                : isAllDay || isMultiDay
+                  ? ''
+                  : formatTime(event.end_time)
               const multiDayRangeLabel = `${formatShortDate(event.date)} - ${formatShortDate(endDate)}`
 
               return (
@@ -177,7 +192,7 @@ const EventTitle: React.FC = () => {
                       <div className="text-[14px] font-semibold text-neutral-900 leading-none">
                         {startLabel}
                       </div>
-                      {!isAllDay && (
+                      {endLabel && (
                         <div className="mt-1.5 text-[10px] uppercase tracking-[0.16em] text-neutral-400">
                           {endLabel}
                         </div>
@@ -199,7 +214,7 @@ const EventTitle: React.FC = () => {
                           </div>
 
                           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500">
-                            {!isAllDay && (
+                            {!isAllDay && !isMultiDay && (
                               <span className="rounded-full bg-white/95 px-2.5 py-1 font-medium ring-1 ring-black/[0.05]">
                                 {getDuration(event.start_time, event.end_time)}
                               </span>

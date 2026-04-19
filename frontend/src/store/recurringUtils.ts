@@ -116,3 +116,30 @@ export function getNextOccurrence(dateStr: string, repeatType: string): string {
       return addDaysToDateStr(dateStr, 1)
   }
 }
+
+export function isSeriesActuallyRecurring(event: {
+  repeat?: string
+  series_start_date?: string
+  series_end_date?: string
+  isRecurringInstance?: boolean
+  date?: string
+} | null | undefined): boolean {
+  if (!event) return false
+  if (event.isRecurringInstance === true) return true
+  if (!event.repeat || event.repeat === 'None') return false
+  if (!event.series_start_date || !event.series_end_date) return false
+  return event.series_end_date > event.series_start_date
+}
+
+export function isSeriesAnchorEvent(event: {
+  isRecurringInstance?: boolean
+  repeat?: string
+  series_start_date?: string
+  series_end_date?: string
+  date?: string
+} | null | undefined): boolean {
+  if (!event) return false
+  if (event.isRecurringInstance === true) return false
+  if (!isSeriesActuallyRecurring(event)) return false
+  return !!event.date && event.date === event.series_start_date
+}
