@@ -8,6 +8,12 @@ import {
   addYearsToDateStr,
 } from './dateUtils'
 
+function diffDays(startDate: string, endDate: string): number {
+  const start = new Date(`${startDate}T00:00:00`)
+  const end = new Date(`${endDate}T00:00:00`)
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000))
+}
+
 /**
  * Generate all recurring occurrence dates for a given month.
  * Returns YYYY-MM-DD strings for each occurrence within the month range.
@@ -26,6 +32,26 @@ export function generateRecurringDatesForMonth(
   }
 
   let currentDate = seriesStartDate
+
+  switch (repeatType) {
+    case 'Daily':
+      if (currentDate < monthStart) currentDate = monthStart
+      break
+    case 'Weekly': {
+      if (currentDate < monthStart) {
+        const offset = diffDays(currentDate, monthStart)
+        const weeksToSkip = Math.floor(offset / 7)
+        currentDate = addDaysToDateStr(currentDate, weeksToSkip * 7)
+        while (currentDate < monthStart) {
+          currentDate = addDaysToDateStr(currentDate, 7)
+        }
+      }
+      break
+    }
+    default:
+      break
+  }
+
   while (currentDate <= seriesEndDate && currentDate <= monthEnd) {
     if (currentDate >= monthStart) {
       dates.push(currentDate)
@@ -62,6 +88,7 @@ export function generateRecurringInstances(
   exceptions: EventException[]
 ): CalendarEvent[] {
   const instances: CalendarEvent[] = []
+  const exceptionsByDate = new Map(exceptions.map((exception) => [exception.date, exception]))
   const daySpan = (() => {
     const start = new Date(masterEvent.date + 'T00:00:00')
     const end = new Date((masterEvent.end_date || masterEvent.date) + 'T00:00:00')
@@ -72,7 +99,7 @@ export function generateRecurringInstances(
     // Skip the master event's original date - it's a real DB row
     if (recDate === masterEvent.date) continue
 
-    const exception = exceptions.find(ex => ex.date === recDate)
+    const exception = exceptionsByDate.get(recDate)
 
     if (exception && (exception as any).deleted === true) continue
 

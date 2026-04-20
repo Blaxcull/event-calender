@@ -430,11 +430,12 @@ const TimeView: React.FC<TimeViewProps> = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && selectedEventId) {
-        const selectedEvent = localEvents.find(e => e.id === selectedEventId)
+        const selectedGridEvent = localEvents.find((event) => event.id === selectedEventId)
+        const selectedEvent = selectedGridEvent ?? getEventById(selectedEventId)
         if (selectedEvent) {
           if (selectedEvent.title === "New Event") {
             // Delete new events immediately in UI.
-            removeEventLocally(selectedEvent.id)
+            if (selectedGridEvent) removeEventLocally(selectedEvent.id)
             void deleteEvent(selectedEvent.id)
             setSelectedEvent(null)
           } else if (isSeriesActuallyRecurring(selectedEvent as any)) {
@@ -443,7 +444,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
               : selectedEvent.date
 
             if (isSeriesAnchorEvent(selectedEvent as any)) {
-              removeEventLocally(selectedEvent.id)
+              if (selectedGridEvent) removeEventLocally(selectedEvent.id)
               void deleteEvent((selectedEvent as any).seriesMasterId || selectedEvent.id)
               setSelectedEvent(null)
               return
@@ -452,7 +453,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
             showRecurringDialog(selectedEvent as any, "delete", async (choice: string) => {
               if (choice === "only-this") {
                 const deleteSingleOccurrence = useEventsStore.getState().deleteSingleOccurrence
-                removeEventLocally(selectedEvent.id)
+                if (selectedGridEvent) removeEventLocally(selectedEvent.id)
                 deleteSingleOccurrence(
                   selectedEvent as any,
                   eventDateStr,
@@ -521,7 +522,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
             })
           } else {
             // Non-recurring existing events - remove immediately, then persist delete.
-            removeEventLocally(selectedEvent.id)
+            if (selectedGridEvent) removeEventLocally(selectedEvent.id)
             void deleteEvent(selectedEvent.id)
             setSelectedEvent(null)
           }
@@ -531,7 +532,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedEventId, deleteEvent, setSelectedEvent, localEvents, showRecurringDialog, closeRecurringDialog])
+  }, [selectedEventId, deleteEvent, getEventById, setSelectedEvent, localEvents, showRecurringDialog, closeRecurringDialog])
 
   // Handle click on calendar to create events
   const handleContainerClick = async (e: React.MouseEvent<HTMLDivElement>) => {

@@ -236,6 +236,160 @@ function findMasterEvent(cache: EventsCache, masterId: string): Event | null {
   return null
 }
 
+function scheduleIdleStoreWrite(write: () => void) {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(() => write(), { timeout: 120 })
+    return
+  }
+
+  setTimeout(write, 0)
+}
+
+function buildRecurringEventsForMonth(
+  monthDate: Date,
+  eventsCache: EventsCache,
+  recurringEventsCache: Record<string, CalendarEvent[]>,
+  eventExceptionsCache: Record<string, EventException[]>
+): CalendarEvent[] {
+  const monthKey = getMonthKey(monthDate)
+  if (recurringEventsCache[monthKey]) {
+    return recurringEventsCache[monthKey]
+  }
+
+  const { monthStart, monthEnd } = getMonthRange(monthDate)
+  const seenMasterIds = new Set<string>()
+  const allMasterEvents: Event[] = []
+
+  for (const dayEvents of Object.values(eventsCache)) {
+    for (const event of dayEvents) {
+      if (
+        event.repeat &&
+        event.repeat !== 'None' &&
+        event.series_start_date &&
+        event.series_end_date &&
+        event.series_end_date >= monthStart &&
+        event.series_start_date <= monthEnd &&
+        !seenMasterIds.has(event.id)
+      ) {
+        seenMasterIds.add(event.id)
+        allMasterEvents.push(event)
+      }
+    }
+  }
+
+  const generatedRecurring: CalendarEvent[] = []
+  for (const masterEvent of allMasterEvents) {
+    const recurringDates = generateRecurringDatesForMonth(
+      masterEvent.series_start_date!,
+      masterEvent.series_end_date!,
+      monthStart,
+      monthEnd,
+      masterEvent.repeat || 'Daily'
+    )
+
+    const seriesExceptions = eventExceptionsCache[masterEvent.id] || []
+    const instances = generateRecurringInstances(masterEvent, recurringDates, seriesExceptions)
+    generatedRecurring.push(...instances)
+  }
+
+  return generatedRecurring
+}
+
+function buildCanonicalEventsForDate(
+  dateKey: string,
+  eventsCache: EventsCache,
+  recurringEventsForMonth: CalendarEvent[]
+): CalendarEvent[] {
+  const realEvents: CalendarEvent[] = (eventsCache[dateKey] || []).map((event) => ({
+    ...event,
+    isRecurringInstance: false,
+  }))
+
+  for (const [otherDateKey, dayEvents] of Object.entries(eventsCache)) {
+    if (otherDateKey === dateKey) continue
+    for (const event of dayEvents) {
+      const eventEndDate = event.end_date || event.date
+      if (event.date <= dateKey && eventEndDate >= dateKey) {
+        realEvents.push({ ...event, isRecurringInstance: false })
+      }
+    }
+  }
+
+  const recurringEvents = recurringEventsForMonth.filter((event) => event.date === dateKey)
+  const canonicalById = new Map<string, CalendarEvent>()
+  const allEvents = [...realEvents, ...recurringEvents]
+
+  for (const event of allEvents) {
+    const existing = canonicalById.get(event.id)
+    if (!existing) {
+      canonicalById.set(event.id, event)
+      continue
+    }
+
+    const existingEndDate = existing.end_date || existing.date
+    const eventEndDate = event.end_date || event.date
+    const shouldReplace =
+      event.date < existing.date ||
+      (event.date === existing.date && eventEndDate > existingEndDate)
+
+    if (shouldReplace) {
+      canonicalById.set(event.id, event)
+    }
+  }
+
+  return Array.from(canonicalById.values()).sort((a, b) => a.start_time - b.start_time)
+}
+
+export function getEventsForDateSnapshot(
+  date: Date,
+  eventsCache: EventsCache,
+  recurringEventsCache: Record<string, CalendarEvent[]>,
+  eventExceptionsCache: Record<string, EventException[]>
+): CalendarEvent[] {
+  const dateKey = formatDate(date)
+  const recurringEventsForMonth = buildRecurringEventsForMonth(
+    date,
+    eventsCache,
+    recurringEventsCache,
+    eventExceptionsCache
+  )
+  return buildCanonicalEventsForDate(dateKey, eventsCache, recurringEventsForMonth)
+}
+
+export function getEventsForDatesSnapshot(
+  dates: Date[],
+  eventsCache: EventsCache,
+  recurringEventsCache: Record<string, CalendarEvent[]>,
+  eventExceptionsCache: Record<string, EventException[]>
+): Record<string, CalendarEvent[]> {
+  const eventsByDateKey: Record<string, CalendarEvent[]> = {}
+  const recurringByMonthKey = new Map<string, CalendarEvent[]>()
+
+  dates.forEach((date) => {
+    const dateKey = formatDate(date)
+    const monthKey = getMonthKey(date)
+    let recurringEventsForMonth = recurringByMonthKey.get(monthKey)
+
+    if (!recurringEventsForMonth) {
+      recurringEventsForMonth = buildRecurringEventsForMonth(
+        date,
+        eventsCache,
+        recurringEventsCache,
+        eventExceptionsCache
+      )
+      recurringByMonthKey.set(monthKey, recurringEventsForMonth)
+    }
+
+    eventsByDateKey[dateKey] = buildCanonicalEventsForDate(
+      dateKey,
+      eventsCache,
+      recurringEventsForMonth
+    )
+  })
+
+  return eventsByDateKey
+}
+
 // ---- Store ----
 
 export const useEventsStore = create<EventsState>()(
@@ -855,123 +1009,43 @@ export const useEventsStore = create<EventsState>()(
           return computedEventsCache[dateKey]
         }
 
-        // Real events for this date
-        const realEvents: CalendarEvent[] = (eventsCache[dateKey] || []).map(e => ({
-          ...e,
-          isRecurringInstance: false,
-        }))
-
-        // Include multi-day events that span into this date from other cache dates
-        for (const [otherDateKey, dayEvents] of Object.entries(eventsCache)) {
-          if (otherDateKey === dateKey) continue
-          for (const event of dayEvents) {
-            const eventEndDate = event.end_date || event.date
-            if (event.date <= dateKey && eventEndDate >= dateKey) {
-              realEvents.push({ ...event, isRecurringInstance: false })
-            }
-          }
-        }
-
-        // Generate or retrieve recurring instances
         const monthKey = getMonthKey(date)
-        let recurringEvents: CalendarEvent[] = []
+        const recurringEventsForMonth = buildRecurringEventsForMonth(
+          date,
+          eventsCache,
+          recurringEventsCache,
+          eventExceptionsCache
+        )
+        const uniqueEvents = buildCanonicalEventsForDate(dateKey, eventsCache, recurringEventsForMonth)
 
-        if (recurringEventsCache[monthKey]) {
-          recurringEvents = recurringEventsCache[monthKey].filter(e => e.date === dateKey)
-        } else {
-          const { monthStart, monthEnd } = getMonthRange(date)
-
-          // Find all master recurring events
-          const seenMasterIds = new Set<string>()
-          const allMasterEvents: Event[] = []
-          for (const dayEvents of Object.values(eventsCache)) {
-            for (const event of dayEvents) {
-              if (
-                event.repeat && event.repeat !== 'None' &&
-                event.series_start_date && event.series_end_date &&
-                event.series_end_date >= monthStart &&
-                event.series_start_date <= monthEnd &&
-                !seenMasterIds.has(event.id)
-              ) {
-                seenMasterIds.add(event.id)
-                allMasterEvents.push(event)
-              }
-            }
-          }
-
-          // Generate instances for each master event
-          const generatedRecurring: CalendarEvent[] = []
-          for (const masterEvent of allMasterEvents) {
-            const recurringDates = generateRecurringDatesForMonth(
-              masterEvent.series_start_date!,
-              masterEvent.series_end_date!,
-              monthStart,
-              monthEnd,
-              masterEvent.repeat || 'Daily'
-            )
-
-            const seriesExceptions = eventExceptionsCache[masterEvent.id] || []
-            const instances = generateRecurringInstances(masterEvent, recurringDates, seriesExceptions)
-            generatedRecurring.push(...instances)
-          }
-
-          // Cache for the month (deferred to avoid setState during render)
-          setTimeout(() => {
-            set(state => {
-              if (state.eventsCache !== eventsCacheSnapshot || state.eventExceptionsCache !== eventExceptionsSnapshot) {
-                return state
-              }
-              return {
-                recurringEventsCache: {
-                  ...state.recurringEventsCache,
-                  [monthKey]: generatedRecurring,
-                },
-              }
-            })
-          }, 0)
-
-          recurringEvents = generatedRecurring.filter(e => e.date === dateKey)
-        }
-
-        // Combine and deduplicate, preferring the canonical earliest-date copy.
-        const allEvents = [...realEvents, ...recurringEvents]
-        const canonicalById = new Map<string, CalendarEvent>()
-        for (const event of allEvents) {
-          const existing = canonicalById.get(event.id)
-          if (!existing) {
-            canonicalById.set(event.id, event)
-            continue
-          }
-
-          const existingEndDate = existing.end_date || existing.date
-          const eventEndDate = event.end_date || event.date
-          const shouldReplace =
-            event.date < existing.date ||
-            (event.date === existing.date && eventEndDate > existingEndDate)
-
-          if (shouldReplace) {
-            canonicalById.set(event.id, event)
-          }
-        }
-        const uniqueEvents = Array.from(canonicalById.values())
-        uniqueEvents.sort((a, b) => a.start_time - b.start_time)
-
-        // Cache computed result (deferred)
-        setTimeout(() => {
+        scheduleIdleStoreWrite(() => {
           set(state => {
-            // Ignore stale deferred writes if event data changed after this computation.
             if (state.eventsCache !== eventsCacheSnapshot || state.eventExceptionsCache !== eventExceptionsSnapshot) {
               return state
             }
-            if (state.computedEventsCache[dateKey]) return state
+
+            const nextRecurringCache = state.recurringEventsCache[monthKey]
+              ? state.recurringEventsCache
+              : {
+                  ...state.recurringEventsCache,
+                  [monthKey]: recurringEventsForMonth,
+                }
+
+            if (state.computedEventsCache[dateKey] && nextRecurringCache === state.recurringEventsCache) {
+              return state
+            }
+
             return {
-              computedEventsCache: {
-                ...state.computedEventsCache,
-                [dateKey]: uniqueEvents,
-              },
+              recurringEventsCache: nextRecurringCache,
+              computedEventsCache: state.computedEventsCache[dateKey]
+                ? state.computedEventsCache
+                : {
+                    ...state.computedEventsCache,
+                    [dateKey]: uniqueEvents,
+                  },
             }
           })
-        }, 0)
+        })
 
         return uniqueEvents
       },
@@ -1015,8 +1089,8 @@ export const useEventsStore = create<EventsState>()(
               occurrenceDate: virtualDate,
             }
 
-            // Cache it (deferred)
-            setTimeout(() => {
+            // Cache it lazily without putting timer work directly on the current render path.
+            scheduleIdleStoreWrite(() => {
               set(state => {
                 const existingForDate = state.computedEventsCache[virtualDate] || []
                 if (existingForDate.some((event) => event.id === id)) {
@@ -1033,7 +1107,7 @@ export const useEventsStore = create<EventsState>()(
                   },
                 }
               })
-            }, 0)
+            })
 
             return virtualEvent
           }
@@ -1322,8 +1396,15 @@ export const useEventsStore = create<EventsState>()(
           
           set({ saveTrigger: nextSaveTrigger })
 
-          // Wait for sidebar editor effects to flush local draft state into the store
-          await new Promise(resolve => setTimeout(resolve, 50))
+          // Give React a frame to flush sidebar draft state without a fixed 50ms delay.
+          await new Promise<void>((resolve) => {
+            if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+              setTimeout(resolve, 0)
+              return
+            }
+
+            window.requestAnimationFrame(() => resolve())
+          })
 
           // Check if selection hasn't changed
           const { selectedEventId: afterWaitId, eventsCache, saveTrigger: afterTrigger } = get()
@@ -1341,6 +1422,10 @@ export const useEventsStore = create<EventsState>()(
           }
 
           const { event } = found
+
+          // Close the sidebar as soon as local draft state has been flushed.
+          get().setSelectedEvent(null)
+          set({ saveTrigger: 0 })
 
           if (event.isTemp === true) {
             await get().saveTempEvent(currentSelectedId)
@@ -1373,10 +1458,7 @@ export const useEventsStore = create<EventsState>()(
               throw error
             }
           }
-
-          // Only clear selected event after successful save
-          set({ selectedEventId: null, saveTrigger: 0 })
-        } catch (err) {
+        } catch {
           set({ saveTrigger: 0 })
         }
       },

@@ -70,11 +70,10 @@ export const getGoalBucketKey = (type: GoalColumnType, date: Date): string => {
   return `week-${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 };
 
-export function resolveGoalColorForEvent(
+const getMatchingGoalForEvent = (
   goalsStore: GoalBoardStore,
-  event: Pick<Event, "date" | "goalType" | "goal" | "goalColor">
-): string | undefined {
-  if (event.goalColor) return event.goalColor;
+  event: Pick<Event, "date" | "goalType" | "goal">
+) => {
   if (!event.goalType || !event.goal || event.goal === "None") return undefined;
 
   const columnType = EVENT_GOAL_TYPE_TO_COLUMN[event.goalType] ?? null;
@@ -82,26 +81,25 @@ export function resolveGoalColorForEvent(
 
   const eventDate = new Date(`${event.date}T00:00:00`);
   const bucketKey = columnType === "life" ? "life" : getGoalBucketKey(columnType, eventDate);
-  const goal = goalsStore[bucketKey]?.find((item) => item.text === event.goal);
+  return goalsStore[bucketKey]?.find((item) => item.text === event.goal);
+};
 
-  return goal?.color;
+export function resolveGoalColorForEvent(
+  goalsStore: GoalBoardStore,
+  event: Pick<Event, "date" | "goalType" | "goal" | "goalColor">
+): string | undefined {
+  const goal = getMatchingGoalForEvent(goalsStore, event);
+  if (!goal) return undefined;
+  return event.goalColor || goal.color;
 }
 
 export function resolveGoalIconForEvent(
   goalsStore: GoalBoardStore,
   event: Pick<Event, "date" | "goalType" | "goal" | "goalIcon">
 ): string | undefined {
-  if (event.goalIcon) return event.goalIcon;
-  if (!event.goalType || !event.goal || event.goal === "None") return undefined;
-
-  const columnType = EVENT_GOAL_TYPE_TO_COLUMN[event.goalType] ?? null;
-  if (!columnType) return undefined;
-
-  const eventDate = new Date(`${event.date}T00:00:00`);
-  const bucketKey = columnType === "life" ? "life" : getGoalBucketKey(columnType, eventDate);
-  const goal = goalsStore[bucketKey]?.find((item) => item.text === event.goal);
-
-  return goal?.icon;
+  const goal = getMatchingGoalForEvent(goalsStore, event);
+  if (!goal) return undefined;
+  return event.goalIcon || goal.icon;
 }
 
 const rowToGoalItem = (row: GoalRow): GoalBoardItem => ({

@@ -24,7 +24,6 @@ const GoalPanel: React.FC = () => {
   useEventsStore((state) => state.computedEventsCache)
   const goalsStore = useGoalsStore((state) => state.store)
   const fetchGoalBuckets = useGoalsStore((state) => state.fetchGoalBuckets)
-  const fetchAllGoals = useGoalsStore((state) => state.fetchAllGoals)
   const [goalTypeValue, setGoalTypeValue] = useState("None")
   const [goalValue, setGoalValue] = useState("None")
 
@@ -67,52 +66,21 @@ const GoalPanel: React.FC = () => {
   }, [eventGoalBucketKeys, fetchGoalBuckets])
 
   useEffect(() => {
-    if (!selectedEventId) return
-    void fetchAllGoals()
-  }, [fetchAllGoals, selectedEventId])
-
-  useEffect(() => {
     if (!selectedGoalBucketKey) return
     void fetchGoalBuckets([selectedGoalBucketKey])
   }, [fetchGoalBuckets, selectedGoalBucketKey])
 
-  const selectedGoalBucketPrefix = useMemo(() => {
-    if (!selectedGoalColumn) return null
-    if (selectedGoalColumn === "life") return "life"
-    return `${selectedGoalColumn}-`
-  }, [selectedGoalColumn])
-
   const goalOptions = useMemo(() => {
     if (!selectedGoalBucketKey) return ["None"] as const
     const goalsInBucket = goalsStore[selectedGoalBucketKey] ?? []
-    const goals = goalsInBucket.length > 0
-      ? goalsInBucket
-      : selectedGoalBucketPrefix
-      ? Object.entries(goalsStore)
-          .filter(([key]) =>
-            selectedGoalBucketPrefix === "life"
-              ? key === "life"
-              : key.startsWith(selectedGoalBucketPrefix)
-          )
-          .flatMap(([, bucketGoals]) => bucketGoals)
-      : []
-    const names = goals.map((goal) => goal.text)
+    const names = goalsInBucket.map((goal) => goal.text)
     return ["None", ...Array.from(new Set(names))] as const
-  }, [goalsStore, selectedGoalBucketKey, selectedGoalBucketPrefix])
+  }, [goalsStore, selectedGoalBucketKey])
 
   const selectedGoals = useMemo(() => {
     if (!selectedGoalBucketKey) return []
-    const goalsInBucket = goalsStore[selectedGoalBucketKey] ?? []
-    if (goalsInBucket.length > 0) return goalsInBucket
-    if (!selectedGoalBucketPrefix) return []
-    return Object.entries(goalsStore)
-      .filter(([key]) =>
-        selectedGoalBucketPrefix === "life"
-          ? key === "life"
-          : key.startsWith(selectedGoalBucketPrefix)
-      )
-      .flatMap(([, bucketGoals]) => bucketGoals)
-  }, [goalsStore, selectedGoalBucketKey, selectedGoalBucketPrefix])
+    return goalsStore[selectedGoalBucketKey] ?? []
+  }, [goalsStore, selectedGoalBucketKey])
 
   const pendingGoalType = goalTypeValue
   const pendingGoal = goalValue
