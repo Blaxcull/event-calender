@@ -16,7 +16,7 @@ import EventTitle from "./components/EventTitle"
 import RecurringActionDialog from "@/components/RecurringActionDialog"
 import { getEventVisualColors, isAllDayEvent, isMultiDayEvent, isTimedMultiDayEvent } from "@/lib/eventUtils"
 
-type CalendarRouteView = "day" | "week" | "month"
+type CalendarRouteView = "day" | "week" | "month" | "year"
 
 function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date, view: CalendarRouteView) {
   const year = date.getFullYear()
@@ -30,6 +30,10 @@ function navigateToDate(navigate: ReturnType<typeof useNavigate>, date: Date, vi
     navigate(`/month/${year}/${month}/${day}`)
     return
   }
+  if (view === "year") {
+    navigate(`/year/${year}/${month}/${day}`)
+    return
+  }
   navigate(`/day/${year}/${month}/${day}`)
 }
 
@@ -40,6 +44,8 @@ export function SideBar() {
     ? "week"
     : location.pathname.startsWith("/month")
       ? "month"
+      : location.pathname.startsWith("/year")
+        ? "year"
       : "day"
   const selectedDate = useTimeStore((state) => state.selectedDate)
   const setDate = useTimeStore((state) => state.setDate)
@@ -70,6 +76,8 @@ export function SideBar() {
       prev.setMonth(prev.getMonth() - 1)
       const lastDay = new Date(prev.getFullYear(), prev.getMonth() + 1, 0).getDate()
       prev.setDate(Math.min(originalDay, lastDay))
+    } else if (currentCalendarView === "year") {
+      prev.setFullYear(prev.getFullYear() - 1)
     } else {
       prev.setDate(prev.getDate() - 1)
     }
@@ -88,6 +96,8 @@ export function SideBar() {
       next.setMonth(next.getMonth() + 1)
       const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()
       next.setDate(Math.min(originalDay, lastDay))
+    } else if (currentCalendarView === "year") {
+      next.setFullYear(next.getFullYear() + 1)
     } else {
       next.setDate(next.getDate() + 1)
     }

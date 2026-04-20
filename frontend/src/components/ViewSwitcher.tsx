@@ -19,6 +19,7 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
   const isDayRoute = location.pathname.startsWith('/day')
   const isWeekRoute = location.pathname.startsWith('/week')
   const isMonthRoute = location.pathname.startsWith('/month')
+  const isYearRoute = location.pathname.startsWith('/year')
 
   const handleViewClick = (view: ViewType) => {
     onViewChange(view)
@@ -37,6 +38,10 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
     }
     if (view === "month") {
       navigate(`/month/${year}/${month}/${day}`)
+      return
+    }
+    if (view === "year") {
+      navigate(`/year/${year}/${month}/${day}`)
     }
   }
 
@@ -48,6 +53,7 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
     (view === "day" && isDayRoute) ||
     (view === "week" && isWeekRoute) ||
     (view === "month" && isMonthRoute) ||
+    (view === "year" && isYearRoute) ||
     (view !== "day" && view !== "week" && currentView === view)
 
   const nextView = views[i + 1]
@@ -55,6 +61,7 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
     (nextView === "day" && isDayRoute) ||
     (nextView === "week" && isWeekRoute) ||
     (nextView === "month" && isMonthRoute) ||
+    (nextView === "year" && isYearRoute) ||
     (nextView !== "day" && nextView !== "week" && currentView === nextView)
 
   const isActive = routeMatched

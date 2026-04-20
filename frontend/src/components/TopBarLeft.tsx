@@ -18,7 +18,8 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
   const isCalendarSelected =
     location.pathname.startsWith('/day') ||
     location.pathname.startsWith('/week') ||
-    location.pathname.startsWith('/month')
+    location.pathname.startsWith('/month') ||
+    location.pathname.startsWith('/year')
   const isDayRoute = /^\/day\/\d+\/\d+\/\d+$/.test(location.pathname)
   const calendarDate = selectedDate || new Date()
   const calendarPath = `/day/${calendarDate.getFullYear()}/${calendarDate.getMonth() + 1}/${calendarDate.getDate()}`
