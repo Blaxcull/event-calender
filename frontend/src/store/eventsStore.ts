@@ -900,7 +900,16 @@ export const useEventsStore = create<EventsState>()(
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
           newPendingUpdates.set(id, [...existing, updates])
-          set({ pendingUpdates: newPendingUpdates })
+
+          if (updatedEvent.isTemp === true && !pendingSyncs.has(id)) {
+            const newPendingSyncs = new Set(pendingSyncs)
+            newPendingSyncs.add(id)
+            set({ pendingUpdates: newPendingUpdates, pendingSyncs: newPendingSyncs })
+            void get().saveTempEvent(id)
+          } else {
+            set({ pendingUpdates: newPendingUpdates })
+          }
+
           return updatedEvent
         }
 
@@ -1245,7 +1254,16 @@ export const useEventsStore = create<EventsState>()(
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
           newPendingUpdates.set(id, [...existing, { [field]: value }])
-          set({ pendingUpdates: newPendingUpdates })
+
+          if (currentEvent.isTemp === true && !pendingSyncs.has(id)) {
+            const newPendingSyncs = new Set(pendingSyncs)
+            newPendingSyncs.add(id)
+            set({ pendingUpdates: newPendingUpdates, pendingSyncs: newPendingSyncs })
+            void get().saveTempEvent(id)
+          } else {
+            set({ pendingUpdates: newPendingUpdates })
+          }
+
           return
         }
 
@@ -1313,7 +1331,16 @@ export const useEventsStore = create<EventsState>()(
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
           newPendingUpdates.set(id, [...existing, updates])
-          set({ pendingUpdates: newPendingUpdates })
+
+          if (currentEvent.isTemp === true && !pendingSyncs.has(id)) {
+            const newPendingSyncs = new Set(pendingSyncs)
+            newPendingSyncs.add(id)
+            set({ pendingUpdates: newPendingUpdates, pendingSyncs: newPendingSyncs })
+            void get().saveTempEvent(id)
+          } else {
+            set({ pendingUpdates: newPendingUpdates })
+          }
+
           return
         }
 

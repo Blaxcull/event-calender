@@ -28,7 +28,7 @@ const MAX_VISIBLE_EVENTS = 4
 const MULTI_DAY_VISIBLE_LANES = 2
 const MULTI_DAY_ITEM_HEIGHT = 22
 const MULTI_DAY_LANE_PITCH = 24
-const DATE_ROW_HEIGHT = 34
+const DATE_ROW_HEIGHT = 36
 const MULTI_DAY_ROW_TOP_OFFSET = 4
 const MULTI_DAY_ROW_BOTTOM_GAP = 6
 
@@ -39,14 +39,8 @@ const formatClock = (totalMinutes: number) => {
 }
 
 const getEventLabel = (event: CalendarEvent) => {
-  if (isTimedMultiDayEvent(event)) {
-    return `${formatClock(event.start_time)} ${event.title}`
-  }
-
-  if (isAllDayEvent(event)) {
-    return event.title
-  }
-
+  if (isTimedMultiDayEvent(event)) return `${formatClock(event.start_time)} ${event.title}`
+  if (isAllDayEvent(event)) return event.title
   return `${formatClock(event.start_time)} ${event.title}`
 }
 
@@ -59,9 +53,11 @@ const getDateAtStartOfDay = (dateKey: string) => new Date(`${dateKey}T00:00:00`)
 const withMiddayTime = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0)
 
-const getMonthCellTone = (inCurrentMonth: boolean, isSelected: boolean) => {
-  if (isSelected) return "bg-[#dcdcd9]"
-  if (!inCurrentMonth) return "bg-[#dddddb]"
+// Shared gray palette across Day/Week/Month surfaces
+const getMonthCellTone = (inCurrentMonth: boolean, isSelected: boolean, isToday: boolean) => {
+  if (isSelected) return "bg-[#d9d9d5]"
+  if (!inCurrentMonth) return "bg-[#ddddda]"
+  if (isToday) return "bg-[#e2e2e1]"
   return "bg-[#e2e2e1]"
 }
 
@@ -69,37 +65,30 @@ const compareMonthEvents = (a: CalendarEvent, b: CalendarEvent) => {
   const aIsAllDay = isAllDayEvent(a)
   const bIsAllDay = isAllDayEvent(b)
   if (aIsAllDay !== bIsAllDay) return aIsAllDay ? -1 : 1
-
   const aIsMultiDay = isMultiDayEvent(a)
   const bIsMultiDay = isMultiDayEvent(b)
   if (aIsMultiDay !== bIsMultiDay) return aIsMultiDay ? -1 : 1
-
   if (a.start_time !== b.start_time) return a.start_time - b.start_time
   return a.title.localeCompare(b.title)
 }
 
-const compareMonthEventsWithPinnedDraft = (
+const compareMonthEventsWithPinnedPriority = (
   a: CalendarEvent,
   b: CalendarEvent,
-  pinnedDraftEventId: string | null
+  pinnedPriorityEventId: string | null
 ) => {
-  if (pinnedDraftEventId) {
-    if (a.id === pinnedDraftEventId && b.id !== pinnedDraftEventId) return -1
-    if (b.id === pinnedDraftEventId && a.id !== pinnedDraftEventId) return 1
+  if (pinnedPriorityEventId) {
+    if (a.id === pinnedPriorityEventId && b.id !== pinnedPriorityEventId) return -1
+    if (b.id === pinnedPriorityEventId && a.id !== pinnedPriorityEventId) return 1
   }
-
   return compareMonthEvents(a, b)
 }
 
-const prioritizeSelectedEvent = (
-  events: CalendarEvent[],
-  pinnedDraftEventId: string | null
-) => {
-  return [...events].sort((a, b) => compareMonthEventsWithPinnedDraft(a, b, pinnedDraftEventId))
-}
+const prioritizeSelectedEvent = (events: CalendarEvent[], pinnedPriorityEventId: string | null) =>
+  [...events].sort((a, b) => compareMonthEventsWithPinnedPriority(a, b, pinnedPriorityEventId))
 
 const getDateFromSpanningClick = (
-  eventClick: MouseEvent<HTMLElement>,
+  eventClick: MouseEvent,
   visibleStartDateKey: string,
   spanDays: number
 ) => {
@@ -118,7 +107,7 @@ type WeekSpanItem = {
   startIdx: number
   spanDays: number
   visibleStartKey: string
-  isPinnedDraft?: boolean
+  isPinnedPriority?: boolean
 }
 
 type DraggedMonthEvent = {
@@ -162,7 +151,6 @@ const MonthView = () => {
       routeDate.getFullYear() === yearNum &&
       routeDate.getMonth() === monthNum &&
       routeDate.getDate() === dayNum
-
     return isValidRouteDate ? routeDate : selectedDate || new Date()
   }, [day, month, selectedDate, year])
 
@@ -181,21 +169,14 @@ const MonthView = () => {
   const visibleWeeks = useMemo(() => {
     const lastWeek = weeks[weeks.length - 1]
     if (!lastWeek) return weeks
-
     const isOnlyNextMonthDays = lastWeek.every(
       (date) => !isSameMonth(date, displayDate) && date > monthEnd
     )
-
     return isOnlyNextMonthDays ? weeks.slice(0, -1) : weeks
   }, [displayDate, monthEnd, weeks])
 
   const monthEventsByDateKey = useMemo(() => {
-    return getEventsForDatesSnapshot(
-      monthDays,
-      eventsCache,
-      recurringEventsCache,
-      eventExceptionsCache
-    )
+    return getEventsForDatesSnapshot(monthDays, eventsCache, recurringEventsCache, eventExceptionsCache)
   }, [eventExceptionsCache, eventsCache, monthDays, recurringEventsCache])
 
   const pinnedDraftEventId = useMemo(() => {
@@ -210,6 +191,11 @@ const MonthView = () => {
     return getEventById(pinnedDraftEventId)
   }, [getEventById, pinnedDraftEventId])
 
+  const pinnedSelectedEvent = useMemo(() => {
+    if (!selectedEventId || selectedEventId === pinnedDraftEventId) return null
+    return getEventById(selectedEventId)
+  }, [getEventById, pinnedDraftEventId, selectedEventId])
+
   const weekLayouts = useMemo(() => {
     return visibleWeeks.map((week) => {
       const weekDateKeys = week.map((date) => formatDate(date))
@@ -217,10 +203,26 @@ const MonthView = () => {
       const lastWeekKey = weekDateKeys[weekDateKeys.length - 1]
       const pinnedDraftVisibleInWeek =
         pinnedDraftEvent &&
+        isMultiDayEvent(pinnedDraftEvent) &&
         pinnedDraftEvent.date >= firstWeekKey &&
         pinnedDraftEvent.date <= lastWeekKey
           ? pinnedDraftEvent
           : null
+      const pinnedSelectedVisibleInWeek =
+        pinnedSelectedEvent &&
+        isMultiDayEvent(pinnedSelectedEvent) &&
+        (pinnedSelectedEvent.end_date || pinnedSelectedEvent.date) >= firstWeekKey &&
+        pinnedSelectedEvent.date <= lastWeekKey
+          ? pinnedSelectedEvent
+          : null
+      const pinnedPriorityEvent = pinnedSelectedVisibleInWeek ?? pinnedDraftVisibleInWeek
+      const selectedSingleDayIndex =
+        pinnedSelectedEvent &&
+        !isMultiDayEvent(pinnedSelectedEvent) &&
+        pinnedSelectedEvent.date >= firstWeekKey &&
+        pinnedSelectedEvent.date <= lastWeekKey
+          ? weekDateKeys.indexOf(pinnedSelectedEvent.date)
+          : -1
       const weekDayIndexByKey: Record<string, number> = {}
       weekDateKeys.forEach((key, index) => {
         weekDayIndexByKey[key] = index
@@ -232,35 +234,23 @@ const MonthView = () => {
       week.forEach((date) => {
         const events = monthEventsByDateKey[formatDate(date)] || []
         events.forEach((event) => {
-          if (pinnedDraftEventId && event.id === pinnedDraftEventId) return
+          if (pinnedPriorityEvent && event.id === pinnedPriorityEvent.id) return
           if (!isMultiDayEvent(event)) return
-
           const eventStartKey = event.date
           const eventEndKey = event.end_date || event.date
           if (eventEndKey < firstWeekKey || eventStartKey > lastWeekKey) return
           if (seen.has(event.id)) return
           seen.add(event.id)
-
           const visibleStartKey = eventStartKey < firstWeekKey ? firstWeekKey : eventStartKey
           const visibleEndKey = eventEndKey > lastWeekKey ? lastWeekKey : eventEndKey
           const startIdx = weekDayIndexByKey[visibleStartKey]
           const endIdx = weekDayIndexByKey[visibleEndKey]
-
-          items.push({
-            event,
-            startIdx,
-            endIdx,
-            visibleStartKey,
-          })
+          items.push({ event, startIdx, endIdx, visibleStartKey })
         })
       })
 
       items.sort((a, b) => {
-        const priorityDiff = compareMonthEventsWithPinnedDraft(
-          a.event,
-          b.event,
-          pinnedDraftEventId
-        )
+        const priorityDiff = compareMonthEventsWithPinnedPriority(a.event, b.event, pinnedPriorityEvent?.id ?? null)
         if (priorityDiff !== 0) return priorityDiff
         if (a.startIdx !== b.startIdx) return a.startIdx - b.startIdx
         const aSpan = a.endIdx - a.startIdx
@@ -269,38 +259,75 @@ const MonthView = () => {
         return a.event.start_time - b.event.start_time
       })
 
-      const laneEnds: number[] = []
-      const baseLaneOffset = pinnedDraftVisibleInWeek ? 1 : 0
+      const pinnedSingleDayIndex =
+        selectedSingleDayIndex >= 0 &&
+        items.some((item) => item.startIdx <= selectedSingleDayIndex && item.endIdx >= selectedSingleDayIndex)
+          ? selectedSingleDayIndex
+          : -1
+
+      const laneOccupancy: boolean[][] = []
+      if (pinnedSingleDayIndex >= 0) {
+        laneOccupancy[0] = Array.from({ length: 7 }, (_, dayIndex) => dayIndex === pinnedSingleDayIndex)
+      }
+      if (pinnedPriorityEvent && isMultiDayEvent(pinnedPriorityEvent)) {
+        const pinnedStartKey = pinnedPriorityEvent.date < firstWeekKey ? firstWeekKey : pinnedPriorityEvent.date
+        const pinnedEndKey =
+          (pinnedPriorityEvent.end_date || pinnedPriorityEvent.date) > lastWeekKey
+            ? lastWeekKey
+            : pinnedPriorityEvent.end_date || pinnedPriorityEvent.date
+        const pinnedStartIdx = weekDayIndexByKey[pinnedStartKey]
+        const pinnedEndIdx = weekDayIndexByKey[pinnedEndKey]
+        if (!laneOccupancy[0]) laneOccupancy[0] = Array(7).fill(false)
+        for (let dayIndex = pinnedStartIdx; dayIndex <= pinnedEndIdx; dayIndex += 1) {
+          laneOccupancy[0][dayIndex] = true
+        }
+      }
       const positionedItems: WeekSpanItem[] = items.map((item) => {
         let lane = 0
-        while (lane < laneEnds.length && item.startIdx <= laneEnds[lane]) lane += 1
-        if (lane === laneEnds.length) laneEnds.push(item.endIdx)
-        else laneEnds[lane] = item.endIdx
-
+        while (lane < laneOccupancy.length) {
+          const occupiedDays = laneOccupancy[lane]
+          const collides = occupiedDays ? occupiedDays.slice(item.startIdx, item.endIdx + 1).some(Boolean) : false
+          if (!collides) break
+          lane += 1
+        }
+        if (!laneOccupancy[lane]) laneOccupancy[lane] = Array(7).fill(false)
+        for (let dayIndex = item.startIdx; dayIndex <= item.endIdx; dayIndex += 1) {
+          laneOccupancy[lane][dayIndex] = true
+        }
         return {
           event: item.event,
-          lane: lane + baseLaneOffset,
+          lane,
           startIdx: item.startIdx,
           spanDays: item.endIdx - item.startIdx + 1,
           visibleStartKey: item.visibleStartKey,
         }
       })
 
-      const allPositionedItems = pinnedDraftVisibleInWeek
+      const allPositionedItems = pinnedPriorityEvent
         ? [
             {
-              event: pinnedDraftVisibleInWeek,
+              event: pinnedPriorityEvent,
               lane: 0,
-              startIdx: weekDayIndexByKey[pinnedDraftVisibleInWeek.date],
-              spanDays: 1,
-              visibleStartKey: pinnedDraftVisibleInWeek.date,
-              isPinnedDraft: true,
+              startIdx:
+                weekDayIndexByKey[pinnedPriorityEvent.date < firstWeekKey ? firstWeekKey : pinnedPriorityEvent.date],
+              spanDays:
+                differenceInCalendarDays(
+                  getDateAtStartOfDay(
+                    (pinnedPriorityEvent.end_date || pinnedPriorityEvent.date) > lastWeekKey
+                      ? lastWeekKey
+                      : pinnedPriorityEvent.end_date || pinnedPriorityEvent.date
+                  ),
+                  getDateAtStartOfDay(pinnedPriorityEvent.date < firstWeekKey ? firstWeekKey : pinnedPriorityEvent.date)
+                ) + 1,
+              visibleStartKey:
+                pinnedPriorityEvent.date < firstWeekKey ? firstWeekKey : pinnedPriorityEvent.date,
+              isPinnedPriority: true,
             } satisfies WeekSpanItem,
             ...positionedItems,
           ]
         : positionedItems
 
-      const visibleLaneLimit = MULTI_DAY_VISIBLE_LANES + (pinnedDraftVisibleInWeek ? 1 : 0)
+      const visibleLaneLimit = MULTI_DAY_VISIBLE_LANES + (pinnedPriorityEvent ? 1 : 0)
       const visibleItems = allPositionedItems.filter((item) => item.lane < visibleLaneLimit)
       const hiddenCount = Math.max(0, allPositionedItems.length - visibleItems.length)
       const highestVisibleLane = visibleItems.reduce((maxLane, item) => Math.max(maxLane, item.lane), -1)
@@ -325,16 +352,12 @@ const MonthView = () => {
           if (dayIndex < item.startIdx || dayIndex > itemEndIdx) return maxLane
           return Math.max(maxLane, item.lane)
         }, -1)
-
         if (highestLaneForDay < 0) return 0
         return highestLaneForDay * MULTI_DAY_LANE_PITCH + MULTI_DAY_ITEM_HEIGHT + MULTI_DAY_ROW_BOTTOM_GAP
       })
       const rowHeight =
         visibleItems.length > 0
-          ? Math.max(
-              MULTI_DAY_ITEM_HEIGHT,
-              (visibleLaneCount - 1) * MULTI_DAY_LANE_PITCH + MULTI_DAY_ITEM_HEIGHT
-            )
+          ? Math.max(MULTI_DAY_ITEM_HEIGHT, (visibleLaneCount - 1) * MULTI_DAY_LANE_PITCH + MULTI_DAY_ITEM_HEIGHT)
           : 0
 
       return {
@@ -346,7 +369,7 @@ const MonthView = () => {
         hiddenMultiDayCount: hiddenCount,
       }
     })
-  }, [monthEventsByDateKey, pinnedDraftEvent, pinnedDraftEventId, visibleWeeks])
+  }, [monthEventsByDateKey, pinnedDraftEvent, pinnedDraftEventId, pinnedSelectedEvent, visibleWeeks])
 
   const openMonthDate = (date: Date) => {
     setDate(withMiddayTime(date))
@@ -366,7 +389,6 @@ const MonthView = () => {
     const startHour = isToday ? Math.min(now.getHours() + 1, 22) : 9
     const startMinutes = startHour * 60
     const endMinutes = startMinutes + 60
-
     setDate(withMiddayTime(date))
     const newEvent = addEventLocal({
       title: "New Event",
@@ -386,19 +408,14 @@ const MonthView = () => {
   const moveEventToDate = async (event: CalendarEvent, targetDateKey: string) => {
     const durationDays = Math.max(
       0,
-      differenceInCalendarDays(
-        getDateAtStartOfDay(event.end_date || event.date),
-        getDateAtStartOfDay(event.date)
-      )
+      differenceInCalendarDays(getDateAtStartOfDay(event.end_date || event.date), getDateAtStartOfDay(event.date))
     )
-
     const commit = {
       date: targetDateKey,
       end_date: formatDate(addDays(getDateAtStartOfDay(targetDateKey), durationDays)),
       start_time: event.start_time,
       end_time: event.end_time,
     }
-
     const isRecurringSourceEvent = isSeriesActuallyRecurring(event) || !!event.seriesMasterId
     if (isRecurringSourceEvent) {
       if (isSeriesAnchorEvent(event)) {
@@ -406,119 +423,81 @@ const MonthView = () => {
         await updateAllInSeries(seriesMasterId, commit)
         return
       }
-
       const occurrenceDate = event.occurrenceDate || event.date
       showRecurringDialog(event, "edit", async (choice: string) => {
         if (choice === "cancel") {
           closeRecurringDialog()
           return
         }
-
         if (choice === "only-this") {
-          await splitRecurringEvent(
-            event,
-            occurrenceDate,
-            commit.start_time,
-            commit.end_time,
-            commit
-          )
+          await splitRecurringEvent(event, occurrenceDate, commit.start_time, commit.end_time, commit)
         } else if (choice === "all-events") {
           const seriesMasterId = event.seriesMasterId || event.id
           await updateAllInSeries(seriesMasterId, commit)
         } else if (choice === "this-and-following") {
-          await updateThisAndFollowing(
-            event,
-            occurrenceDate,
-            commit.start_time,
-            commit.end_time,
-            commit
-          )
+          await updateThisAndFollowing(event, occurrenceDate, commit.start_time, commit.end_time, commit)
         }
-
         closeRecurringDialog()
       })
       return
     }
-
     await updateEvent(event.id, commit)
   }
 
-  const handleEventDragStart = (
-    dragEvent: DragEvent<HTMLElement>,
-    event: CalendarEvent,
-    sourceDateKey: string
-  ) => {
+  const handleEventDragStart = (dragEvent: DragEvent, event: CalendarEvent, sourceDateKey: string) => {
     dragEvent.stopPropagation()
     dragEvent.dataTransfer.effectAllowed = "move"
     dragEvent.dataTransfer.setData("text/plain", event.id)
-    setDraggedEvent({
-      eventId: event.id,
-      sourceDateKey,
-    })
+    setDraggedEvent({ eventId: event.id, sourceDateKey })
   }
 
-  const handleCellDragOver = (dragEvent: DragEvent<HTMLElement>, dateKey: string) => {
+  const handleCellDragOver = (dragEvent: DragEvent, dateKey: string) => {
     if (!draggedEvent) return
     dragEvent.preventDefault()
     dragEvent.dataTransfer.dropEffect = "move"
-    if (dragOverDateKey !== dateKey) {
-      setDragOverDateKey(dateKey)
-    }
+    if (dragOverDateKey !== dateKey) setDragOverDateKey(dateKey)
   }
 
-  const handleCellDrop = async (dragEvent: DragEvent<HTMLElement>, cellDate: Date) => {
+  const handleCellDrop = async (dragEvent: DragEvent, cellDate: Date) => {
     if (!draggedEvent) return
-
     dragEvent.preventDefault()
     dragEvent.stopPropagation()
     suppressNextCellClickRef.current = true
-
     const targetDateKey = formatDate(cellDate)
     const eventToMove = getEventById(draggedEvent.eventId)
-
     resetDragState()
-
     if (!eventToMove || draggedEvent.sourceDateKey === targetDateKey) return
-
     setDate(withMiddayTime(cellDate))
-    setSelectedEvent(null)
     await moveEventToDate(eventToMove, targetDateKey)
+    setSelectedEvent(eventToMove.id)
   }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || !selectedEventId) return
-
       const selectedEvent = getEventById(selectedEventId)
       if (!selectedEvent) return
-
       if (selectedEvent.title === "New Event") {
         void deleteEvent(selectedEvent.id)
         setSelectedEvent(null)
         return
       }
-
       const isRecurringDeleteTarget = !!(
-        isSeriesActuallyRecurring(selectedEvent) ||
-        (selectedEvent as any).seriesMasterId
+        isSeriesActuallyRecurring(selectedEvent) || (selectedEvent as any).seriesMasterId
       )
-
       if (isRecurringDeleteTarget) {
         const occurrenceDate = (selectedEvent as any).occurrenceDate || selectedEvent.date
-
         if (isSeriesAnchorEvent(selectedEvent as any)) {
           const seriesMasterId = (selectedEvent as any).seriesMasterId || selectedEvent.id
           void deleteEvent(seriesMasterId)
           setSelectedEvent(null)
           return
         }
-
         showRecurringDialog(selectedEvent as any, "delete", async (choice: string) => {
           if (choice === "cancel") {
             closeRecurringDialog()
             return
           }
-
           if (choice === "only-this") {
             const deleteSingleOccurrence = useEventsStore.getState().deleteSingleOccurrence
             await deleteSingleOccurrence(selectedEvent as any, occurrenceDate)
@@ -534,353 +513,382 @@ const MonthView = () => {
             })()
             await updateAllInSeries(seriesMasterId, { series_end_date: previousDay })
           }
-
           setSelectedEvent(null)
           closeRecurringDialog()
         })
         return
       }
-
       void deleteEvent(selectedEvent.id)
       setSelectedEvent(null)
     }
-
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [
-    closeRecurringDialog,
-    deleteEvent,
-    getEventById,
-    selectedEventId,
-    setSelectedEvent,
-    showRecurringDialog,
-    updateAllInSeries,
-  ])
+  }, [closeRecurringDialog, deleteEvent, getEventById, selectedEventId, setSelectedEvent, showRecurringDialog, updateAllInSeries])
 
   useEffect(() => {
-    const clearDragState = () => {
-      resetDragState()
-    }
-
+    const clearDragState = () => resetDragState()
     window.addEventListener("dragend", clearDragState)
     return () => window.removeEventListener("dragend", clearDragState)
   }, [])
 
   return (
     <div className="h-full w-full bg-[#f3f3f2] flex items-center justify-center overflow-hidden select-none">
-      <div className="h-full w-full rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden">
-        <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0 bg-[#ececeb]">
-          <h1 className="text-6xl font-semibold tracking-tight text-neutral-800">
-            <span style={{ fontFamily: "SF Pro Display Bold" }}>{format(displayDate, "MMMM")}</span>
-            <span
-              className="ml-3 text-neutral-400"
-              style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }}
-            >
-              {format(displayDate, "yyyy")}
-            </span>
-          </h1>
-        </div>
+      <div className="h-[100%] w-[100%] rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden text-neutral-900 antialiased" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif' }}>
+      {/* Title bar */}
+      <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0">
+        <h1 className="text-6xl pb-0 font-semibold text-neutral-800 tracking-tight">
+          <span style={{ fontFamily: "SF Pro Display Bold" }} className="text-black">
+            {format(displayDate, "MMMM")},
+          </span>
+          <span style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }} className="text-neutral-400">
+            {" "}
+            {format(displayDate, "yyyy")}
+          </span>
+        </h1>
+      </div>
 
-        <div className="flex min-h-0 flex-1 flex-col bg-[#e2e2e1] px-1 pb-1">
-          <div className="grid grid-cols-7 shrink-0 overflow-hidden rounded-tl-2xl bg-[#e2e2e1]">
-            {WEEKDAY_LABELS.map((label, index) => (
-              <div
-                key={label}
-                className={`flex h-[38px] items-center justify-center border-b border-black/5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500 bg-[#e2e2e1] ${
-                  index === 6 ? "" : "border-r border-black/5"
-                }`}
-              >
+      {/* Weekday header */}
+      <div className="grid grid-cols-7 border-b border-[#cfcfcb] bg-[#e2e2e1] px-8">
+        {WEEKDAY_LABELS.map((label, index) => {
+          const isWeekend = index === 0 || index === 6
+          return (
+            <div key={label} className="flex items-center justify-center py-2.5">
+              <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${isWeekend ? "text-neutral-400" : "text-neutral-500"}`}>
                 {label}
               </div>
-            ))}
-          </div>
+            </div>
+          )
+        })}
+      </div>
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-bl-2xl rounded-tl-2xl">
-            {visibleWeeks.map((week, weekIndex) => {
-              const weekLayout = weekLayouts[weekIndex]
-              const isLastWeek = weekIndex === visibleWeeks.length - 1
+      {/* Calendar grid */}
+      <div className="flex flex-1 flex-col overflow-hidden border-t border-[#cfcfcb] bg-[#cfcfcb]" style={{ gap: 1 }}>
+        {visibleWeeks.map((week, weekIndex) => {
+          const weekLayout = weekLayouts[weekIndex]
+          const isLastWeek = weekIndex === visibleWeeks.length - 1
 
-              return (
-                <div
-                  key={`week-${weekIndex}`}
-                  className={`relative flex min-h-0 flex-1 flex-col ${isLastWeek ? "" : "border-b border-black/5"}`}
-                >
-                  <div className="grid min-h-0 flex-1 grid-cols-7">
-                    {week.map((cellDate, dayIndex) => {
-                      const dateKey = formatDate(cellDate)
-                      const inCurrentMonth = isSameMonth(cellDate, displayDate)
-                      const isTodayCell = isSameDay(cellDate, today)
-                      const isSelected = selectedDate ? isSameDay(cellDate, selectedDate) : false
-                      const visibleMultiDayCount = weekLayout.visibleMultiDayCountByDay?.[dayIndex] || 0
-                      const hiddenMultiDayCountForDay = Math.max(
-                        0,
-                        (weekLayout.totalMultiDayCountByDay?.[dayIndex] || 0) - visibleMultiDayCount
-                      )
-                      const dayEvents = (monthEventsByDateKey[dateKey] || []).filter(
-                        (event) => !isMultiDayEvent(event) && event.id !== pinnedDraftEventId
-                      )
-                      const orderedDayEvents = prioritizeSelectedEvent(dayEvents, pinnedDraftEventId)
-                      const totalItemCount =
-                        visibleMultiDayCount + hiddenMultiDayCountForDay + orderedDayEvents.length
-                      const availableEventSlots = Math.max(0, MAX_VISIBLE_EVENTS - visibleMultiDayCount)
-                      const shouldReserveMoreRow = totalItemCount >= MAX_VISIBLE_EVENTS
-                      const visibleEventLimit = Math.max(
-                        0,
-                        shouldReserveMoreRow ? availableEventSlots - 1 : availableEventSlots
-                      )
-                      const visibleEvents = orderedDayEvents.slice(0, visibleEventLimit)
-                      const hiddenCount = Math.max(
-                        0,
-                        hiddenMultiDayCountForDay + orderedDayEvents.length - visibleEvents.length
-                      )
-                      const isLastColumn = dayIndex === 6
+          return (
+            <div key={`month-week-row-${weekIndex}`} className="relative flex-1 min-h-0">
+              <div className="grid h-full grid-cols-7" style={{ gap: 1 }}>
+                {week.map((cellDate, dayIndex) => {
+                  const dateKey = formatDate(cellDate)
+                  const inCurrentMonth = isSameMonth(cellDate, displayDate)
+                  const isTodayCell = isSameDay(cellDate, today)
+                  const isSelected = selectedDate ? isSameDay(cellDate, selectedDate) : false
+                  const isWeekend = dayIndex === 0 || dayIndex === 6
+                  const visibleMultiDayCount = weekLayout.visibleMultiDayCountByDay?.[dayIndex] || 0
+                  const hiddenMultiDayCountForDay = Math.max(
+                    0,
+                    (weekLayout.totalMultiDayCountByDay?.[dayIndex] || 0) - visibleMultiDayCount
+                  )
+                  const hasMultiDayOverlapOnDay = (weekLayout.totalMultiDayCountByDay?.[dayIndex] || 0) > 0
+                  const selectedExistingEventPinnedInTopRow =
+                    !!pinnedSelectedEvent &&
+                    !isMultiDayEvent(pinnedSelectedEvent) &&
+                    pinnedSelectedEvent.date === dateKey &&
+                    hasMultiDayOverlapOnDay
+                  const dayEvents = (monthEventsByDateKey[dateKey] || []).filter((event) => {
+                    if (isMultiDayEvent(event)) return false
+                    if (selectedExistingEventPinnedInTopRow && event.id === pinnedSelectedEvent.id) return false
+                    return true
+                  })
+                  const orderedDayEvents = prioritizeSelectedEvent(dayEvents, selectedEventId)
+                  const totalItemCount = visibleMultiDayCount + hiddenMultiDayCountForDay + orderedDayEvents.length
+                  const availableEventSlots = Math.max(0, MAX_VISIBLE_EVENTS - visibleMultiDayCount)
+                  const shouldReserveMoreRow = totalItemCount >= MAX_VISIBLE_EVENTS
+                  const visibleEventLimit = Math.max(0, shouldReserveMoreRow ? availableEventSlots - 1 : availableEventSlots)
+                  const visibleEvents = orderedDayEvents.slice(0, visibleEventLimit)
+                  const hiddenCount = Math.max(0, hiddenMultiDayCountForDay + orderedDayEvents.length - visibleEvents.length)
 
-                      return (
-                        <div
-                          key={dateKey}
-                          role="button"
-                          aria-label={format(cellDate, "MMMM d, yyyy")}
-                          tabIndex={0}
-                          onClick={() => {
-                            if (suppressNextCellClickRef.current) {
-                              suppressNextCellClickRef.current = false
-                              return
-                            }
-                            openMonthDate(cellDate)
-                          }}
-                          onDoubleClick={() => openDayView(cellDate)}
-                          onDragOver={(event) => handleCellDragOver(event, dateKey)}
-                          onDragEnter={(event) => handleCellDragOver(event, dateKey)}
-                          onDragLeave={() => {
-                            if (dragOverDateKey === dateKey) {
-                              setDragOverDateKey(null)
-                            }
-                          }}
-                          onDrop={(event) => {
-                            void handleCellDrop(event, cellDate)
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault()
-                              openMonthDate(cellDate)
-                            }
-                          }}
-                          className={`group relative flex min-h-0 flex-col px-1.5 pb-1 text-left outline-none transition-colors ${
-                            isLastColumn ? "" : "border-r border-black/5"
-                          } ${getMonthCellTone(inCurrentMonth, isSelected)} ${
-                            isSelected ? "" : "hover:bg-[#e9e9e7]"
-                          } ${
-                            draggedEvent && dragOverDateKey === dateKey
-                              ? "ring-2 ring-black/15 ring-inset bg-[#ecece8]"
-                              : ""
-                          }`}
-                          style={{
-                            paddingTop:
-                              DATE_ROW_HEIGHT +
-                              ((weekLayout.multiDayHeightByDay?.[dayIndex] || 0) > 0
-                                ? MULTI_DAY_ROW_TOP_OFFSET + (weekLayout.multiDayHeightByDay?.[dayIndex] || 0)
-                                : 0),
-                          }}
-                        >
-                          <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-1.5 px-1.5 pt-1">
-                            <div className="flex items-center gap-1">
-                              <span
-                                className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[13px] font-semibold ${
-                                  isTodayCell
-                                    ? "bg-black text-white"
-                                    : isSelected
-                                      ? "bg-[#e2e2e1] text-neutral-800"
-                                      : inCurrentMonth
-                                        ? "text-neutral-800"
-                                        : "text-neutral-400"
-                                }`}
-                              >
-                                {cellDate.getDate()}
-                              </span>
-                              {!inCurrentMonth ? (
-                                <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-400">
-                                  {format(cellDate, "MMM")}
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <button
-                              type="button"
-                              aria-label={`Add event on ${format(cellDate, "MMMM d")}`}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                createEventForDate(cellDate)
-                              }}
-                              className="h-5 w-5 shrink-0 rounded-full text-sm text-neutral-500 opacity-0 transition-opacity hover:bg-black/5 hover:text-black group-hover:opacity-100 focus:opacity-100"
-                            >
-                              +
-                            </button>
-                          </div>
-
-                          <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden pt-0.5">
-                            {visibleEvents.map((event) => {
-                              const resolvedColor =
-                                event.goalColor || resolveGoalColorForEvent(goalsStore, event) || event.color
-                              const { mutedBackgroundColor, textColor, accentColor, backgroundColor } =
-                                getEventVisualColors(resolvedColor)
-                              const isEventSelected = selectedEventId === event.id
-                              const isAllDay = isAllDayEvent(event)
-                              const isTimedMultiDay = isTimedMultiDayEvent(event)
-                              const timedPieces = !isAllDay && !isTimedMultiDay ? getTimedEventPieces(event) : null
-
-                              return (
-                                <button
-                                  key={event.id}
-                                  type="button"
-                                  draggable
-                                  aria-label={`Open event ${getEventLabel(event)} on ${format(cellDate, "MMMM d, yyyy")}`}
-                                  onDragStart={(dragEvent) =>
-                                    handleEventDragStart(dragEvent, event, formatDate(cellDate))
-                                  }
-                                  onDragEnd={() => resetDragState()}
-                                  onClick={(clickEvent) => {
-                                    clickEvent.stopPropagation()
-                                    setDate(cellDate)
-                                    setSelectedEvent(event.id)
-                                  }}
-                                  className={`flex h-[22px] w-full items-center gap-1 overflow-hidden rounded-md px-1 text-left text-[11px] transition ${
-                                    isEventSelected ? "border-white shadow-sm" : "hover:border-black/10"
-                                  }`}
-                                  style={{
-                                    backgroundColor:
-                                      isAllDay || isTimedMultiDay
-                                        ? isEventSelected
-                                          ? backgroundColor
-                                          : mutedBackgroundColor
-                                        : "transparent",
-                                    color: textColor,
-                                    borderWidth: 1,
-                                    borderStyle: "solid",
-                                    borderColor: isEventSelected ? "#ffffff" : "transparent",
-                                  }}
-                                >
-                                  {timedPieces ? (
-                                    <>
-                                      <span
-                                        className="h-2 w-2 shrink-0 rounded-full"
-                                        style={{ backgroundColor: isEventSelected ? "#ffffff" : accentColor }}
-                                      />
-                                      <span className="min-w-0 flex-1 truncate leading-none">
-                                        <span className="mr-1 font-medium">{timedPieces.time}</span>
-                                        <span>{timedPieces.title}</span>
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <span
-                                        className="h-2 w-2 shrink-0 rounded-full"
-                                        style={{ backgroundColor: isEventSelected ? "#ffffff" : accentColor }}
-                                      />
-                                      <span className="min-w-0 flex-1 truncate leading-none font-medium">
-                                        {getEventLabel(event)}
-                                      </span>
-                                    </>
-                                  )}
-                                </button>
-                              )
-                            })}
-
-                            {hiddenCount > 0 ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  openDayView(cellDate)
-                                }}
-                                className="px-2 py-1 text-left text-[11px] font-semibold text-neutral-500 hover:text-black"
-                              >
-                                {hiddenCount} more
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {weekLayout.multiDayRowHeight > 0 ? (
+                  return (
                     <div
-                      className="pointer-events-none absolute inset-x-0 z-10"
+                      key={dateKey}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (suppressNextCellClickRef.current) {
+                          suppressNextCellClickRef.current = false
+                          return
+                        }
+                        openMonthDate(cellDate)
+                      }}
+                      onDoubleClick={() => openDayView(cellDate)}
+                      onDragOver={(event) => handleCellDragOver(event, dateKey)}
+                      onDragEnter={(event) => handleCellDragOver(event, dateKey)}
+                      onDragLeave={() => {
+                        if (dragOverDateKey === dateKey) setDragOverDateKey(null)
+                      }}
+                      onDrop={(event) => {
+                        void handleCellDrop(event, cellDate)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault()
+                          openMonthDate(cellDate)
+                        }
+                      }}
+                      className={`group relative flex min-h-0 flex-col px-2 pb-1.5 text-left outline-none transition-colors duration-150 ${getMonthCellTone(
+                        inCurrentMonth,
+                        isSelected,
+                        isTodayCell
+                      )} ${isSelected ? "" : "hover:bg-[#dcdcd9]"} ${
+                        draggedEvent && dragOverDateKey === dateKey
+                          ? "ring-[1.5px] ring-blue-500/70 ring-inset bg-blue-50/40"
+                          : ""
+                      }`}
                       style={{
-                        top: DATE_ROW_HEIGHT + MULTI_DAY_ROW_TOP_OFFSET,
-                        height: weekLayout.multiDayRowHeight,
+                        paddingTop:
+                          DATE_ROW_HEIGHT +
+                          ((weekLayout.multiDayHeightByDay?.[dayIndex] || 0) > 0
+                            ? MULTI_DAY_ROW_TOP_OFFSET + (weekLayout.multiDayHeightByDay?.[dayIndex] || 0)
+                            : 0),
                       }}
                     >
-                      {weekLayout.multiDayItems.map((item) => {
-                        const resolvedColor =
-                          item.event.goalColor ||
-                          resolveGoalColorForEvent(goalsStore, item.event) ||
-                          item.event.color
-                        const { backgroundColor, mutedBackgroundColor, textColor, accentColor } =
-                          getEventVisualColors(resolvedColor)
-                        const isEventSelected = selectedEventId === item.event.id
-                        const left = `${(item.startIdx / 7) * 100}%`
-                        const width = `${(item.spanDays / 7) * 100}%`
-
-                        return (
-                          <button
-                            key={item.event.id}
-                            type="button"
-                            draggable
-                            aria-label={`Open spanning event ${item.event.title} starting ${item.visibleStartKey}`}
-                            onDragStart={(dragEvent) =>
-                              handleEventDragStart(dragEvent, item.event, item.event.date)
-                            }
-                            onDragEnd={() => resetDragState()}
-                            onClick={(eventClick) => {
-                              eventClick.stopPropagation()
-                              const clickedDate = getDateFromSpanningClick(
-                                eventClick,
-                                item.visibleStartKey,
-                                item.spanDays
-                              )
-                              setDate(clickedDate)
-                              setSelectedEvent(item.event.id)
-                            }}
-                            className="pointer-events-auto absolute flex items-center gap-2 overflow-hidden rounded-xl border px-3 text-left text-[12px] font-semibold"
-                            style={{
-                              top: item.lane * MULTI_DAY_LANE_PITCH,
-                              left,
-                              width,
-                              height: MULTI_DAY_ITEM_HEIGHT,
-                              backgroundColor: isEventSelected ? backgroundColor : mutedBackgroundColor,
-                              color: textColor,
-                              borderColor: isEventSelected ? "#ffffff" : "transparent",
-                              boxShadow: isEventSelected ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
-                            }}
-                          >
+                      {/* Date header row */}
+                      <div className="absolute left-2 right-2 top-1.5 flex items-center justify-between">
+                        <div className="flex items-baseline gap-1.5">
+                          {isSelected ? (
+                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#cfcfcb] bg-white px-1.5 text-[13px] font-semibold text-black shadow-sm">
+                              {cellDate.getDate()}
+                            </div>
+                          ) : isTodayCell ? (
+                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full bg-black px-1.5 text-[13px] font-semibold text-white shadow-sm">
+                              {cellDate.getDate()}
+                            </div>
+                          ) : (
                             <span
-                              className="h-2 w-2 shrink-0 rounded-full"
-                              style={{ backgroundColor: isEventSelected ? "#ffffff" : accentColor }}
-                            />
-                            <span className="min-w-0 flex-1 truncate text-[11px] leading-none">
-                              {item.isPinnedDraft
-                                ? getEventLabel(item.event)
-                                : isTimedMultiDayEvent(item.event)
-                                ? `${formatClock(item.event.start_time)} ${item.event.title}`
-                                : item.event.title}
+                              className={`text-[13px] font-semibold tabular-nums ${
+                                inCurrentMonth
+                                  ? isWeekend
+                                    ? "text-neutral-500"
+                                    : "text-neutral-800"
+                                  : "text-neutral-500"
+                              }`}
+                            >
+                              {cellDate.getDate()}
                             </span>
-                          </button>
-                        )
-                      })}
+                          )}
+                          {!inCurrentMonth ? (
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+                              {format(cellDate, "MMM")}
+                            </span>
+                          ) : null}
+                        </div>
 
-                      {weekLayout.hiddenMultiDayCount > 0 ? (
-                        <div className="absolute bottom-1 right-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">
-                          +{weekLayout.hiddenMultiDayCount} more
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            createEventForDate(cellDate)
+                          }}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[15px] leading-none text-neutral-400 opacity-0 transition-all hover:bg-neutral-900 hover:text-white group-hover:opacity-100 focus:opacity-100"
+                          aria-label="Add event"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Pinned single-day selected event */}
+                      {selectedExistingEventPinnedInTopRow && pinnedSelectedEvent ? (
+                        <div
+                          draggable
+                          onDragStart={(dragEvent) =>
+                            handleEventDragStart(dragEvent, pinnedSelectedEvent, formatDate(cellDate))
+                          }
+                          onDragEnd={() => resetDragState()}
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation()
+                            setDate(cellDate)
+                            setSelectedEvent(pinnedSelectedEvent.id)
+                          }}
+                          className="absolute left-2 right-2 z-10 flex h-[22px] cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-[11px] font-medium ring-2 ring-white"
+                          style={{
+                            top: DATE_ROW_HEIGHT + MULTI_DAY_ROW_TOP_OFFSET,
+                            backgroundColor: getEventVisualColors(
+                              pinnedSelectedEvent.goalColor ||
+                                resolveGoalColorForEvent(goalsStore, pinnedSelectedEvent) ||
+                                pinnedSelectedEvent.color
+                            ).backgroundColor,
+                            color: getEventVisualColors(
+                              pinnedSelectedEvent.goalColor ||
+                                resolveGoalColorForEvent(goalsStore, pinnedSelectedEvent) ||
+                                pinnedSelectedEvent.color
+                            ).textColor,
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
+                          }}
+                        >
+                          {(() => {
+                            const timedPieces = isAllDayEvent(pinnedSelectedEvent)
+                              ? null
+                              : getTimedEventPieces(pinnedSelectedEvent)
+                            return (
+                              <span className="flex-1 truncate">
+                                {timedPieces ? (
+                                  <>
+                                    <span className="font-semibold tabular-nums">{timedPieces.time}</span>
+                                    <span className="ml-1.5 font-medium">{timedPieces.title}</span>
+                                  </>
+                                ) : (
+                                  getEventLabel(pinnedSelectedEvent)
+                                )}
+                              </span>
+                            )
+                          })()}
                         </div>
                       ) : null}
+
+                      {/* Single-day events */}
+                      <div className="flex min-h-0 flex-col gap-[3px]">
+                        {visibleEvents.map((event) => {
+                          const resolvedColor =
+                            event.goalColor || resolveGoalColorForEvent(goalsStore, event) || event.color
+                          const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors(resolvedColor)
+                          const isEventSelected = selectedEventId === event.id
+                          const isAllDay = isAllDayEvent(event)
+                          const isTimedMultiDay = isTimedMultiDayEvent(event)
+                          const isFilledAllDayChip = isAllDay && !isTimedMultiDay
+                          const timedPieces = !isAllDay && !isTimedMultiDay ? getTimedEventPieces(event) : null
+                          const dotColor = accentColor || backgroundColor
+
+                          return (
+                            <div
+                              key={event.id}
+                              draggable
+                              onDragStart={(dragEvent) => handleEventDragStart(dragEvent, event, formatDate(cellDate))}
+                              onDragEnd={() => resetDragState()}
+                              onClick={(clickEvent) => {
+                                clickEvent.stopPropagation()
+                                setDate(cellDate)
+                                setSelectedEvent(event.id)
+                              }}
+                              className={`flex h-[20px] w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-[5px] px-1.5 text-left text-[11px] transition-all ${
+                                isEventSelected
+                                  ? "ring-2 ring-white shadow-md"
+                                  : isFilledAllDayChip
+                                    ? "border border-white/70 shadow-sm"
+                                    : "hover:bg-neutral-100/80"
+                              }`}
+                              style={
+                                isEventSelected
+                                  ? {
+                                      backgroundColor,
+                                      color: textColor,
+                                      boxShadow: "0 4px 10px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
+                                    }
+                                  : isFilledAllDayChip
+                                    ? {
+                                        backgroundColor: mutedBackgroundColor,
+                                        color: textColor,
+                                      }
+                                  : {
+                                      backgroundColor: "transparent",
+                                      color: "#1c1c1e",
+                                    }
+                              }
+                            >
+                              {!isEventSelected && !isFilledAllDayChip && (
+                                <span
+                                  className="h-[7px] w-[7px] shrink-0 rounded-full"
+                                  style={{ backgroundColor: dotColor }}
+                                />
+                              )}
+                              {timedPieces ? (
+                                <span className="flex flex-1 items-baseline gap-1 truncate">
+                                  <span className={`tabular-nums ${isEventSelected ? "font-semibold" : "font-medium text-neutral-500"}`}>
+                                    {timedPieces.time}
+                                  </span>
+                                  <span className={`truncate ${isEventSelected ? "font-medium" : "font-medium text-neutral-900"}`}>
+                                    {timedPieces.title}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className={`flex-1 truncate ${isEventSelected ? "font-medium" : "font-medium"}`}>
+                                  {getEventLabel(event)}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+
+                        {hiddenCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openDayView(cellDate)
+                            }}
+                            className="self-start rounded-[5px] px-1.5 py-0.5 text-left text-[11px] font-semibold text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                          >
+                            {hiddenCount} more
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Multi-day spanning events overlay */}
+              {weekLayout.multiDayRowHeight > 0 ? (
+                <div
+                  className="pointer-events-none absolute inset-x-0"
+                  style={{ top: DATE_ROW_HEIGHT + MULTI_DAY_ROW_TOP_OFFSET, height: weekLayout.multiDayRowHeight }}
+                >
+                  {weekLayout.multiDayItems.map((item) => {
+                    const resolvedColor =
+                      item.event.goalColor || resolveGoalColorForEvent(goalsStore, item.event) || item.event.color
+                    const { backgroundColor, textColor } = getEventVisualColors(resolvedColor)
+                    const isEventSelected = selectedEventId === item.event.id
+                    const left = `calc(${(item.startIdx / 7) * 100}% + 6px)`
+                    const width = `calc(${(item.spanDays / 7) * 100}% - 12px)`
+
+                    return (
+                      <div
+                        key={`${item.event.id}-${item.startIdx}`}
+                        draggable
+                        onDragStart={(dragEvent) => handleEventDragStart(dragEvent, item.event, item.event.date)}
+                        onDragEnd={() => resetDragState()}
+                        onClick={(eventClick) => {
+                          eventClick.stopPropagation()
+                          const clickedDate = getDateFromSpanningClick(eventClick, item.visibleStartKey, item.spanDays)
+                          setDate(clickedDate)
+                          setSelectedEvent(item.event.id)
+                        }}
+                        className="pointer-events-auto absolute flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-[11px] font-medium transition-all"
+                        style={{
+                          top: item.lane * MULTI_DAY_LANE_PITCH,
+                          left,
+                          width,
+                          height: MULTI_DAY_ITEM_HEIGHT,
+                          backgroundColor,
+                          color: textColor,
+                          boxShadow: isEventSelected
+                            ? "0 5px 14px rgba(0,0,0,0.15), 0 0 0 2px #ffffff, 0 0 0 3px rgba(0,0,0,0.06)"
+                            : "0 1px 2px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(255,255,255,0.15)",
+                        }}
+                      >
+                        <span className="truncate">
+                          {item.isPinnedPriority
+                            ? getEventLabel(item.event)
+                            : isTimedMultiDayEvent(item.event)
+                            ? `${formatClock(item.event.start_time)} ${item.event.title}`
+                            : item.event.title}
+                        </span>
+                      </div>
+                    )
+                  })}
+
+                  {weekLayout.hiddenMultiDayCount > 0 ? (
+                    <div className="pointer-events-auto absolute right-2 top-0 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500 shadow-sm">
+                      +{weekLayout.hiddenMultiDayCount} more
                     </div>
                   ) : null}
                 </div>
-              )
-            })}
-          </div>
-        </div>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
       </div>
     </div>
   )

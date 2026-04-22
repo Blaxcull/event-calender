@@ -814,38 +814,62 @@ const WeekView = () => {
           <div className="pb-14 bg-[#e2e2e1]">
             <div ref={stickyHeaderRef} className="sticky top-0 z-[500] isolate relative bg-[#e2e2e1]">
               <div className="flex relative z-[520] bg-[#e2e2e1]">
-                <div className="w-[72px] shrink-0" />
-                <div className="flex-1 grid grid-cols-7 gap-0">
+                <div className="w-[84px] shrink-0" />
+                <div className="flex-1 grid grid-cols-7 gap-2 pl-3 pr-3">
                   {weekDays.map((day) => {
                     const dayKey = formatDate(day)
                     const isSelected = selectedDate ? format(day, "yyyy-MM-dd") === format(selectedDate, "yyyy-MM-dd") : false
+                    const isToday = dayKey === todayKey
                     return (
                       <button
                         key={day.toISOString()}
                         type="button"
                         onClick={() => setDate(day)}
-                        className="group border-l border-black/5 px-2 py-2 text-left transition-all duration-200 bg-transparent"
+                        className="group px-0 py-2 text-left transition-all duration-200 bg-transparent"
                       >
-                      <div className="flex flex-col items-center justify-center  py-2 w-10">
-  <div className={`text-sm ${isSelected ? "text-neutral-600" : "text-neutral-500"}`}>
-    {format(day, "EEE")}
-  </div>
-
-  <div className={`mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl font-semibold leading-none transition-colors ${
-    isSelected 
-      ? "bg-black text-white" 
-      : "text-neutral-800 group-hover:bg-[#e9e9e7]"
-  }`}>
-    {format(day, "d")}
-  </div>
-</div>
+                        <div
+                          className={`rounded-3xl border px-4 py-3 transition-all duration-200 ${
+                            isSelected
+                              ? "border-black bg-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.22)]"
+                              : "border-[#cfcfcb] bg-[#e2e2e1] text-neutral-900"
+                          }`}
+                        >
+                          <div className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                            isSelected ? "text-white/80" : "text-neutral-600"
+                          }`}>
+                            {format(day, "EEE")}
+                          </div>
+                          <div className="mt-1 flex items-center justify-between">
+                            <span className={`text-[42px] font-semibold leading-none ${
+                              isSelected ? "text-white" : "text-neutral-900"
+                            }`}>
+                              {format(day, "d")}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {isToday ? (
+                                <span className={`inline-flex h-6 items-center rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                                  isSelected ? "bg-white/20 text-white" : "bg-black text-white"
+                                }`}>
+                                  Today
+                                </span>
+                              ) : null}
+                              {!isToday ? (
+                                <span className={`inline-flex h-6 items-center rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                                  isSelected ? "bg-white/18 text-white/90" : "bg-[#d1d1cd] text-neutral-600"
+                                }`}>
+                                  {format(day, "MMM")}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
                       </button>
                     )
                   })}
                 </div>
               </div>
               <div className="flex bg-[#e2e2e1] relative z-[510]">
-                <div className="w-[72px] shrink-0 relative">
+                <div className="w-[84px] shrink-0 relative">
                   {topRowLayout.hasAnyMore ? (
                     <button
                       type="button"
@@ -853,7 +877,7 @@ const WeekView = () => {
                         e.stopPropagation()
                         setShowAllTopEvents((prev) => !prev)
                       }}
-                      className="absolute right-2 z-30 w-6 h-6 flex items-center justify-center rounded hover:bg-white/20 transition-colors"
+                      className="absolute right-2 z-30 w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 transition-colors"
                               style={{ top: `${(topRowLayout.visibleLaneCount - 1) * TOP_ROW_LANE_PITCH + TOP_ROW_ITEM_OFFSET}px` }}
                       aria-label={showAllTopEvents ? "Collapse events" : "Show all events"}
                       title={showAllTopEvents ? "Show less" : "Show all"}
@@ -864,7 +888,7 @@ const WeekView = () => {
                     </button>
                   ) : null}
                 </div>
-                <div className="flex-1 grid grid-cols-7 gap-0">
+                <div className="flex-1 grid grid-cols-7 gap-2 pl-3 pr-3">
                   {weekDays.map((day, dayIndex) => {
                     const dayKey = formatDate(day)
                     const topEvents = topRowLayout.allByDay[dayKey] || []
@@ -873,7 +897,7 @@ const WeekView = () => {
                     return (
                       <div
                         key={`top-${day.toISOString()}`}
-                        className="border-l border-black/5 px-0 py-1 relative z-40"
+                        className="px-0 py-1 relative z-40"
                         style={{ minHeight: `${topRowLayout.rowHeight}px` }}
                       >
                         <div className="relative z-50" style={{ minHeight: `${topRowLayout.rowHeight - 8}px` }}>
@@ -888,6 +912,9 @@ const WeekView = () => {
                             const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors((event as any).goalColor || (event as any).color)
                             const isTimedMultiDay = isTimedMultiDayEvent(event as any)
                             const topRowDateRange = formatTopRowDateRange(event.date, endKey)
+                            const spanWidth = spanDays > 1
+                              ? `calc(${spanDays * 100}% + ${(spanDays - 1) * 0.5}rem)`
+                              : "100%"
                             return (
                               <div
                                 key={`top-sticky-${event.id}`}
@@ -897,7 +924,7 @@ const WeekView = () => {
                                   setDate(getDateFromSpanningClick(eventClick, event.date, spanDays))
                                 }}
                                 className={`truncate py-1 text-[13px] font-semibold absolute left-0 cursor-pointer transition-[width,transform,box-shadow] duration-200 ease-out ${
-                                  isActive ? "z-[9999] border-2 border-white shadow-2xl rounded-xl" : "z-[60] shadow-sm border border-white/70"
+                                  isActive ? "z-[9999] border-2 border-white shadow-2xl rounded-xl" : "z-[60] shadow-sm border border-[#cfcfcb]"
                                 } ${
                                   isActive
                                     ? continuesFromPreviousWeek && continuesIntoNextWeek
@@ -920,7 +947,7 @@ const WeekView = () => {
                                   backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
                                   color: textColor,
                                   left: "0px",
-                                  width: spanDays > 1 ? `${spanDays * 100}%` : "100%",
+                                  width: spanWidth,
                                   clipPath: isActive
                                     ? "none"
                                     : continuesFromPreviousWeek && continuesIntoNextWeek
@@ -937,7 +964,7 @@ const WeekView = () => {
                                   {isTimedMultiDay ? (
                                     <span
                                       className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
-                                      style={{ backgroundColor: "rgba(255,255,255,0.5)", color: accentColor }}
+                                      style={{ backgroundColor: "rgba(207,207,203,0.8)", color: accentColor }}
                                     >
                                       <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 8v4l2.5 2.5m6-2.5a8.5 8.5 0 11-17 0 8.5 8.5 0 0117 0z" />
@@ -977,7 +1004,7 @@ const WeekView = () => {
             </div>
 
             <div className="flex relative">
-              <div className="w-[72px] shrink-0">
+              <div className="w-[84px] shrink-0">
                 {hourSlots.map((hour) => (
                     <div key={hour} className="flex items-center justify-end pr-3" style={{ height: `${SLOT_HEIGHT}px` }}>
                     <span className="text-black text-xl">
@@ -988,7 +1015,7 @@ const WeekView = () => {
                 ))}
               </div>
 
-              <div className="flex-1 grid grid-cols-7">
+              <div className="flex-1 grid grid-cols-7 gap-2 pl-3 pr-3">
                 {weekDays.map((day) => {
                   const dayKey = formatDate(day)
                   const dayTimedEvents = timedWeekEvents
@@ -1080,9 +1107,9 @@ const WeekView = () => {
                       key={day.toISOString()}
                       ref={(el) => { dayColumnRefs.current[dayKey] = el }}
                       onClick={handleCreateEvent}
-                      className="relative border-l border-black/5 min-h-[2448px]"
+                      className="relative min-h-[2448px] overflow-hidden rounded-3xl border border-[#cfcfcb] bg-[#e2e2e1]"
                     >
-                      <div className="h-[1px] bg-[#cfcfcb] mt-12" />
+                      <div className="mt-12 h-[1px] bg-[#cfcfcb]" />
                       {gridLines.map((line) => (
                         <div key={line} className="h-[1px] bg-[#cfcfcb]" style={{ marginTop: `${SLOT_HEIGHT - 1}px` }} />
                       ))}
@@ -1119,7 +1146,8 @@ const WeekView = () => {
                           const labelStartMins = isOvernightLinkedEvent && sourceEvent ? sourceEvent.start_time : startMins
                           const labelEndMins = isOvernightLinkedEvent && sourceEvent ? sourceEvent.end_time : endMins
                           const durationMins = getClockwiseDurationMinutes(startMins, endMins)
-                          const compactTimeLabel = formatTime(labelStartMins)
+                          const labelDurationMins = getClockwiseDurationMinutes(labelStartMins, labelEndMins)
+                          const isVeryShortEvent = labelDurationMins <= 15
                           const titleSizeClass = durationMins <= 15
                             ? "text-sm"
                             : durationMins <= 30
@@ -1173,21 +1201,29 @@ const WeekView = () => {
                               style={{
                                 top: event.slot + TOP_DEAD_ZONE,
                                 height: event.height,
-                                left: isExtendedEvent ? "0%" : position.left,
-                                width: isExtendedEvent ? `calc(${extensionDays + 1} * 100%)` : position.width,
-                                zIndex: selectedEventId === event.id
-                                  ? 1000
-                                  : isHorizontalResizing
-                                  ? 999
+                                left: isActive || isExtendedEvent ? "0%" : position.left,
+                                width: isActive
+                                  ? isExtendedEvent
+                                    ? `calc(${extensionDays + 1} * 100%)`
+                                    : "100%"
                                   : isExtendedEvent
-                                    ? 120
-                                    : isRecurringEvent
-                                    ? 60
-                                    : position.zIndex,
+                                    ? `calc(${extensionDays + 1} * 100%)`
+                                    : position.width,
+                                zIndex: dragState?.id === event.id || pendingDrag?.id === event.id
+                                  ? 10000
+                                  : resizeState?.id === event.id || horizontalResizeState?.id === event.id
+                                    ? 9999
+                                    : selectedEventId === event.id
+                                      ? 1000
+                                      : isExtendedEvent
+                                        ? 120
+                                        : isRecurringEvent
+                                          ? 60
+                                          : position.zIndex,
                                 backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
                                 color: textColor,
                                 boxShadow: isActive ? "0 10px 24px rgba(0,0,0,0.24)" : undefined,
-                                backgroundClip: selectedEventId === event.id ? "border-box" : "padding-box",
+                                backgroundClip: isActive ? "border-box" : "padding-box",
                                 transition: dragState?.id === event.id || resizeState?.id === event.id || horizontalResizeState?.id === event.id
                                   ? undefined
                                   : "left 200ms ease, width 200ms ease",
@@ -1204,19 +1240,13 @@ const WeekView = () => {
                               ) : null}
                               <div className={`absolute inset-x-0 z-10 pl-[18px] pr-3 ${durationMins <= 15 ? "inset-y-0" : "top-0"} ${durationMins > 15 && durationMins <= 30 ? "pt-0" : durationMins > 30 ? "pt-1" : ""}`} style={{ color: textColor }}>
                                 {durationMins <= 15 ? (
-                                  <div className="relative h-full pr-[58px]">
+                                  <div className="relative h-full">
                                     <div className={`min-w-0 truncate font-extrabold ${titleSizeClass}`}>{event.title}</div>
-                                    <div className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-1 text-[11px] font-medium opacity-95">
-                                      <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                      </svg>
-                                      <span>{compactTimeLabel}</span>
-                                    </div>
                                   </div>
                                 ) : (
                                   <div className={`truncate font-extrabold ${titleSizeClass}`}>{event.title}</div>
                                 )}
-                                {durationMins > 20 ? (
+                                {!isVeryShortEvent && durationMins > 20 ? (
                                   <div className="flex items-center gap-1.5 truncate text-sm font-medium opacity-95">
                                     <svg className="h-4 w-4 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />

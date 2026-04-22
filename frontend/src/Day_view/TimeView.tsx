@@ -60,6 +60,10 @@ const rangeTimeLabel = `${compactTimeLabel} - ${labelEndHour
   .padStart(2, "0")}:${labelEndMin
   .toString()
   .padStart(2, "0")}`
+const labelStartTotalMins = (labelStartHour * 60) + labelStartMin
+const labelEndTotalMins = (labelEndHour * 60) + labelEndMin
+const eventDuration = ((labelEndTotalMins - labelStartTotalMins) + 1440) % 1440 || 1440
+const isVeryShortEvent = eventDuration <= 15
 
  const isActive = isDragging || isResizing || isSelected
 
@@ -71,8 +75,9 @@ const eventStyle: React.CSSProperties = {
       height: event.height,
       left: position.left,
       width: position.width,
-      zIndex: position.zIndex,
-      backgroundColor: isSelected || isDragging ? backgroundColor : mutedBackgroundColor,
+      zIndex: isDragging ? 10000 : isResizing ? 9999 : isSelected ? 1000 : position.zIndex,
+      backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
+      backgroundClip: "border-box",
       transition: isDragging || isResizing ? undefined : "left 200ms ease, width 200ms ease",
     }
 
@@ -85,12 +90,16 @@ return (
     className={`absolute ${zIndex} ${shadow}
   rounded-md calendar-event
   cursor-grab active:cursor-grabbing select-none
-  ${isSelected ? 'border-2 border-white' : isDragging || isResizing ? 'border-0' : 'border-r-2 border-b-0 border-t-4 border-transparent'}
+  ${isDragging || isResizing ? 'border-0' : 'border-r-2 border-b-0 border-t-4 border-transparent'}
+  ${isSelected ? 'ring-2 ring-white' : ''}
   bg-clip-padding`}
     id={event.id}
     style={eventStyle}
   >
-    <div className="absolute top-1 bottom-1 left-[3px] w-[6px] rounded" style={{ backgroundColor: leftStripColor }} />
+    <div
+      className={`absolute left-[3px] w-[7px] rounded ${isVeryShortEvent ? "top-[0px] bottom-[5px]" : "top-[0px] bottom-[5px]"}`}
+      style={{ backgroundColor: leftStripColor }}
+    />
 
     {((event.repeat && event.repeat !== 'None') || event.isRecurringInstance) && (
       <svg className="absolute top-2 right-3 w-4 h-4 opacity-70 z-20" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -103,22 +112,20 @@ return (
 
 
     {/* Event content - adjust based on event height */}
-<div className="pl-[18px] pr-3 pt-0 relative z-10" style={{ color: textColor }}>
-  {calculateEventDuration(event) <= 15 ? (
+<div className="h-full pl-[18px] pr-3 pt-0 z-10" style={{ color: textColor }}>
+  {isVeryShortEvent ? (
     // 15 MIN OR LESS
-    <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
-      <span className="truncate font-semibold  ">{event.title}</span>
-      <div className="flex items-center shrink-0 gap-1 ml-1">
+    <div className="absolute inset-y-0 left-[18px] right-2 flex min-w-0 items-center gap-2 -translate-y-[3px] text-base">
+      <span className="min-w-0 truncate font-semibold leading-none">{event.title}</span>
+      <div className="ml-auto flex shrink-0 items-center gap-1 leading-none">
         <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <span className="text-sm font-medium opacity-80">
-          {compactTimeLabel}
-        </span>
+        <span className="text-xs font-medium opacity-80">{compactTimeLabel}</span>
       </div>
     </div>
 
-  ) : calculateEventDuration(event) <= 20 ? (
+  ) : eventDuration <= 20 ? (
     // 16-20 MIN (super compact)
     <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
       <span className="truncate font-semibold  ">{event.title}</span>
@@ -132,7 +139,7 @@ return (
       </div>
     </div>
 
-  ) : calculateEventDuration(event) <= 30 ? (
+  ) : eventDuration <= 30 ? (
     // 21-30 MIN (compact horizontal)
     <div className=" flex pt-1 items-center pr-2 truncate justify-between">
       <span className="truncate font-semibold text-xl ">{event.title}</span>
