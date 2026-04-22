@@ -31,8 +31,6 @@ const MULTI_DAY_LANE_PITCH = 24
 const DATE_ROW_HEIGHT = 36
 const MULTI_DAY_ROW_TOP_OFFSET = 4
 const MULTI_DAY_ROW_BOTTOM_GAP = 6
-const MONTH_EVENT_ROW_HEIGHT = 20
-const MONTH_EVENT_ROW_GAP = 3
 
 const formatClock = (totalMinutes: number) => {
   const hour = Math.floor(totalMinutes / 60) % 24
@@ -55,30 +53,23 @@ const getDateAtStartOfDay = (dateKey: string) => new Date(`${dateKey}T00:00:00`)
 const withMiddayTime = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0)
 
-// Shared gray palette across Day/Week/Month surfaces
+// Apple-style: crisp white surface, subtle tonal differentiation
 const getMonthCellTone = (inCurrentMonth: boolean, isSelected: boolean, isToday: boolean) => {
-  if (isSelected) return "bg-[#d9d9d5]"
-  if (!inCurrentMonth) return "bg-[#ddddda]"
-  if (isToday) return "bg-[#e2e2e1]"
-  return "bg-[#e2e2e1]"
+  if (isSelected) return "bg-[#f2f2f7]"
+  if (!inCurrentMonth) return "bg-[#fafafa]"
+  if (isToday) return "bg-white"
+  return "bg-white"
 }
 
 const compareMonthEvents = (a: CalendarEvent, b: CalendarEvent) => {
-  const aIsMultiDay = isMultiDayEvent(a)
-  const bIsMultiDay = isMultiDayEvent(b)
-  if (aIsMultiDay !== bIsMultiDay) return aIsMultiDay ? -1 : 1
   const aIsAllDay = isAllDayEvent(a)
   const bIsAllDay = isAllDayEvent(b)
   if (aIsAllDay !== bIsAllDay) return aIsAllDay ? -1 : 1
+  const aIsMultiDay = isMultiDayEvent(a)
+  const bIsMultiDay = isMultiDayEvent(b)
+  if (aIsMultiDay !== bIsMultiDay) return aIsMultiDay ? -1 : 1
   if (a.start_time !== b.start_time) return a.start_time - b.start_time
-  const titleDiff = a.title.localeCompare(b.title)
-  if (titleDiff !== 0) return titleDiff
-  const aUpdatedAt = Date.parse(a.updated_at || "")
-  const bUpdatedAt = Date.parse(b.updated_at || "")
-  if (!Number.isNaN(aUpdatedAt) && !Number.isNaN(bUpdatedAt) && aUpdatedAt !== bUpdatedAt) {
-    return bUpdatedAt - aUpdatedAt
-  }
-  return a.id.localeCompare(b.id)
+  return a.title.localeCompare(b.title)
 }
 
 const compareMonthEventsWithPinnedPriority = (
@@ -143,7 +134,6 @@ const MonthView = () => {
   const goalsStore = useGoalsStore((state) => state.store)
   const [draggedEvent, setDraggedEvent] = useState<DraggedMonthEvent | null>(null)
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null)
-  const [eventListCapacityByDateKey, setEventListCapacityByDateKey] = useState<Record<string, number>>({})
   const suppressNextCellClickRef = useRef(false)
   const eventsCache = useEventsStore((state) => state.eventsCache)
   const recurringEventsCache = useEventsStore((state) => state.recurringEventsCache)
@@ -201,19 +191,10 @@ const MonthView = () => {
     return getEventById(pinnedDraftEventId)
   }, [getEventById, pinnedDraftEventId])
 
-  const selectedEvent = useMemo(() => {
-    if (!selectedEventId) return null
-    for (const events of Object.values(monthEventsByDateKey)) {
-      const snapshotEvent = events.find((event) => event.id === selectedEventId)
-      if (snapshotEvent) return snapshotEvent
-    }
-    return getEventById(selectedEventId)
-  }, [getEventById, monthEventsByDateKey, selectedEventId])
-
   const pinnedSelectedEvent = useMemo(() => {
-    if (!selectedEvent || selectedEvent.id === pinnedDraftEventId) return null
-    return selectedEvent
-  }, [pinnedDraftEventId, selectedEvent])
+    if (!selectedEventId || selectedEventId === pinnedDraftEventId) return null
+    return getEventById(selectedEventId)
+  }, [getEventById, pinnedDraftEventId, selectedEventId])
 
   const weekLayouts = useMemo(() => {
     return visibleWeeks.map((week) => {
@@ -235,21 +216,13 @@ const MonthView = () => {
           ? pinnedSelectedEvent
           : null
       const pinnedPriorityEvent = pinnedSelectedVisibleInWeek ?? pinnedDraftVisibleInWeek
-      const pinnedSingleDayEventInWeek =
-        ((pinnedSelectedEvent &&
-          !isMultiDayEvent(pinnedSelectedEvent) &&
-          pinnedSelectedEvent.date >= firstWeekKey &&
-          pinnedSelectedEvent.date <= lastWeekKey &&
-          pinnedSelectedEvent) ||
-          (pinnedDraftEvent &&
-            !isMultiDayEvent(pinnedDraftEvent) &&
-            pinnedDraftEvent.date >= firstWeekKey &&
-            pinnedDraftEvent.date <= lastWeekKey &&
-            pinnedDraftEvent)) ??
-        null
-      const selectedSingleDayIndex = pinnedSingleDayEventInWeek
-        ? weekDateKeys.indexOf(pinnedSingleDayEventInWeek.date)
-        : -1
+      const selectedSingleDayIndex =
+        pinnedSelectedEvent &&
+        !isMultiDayEvent(pinnedSelectedEvent) &&
+        pinnedSelectedEvent.date >= firstWeekKey &&
+        pinnedSelectedEvent.date <= lastWeekKey
+          ? weekDateKeys.indexOf(pinnedSelectedEvent.date)
+          : -1
       const weekDayIndexByKey: Record<string, number> = {}
       weekDateKeys.forEach((key, index) => {
         weekDayIndexByKey[key] = index
@@ -296,19 +269,7 @@ const MonthView = () => {
       if (pinnedSingleDayIndex >= 0) {
         laneOccupancy[0] = Array.from({ length: 7 }, (_, dayIndex) => dayIndex === pinnedSingleDayIndex)
       }
-      if (pinnedPriorityEvent && isMultiDayEvent(pinnedPriorityEvent)) {
-        const pinnedStartKey = pinnedPriorityEvent.date < firstWeekKey ? firstWeekKey : pinnedPriorityEvent.date
-        const pinnedEndKey =
-          (pinnedPriorityEvent.end_date || pinnedPriorityEvent.date) > lastWeekKey
-            ? lastWeekKey
-            : pinnedPriorityEvent.end_date || pinnedPriorityEvent.date
-        const pinnedStartIdx = weekDayIndexByKey[pinnedStartKey]
-        const pinnedEndIdx = weekDayIndexByKey[pinnedEndKey]
-        if (!laneOccupancy[0]) laneOccupancy[0] = Array(7).fill(false)
-        for (let dayIndex = pinnedStartIdx; dayIndex <= pinnedEndIdx; dayIndex += 1) {
-          laneOccupancy[0][dayIndex] = true
-        }
-      }
+      const baseLaneOffset = pinnedPriorityEvent ? 1 : 0
       const positionedItems: WeekSpanItem[] = items.map((item) => {
         let lane = 0
         while (lane < laneOccupancy.length) {
@@ -323,7 +284,7 @@ const MonthView = () => {
         }
         return {
           event: item.event,
-          lane,
+          lane: lane + baseLaneOffset,
           startIdx: item.startIdx,
           spanDays: item.endIdx - item.startIdx + 1,
           visibleStartKey: item.visibleStartKey,
@@ -401,11 +362,6 @@ const MonthView = () => {
   const openMonthDate = (date: Date) => {
     setDate(withMiddayTime(date))
     setSelectedEvent(null)
-    navigate(`/month/${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`)
-  }
-
-  const openMonthDateKeepingSelection = (date: Date) => {
-    setDate(withMiddayTime(date))
     navigate(`/month/${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`)
   }
 
@@ -563,60 +519,24 @@ const MonthView = () => {
     return () => window.removeEventListener("dragend", clearDragState)
   }, [])
 
-  useEffect(() => {
-    const measure = () => {
-      const elements = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-month-event-list][data-date-key]")
-      )
-      const nextCapacities: Record<string, number> = {}
-      elements.forEach((element) => {
-        const dateKey = element.dataset.dateKey
-        if (!dateKey) return
-        const height = element.clientHeight
-        const perRow = MONTH_EVENT_ROW_HEIGHT + MONTH_EVENT_ROW_GAP
-        const capacity = Math.max(0, Math.floor((height + MONTH_EVENT_ROW_GAP) / perRow))
-        nextCapacities[dateKey] = capacity
-      })
-      setEventListCapacityByDateKey((prev) => {
-        const prevKeys = Object.keys(prev)
-        const nextKeys = Object.keys(nextCapacities)
-        if (prevKeys.length === nextKeys.length && prevKeys.every((k) => prev[k] === nextCapacities[k])) {
-          return prev
-        }
-        return nextCapacities
-      })
-    }
-
-    const raf = requestAnimationFrame(measure)
-    window.addEventListener("resize", measure)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener("resize", measure)
-    }
-  }, [visibleWeeks, weekLayouts, monthEventsByDateKey, selectedEventId, pinnedDraftEventId])
-
   return (
-    <div className="h-full w-full bg-[#f3f3f2] flex items-center justify-center overflow-hidden select-none">
-      <div className="h-[100%] w-[100%] rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden text-neutral-900 antialiased" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif' }}>
+    <div className="flex h-full w-full flex-col bg-white text-neutral-900 antialiased" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif' }}>
       {/* Title bar */}
-      <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0">
-        <h1 className="text-6xl pb-0 font-semibold text-neutral-800 tracking-tight">
-          <span style={{ fontFamily: "SF Pro Display Bold" }} className="text-black">
-            {format(displayDate, "MMMM")},
-          </span>
-          <span style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }} className="text-neutral-400">
-            {" "}
-            {format(displayDate, "yyyy")}
-          </span>
+      <div className="flex items-baseline gap-3 px-8 pt-8 pb-5">
+        <h1 className="text-[44px] font-bold tracking-[-0.03em] leading-none text-neutral-900">
+          {format(displayDate, "MMMM")}
         </h1>
+        <span className="text-[44px] font-bold tracking-[-0.03em] leading-none text-neutral-300">
+          {format(displayDate, "yyyy")}
+        </span>
       </div>
 
       {/* Weekday header */}
-      <div className="grid grid-cols-7 border-b border-[#cfcfcb] bg-[#e2e2e1]">
+      <div className="grid grid-cols-7 border-b border-neutral-200/80 bg-white px-8">
         {WEEKDAY_LABELS.map((label, index) => {
           const isWeekend = index === 0 || index === 6
           return (
-            <div key={label} className="flex items-center justify-center py-2.5 text-center">
+            <div key={label} className="py-2.5">
               <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${isWeekend ? "text-neutral-400" : "text-neutral-500"}`}>
                 {label}
               </div>
@@ -626,13 +546,13 @@ const MonthView = () => {
       </div>
 
       {/* Calendar grid */}
-      <div className="flex flex-1 flex-col overflow-hidden border-t border-[#cfcfcb] bg-[#cfcfcb]" style={{ gap: 1 }}>
+      <div className="flex flex-1 flex-col overflow-hidden border-t border-neutral-200/60 bg-neutral-200/60" style={{ gap: 1 }}>
         {visibleWeeks.map((week, weekIndex) => {
           const weekLayout = weekLayouts[weekIndex]
           const isLastWeek = weekIndex === visibleWeeks.length - 1
 
           return (
-            <div key={`month-week-row-${weekIndex}`} className="relative flex-1 min-h-0">
+            <div key={weekIndex} className="relative flex-1 min-h-0">
               <div className="grid h-full grid-cols-7" style={{ gap: 1 }}>
                 {week.map((cellDate, dayIndex) => {
                   const dateKey = formatDate(cellDate)
@@ -646,37 +566,21 @@ const MonthView = () => {
                     (weekLayout.totalMultiDayCountByDay?.[dayIndex] || 0) - visibleMultiDayCount
                   )
                   const hasMultiDayOverlapOnDay = (weekLayout.totalMultiDayCountByDay?.[dayIndex] || 0) > 0
-                  const selectedSingleDayEventPinnedInTopRow =
-                    ((pinnedSelectedEvent &&
-                      !isMultiDayEvent(pinnedSelectedEvent) &&
-                      pinnedSelectedEvent.date === dateKey &&
-                      hasMultiDayOverlapOnDay &&
-                      pinnedSelectedEvent) ||
-                      (pinnedDraftEvent &&
-                        !isMultiDayEvent(pinnedDraftEvent) &&
-                        pinnedDraftEvent.date === dateKey &&
-                        hasMultiDayOverlapOnDay &&
-                        pinnedDraftEvent)) ??
-                    null
+                  const selectedExistingEventPinnedInTopRow =
+                    !!pinnedSelectedEvent &&
+                    !isMultiDayEvent(pinnedSelectedEvent) &&
+                    pinnedSelectedEvent.date === dateKey &&
+                    hasMultiDayOverlapOnDay
                   const dayEvents = (monthEventsByDateKey[dateKey] || []).filter((event) => {
                     if (isMultiDayEvent(event)) return false
-                    if (selectedSingleDayEventPinnedInTopRow && event.id === selectedSingleDayEventPinnedInTopRow.id) {
-                      return false
-                    }
+                    if (selectedExistingEventPinnedInTopRow && event.id === pinnedSelectedEvent.id) return false
                     return true
                   })
                   const orderedDayEvents = prioritizeSelectedEvent(dayEvents, selectedEventId)
-                  const fallbackSlots = MAX_VISIBLE_EVENTS
-                  const dynamicEventSlots = eventListCapacityByDateKey[dateKey] ?? fallbackSlots
-                  const totalListItems = hiddenMultiDayCountForDay + orderedDayEvents.length
-                  const hasOverflow = totalListItems > dynamicEventSlots
-                  const canShowMoreRow = hasOverflow && dynamicEventSlots >= 2
-                  const visibleEventLimit = Math.max(
-                    0,
-                    canShowMoreRow
-                      ? dynamicEventSlots - 1
-                      : Math.min(dynamicEventSlots, orderedDayEvents.length)
-                  )
+                  const totalItemCount = visibleMultiDayCount + hiddenMultiDayCountForDay + orderedDayEvents.length
+                  const availableEventSlots = Math.max(0, MAX_VISIBLE_EVENTS - visibleMultiDayCount)
+                  const shouldReserveMoreRow = totalItemCount >= MAX_VISIBLE_EVENTS
+                  const visibleEventLimit = Math.max(0, shouldReserveMoreRow ? availableEventSlots - 1 : availableEventSlots)
                   const visibleEvents = orderedDayEvents.slice(0, visibleEventLimit)
                   const hiddenCount = Math.max(0, hiddenMultiDayCountForDay + orderedDayEvents.length - visibleEvents.length)
 
@@ -704,14 +608,14 @@ const MonthView = () => {
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault()
-                          openMonthDateKeepingSelection(cellDate)
+                          openMonthDate(cellDate)
                         }
                       }}
                       className={`group relative flex min-h-0 flex-col px-2 pb-1.5 text-left outline-none transition-colors duration-150 ${getMonthCellTone(
                         inCurrentMonth,
                         isSelected,
                         isTodayCell
-                      )} ${isSelected ? "" : "hover:bg-[#dcdcd9]"} ${
+                      )} ${isSelected ? "" : "hover:bg-neutral-50"} ${
                         draggedEvent && dragOverDateKey === dateKey
                           ? "ring-[1.5px] ring-blue-500/70 ring-inset bg-blue-50/40"
                           : ""
@@ -721,19 +625,14 @@ const MonthView = () => {
                           DATE_ROW_HEIGHT +
                           ((weekLayout.multiDayHeightByDay?.[dayIndex] || 0) > 0
                             ? MULTI_DAY_ROW_TOP_OFFSET + (weekLayout.multiDayHeightByDay?.[dayIndex] || 0)
-                            : 0) +
-                          (selectedSingleDayEventPinnedInTopRow ? MULTI_DAY_LANE_PITCH : 0),
+                            : 0),
                       }}
                     >
                       {/* Date header row */}
                       <div className="absolute left-2 right-2 top-1.5 flex items-center justify-between">
                         <div className="flex items-baseline gap-1.5">
-                          {isSelected ? (
-                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#cfcfcb] bg-white px-1.5 text-[13px] font-semibold text-black shadow-sm">
-                              {cellDate.getDate()}
-                            </div>
-                          ) : isTodayCell ? (
-                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full bg-black px-1.5 text-[13px] font-semibold text-white shadow-sm">
+                          {isTodayCell ? (
+                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#FF3B30] px-1.5 text-[13px] font-semibold text-white shadow-sm">
                               {cellDate.getDate()}
                             </div>
                           ) : (
@@ -743,14 +642,14 @@ const MonthView = () => {
                                   ? isWeekend
                                     ? "text-neutral-500"
                                     : "text-neutral-800"
-                                  : "text-neutral-500"
+                                  : "text-neutral-300"
                               }`}
                             >
                               {cellDate.getDate()}
                             </span>
                           )}
                           {!inCurrentMonth ? (
-                            <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-300">
                               {format(cellDate, "MMM")}
                             </span>
                           ) : null}
@@ -770,38 +669,38 @@ const MonthView = () => {
                       </div>
 
                       {/* Pinned single-day selected event */}
-                      {selectedSingleDayEventPinnedInTopRow ? (
+                      {selectedExistingEventPinnedInTopRow && pinnedSelectedEvent ? (
                         <div
                           draggable
                           onDragStart={(dragEvent) =>
-                            handleEventDragStart(dragEvent, selectedSingleDayEventPinnedInTopRow, formatDate(cellDate))
+                            handleEventDragStart(dragEvent, pinnedSelectedEvent, formatDate(cellDate))
                           }
                           onDragEnd={() => resetDragState()}
                           onClick={(clickEvent) => {
                             clickEvent.stopPropagation()
                             setDate(cellDate)
-                            setSelectedEvent(selectedSingleDayEventPinnedInTopRow.id)
+                            setSelectedEvent(pinnedSelectedEvent.id)
                           }}
-                          className="absolute left-2 right-2 z-10 flex h-[22px] cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border-2 border-white px-2 text-left text-[11px] font-medium"
+                          className="absolute left-2 right-2 z-10 flex h-[22px] cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-[11px] font-medium ring-2 ring-white"
                           style={{
                             top: DATE_ROW_HEIGHT + MULTI_DAY_ROW_TOP_OFFSET,
                             backgroundColor: getEventVisualColors(
-                              selectedSingleDayEventPinnedInTopRow.goalColor ||
-                                resolveGoalColorForEvent(goalsStore, selectedSingleDayEventPinnedInTopRow) ||
-                                selectedSingleDayEventPinnedInTopRow.color
+                              pinnedSelectedEvent.goalColor ||
+                                resolveGoalColorForEvent(goalsStore, pinnedSelectedEvent) ||
+                                pinnedSelectedEvent.color
                             ).backgroundColor,
                             color: getEventVisualColors(
-                              selectedSingleDayEventPinnedInTopRow.goalColor ||
-                                resolveGoalColorForEvent(goalsStore, selectedSingleDayEventPinnedInTopRow) ||
-                                selectedSingleDayEventPinnedInTopRow.color
+                              pinnedSelectedEvent.goalColor ||
+                                resolveGoalColorForEvent(goalsStore, pinnedSelectedEvent) ||
+                                pinnedSelectedEvent.color
                             ).textColor,
                             boxShadow: "0 4px 12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
                           }}
                         >
                           {(() => {
-                            const timedPieces = isAllDayEvent(selectedSingleDayEventPinnedInTopRow)
+                            const timedPieces = isAllDayEvent(pinnedSelectedEvent)
                               ? null
-                              : getTimedEventPieces(selectedSingleDayEventPinnedInTopRow)
+                              : getTimedEventPieces(pinnedSelectedEvent)
                             return (
                               <span className="flex-1 truncate">
                                 {timedPieces ? (
@@ -810,7 +709,7 @@ const MonthView = () => {
                                     <span className="ml-1.5 font-medium">{timedPieces.title}</span>
                                   </>
                                 ) : (
-                                  getEventLabel(selectedSingleDayEventPinnedInTopRow)
+                                  getEventLabel(pinnedSelectedEvent)
                                 )}
                               </span>
                             )
@@ -819,19 +718,14 @@ const MonthView = () => {
                       ) : null}
 
                       {/* Single-day events */}
-                      <div
-                        className="flex min-h-0 flex-1 flex-col gap-[3px] overflow-hidden"
-                        data-month-event-list
-                        data-date-key={dateKey}
-                      >
+                      <div className="flex min-h-0 flex-col gap-[3px]">
                         {visibleEvents.map((event) => {
                           const resolvedColor =
                             event.goalColor || resolveGoalColorForEvent(goalsStore, event) || event.color
-                          const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors(resolvedColor)
+                          const { backgroundColor, textColor, accentColor } = getEventVisualColors(resolvedColor)
                           const isEventSelected = selectedEventId === event.id
                           const isAllDay = isAllDayEvent(event)
                           const isTimedMultiDay = isTimedMultiDayEvent(event)
-                          const isFilledAllDayChip = isAllDay && !isTimedMultiDay
                           const timedPieces = !isAllDay && !isTimedMultiDay ? getTimedEventPieces(event) : null
                           const dotColor = accentColor || backgroundColor
 
@@ -847,11 +741,7 @@ const MonthView = () => {
                                 setSelectedEvent(event.id)
                               }}
                               className={`flex h-[20px] w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-[5px] px-1.5 text-left text-[11px] transition-all ${
-                                isEventSelected
-                                  ? "border-2 border-white shadow-md"
-                                  : isFilledAllDayChip
-                                    ? "border border-white/70 shadow-sm"
-                                    : "hover:bg-neutral-100/80"
+                                isEventSelected ? "ring-2 ring-white shadow-md" : "hover:bg-neutral-100/80"
                               }`}
                               style={
                                 isEventSelected
@@ -860,18 +750,13 @@ const MonthView = () => {
                                       color: textColor,
                                       boxShadow: "0 4px 10px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
                                     }
-                                  : isFilledAllDayChip
-                                    ? {
-                                        backgroundColor: mutedBackgroundColor,
-                                        color: textColor,
-                                      }
                                   : {
                                       backgroundColor: "transparent",
                                       color: "#1c1c1e",
                                     }
                               }
                             >
-                              {!isEventSelected && !isFilledAllDayChip && (
+                              {!isEventSelected && (
                                 <span
                                   className="h-[7px] w-[7px] shrink-0 rounded-full"
                                   style={{ backgroundColor: dotColor }}
@@ -895,7 +780,7 @@ const MonthView = () => {
                           )
                         })}
 
-                        {hiddenCount > 0 && canShowMoreRow ? (
+                        {hiddenCount > 0 ? (
                           <button
                             type="button"
                             onClick={(event) => {
@@ -948,7 +833,7 @@ const MonthView = () => {
                           backgroundColor,
                           color: textColor,
                           boxShadow: isEventSelected
-                            ? "0 5px 14px rgba(0,0,0,0.15), 0 0 0 2px #ffffff"
+                            ? "0 5px 14px rgba(0,0,0,0.15), 0 0 0 2px #ffffff, 0 0 0 3px rgba(0,0,0,0.06)"
                             : "0 1px 2px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(255,255,255,0.15)",
                         }}
                       >
@@ -973,7 +858,6 @@ const MonthView = () => {
             </div>
           )
         })}
-      </div>
       </div>
     </div>
   )

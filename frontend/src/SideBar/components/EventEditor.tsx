@@ -10,6 +10,7 @@ interface URLChip {
 const EventEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const updateEventField = useEventsStore((state) => state.updateEventField)
+  const updateEventFields = useEventsStore((state) => state.updateEventFields)
   const saveTrigger = useEventsStore((state) => state.saveTrigger)
   const showRecurringDialog = useEventsStore((state) => state.showRecurringDialog)
   const closeRecurringDialog = useEventsStore((state) => state.closeRecurringDialog)
@@ -387,14 +388,25 @@ const EventEditor: React.FC = () => {
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const currentSelectedEventId = useEventsStore.getState().selectedEventId
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
-    if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
+    if (e.key === 'Enter' && currentSelectedEventId) {
       e.preventDefault()
+      e.stopPropagation()
+      const nextTitle = e.currentTarget.value.trim() || 'New Event'
+      setTitle(nextTitle === 'New Event' ? '' : nextTitle)
+      titleRef.current = nextTitle
+      savedEventIdRef.current = currentSelectedEventId
       setHasEdits(false)
       setHasEditsEventId(null)
-      handlePropertyChange('title', title || 'New Event', {
-        notes: notes,
-        urls: urlChips.map(c => c.url)
-      })
+      // Enter on title should only update title and keep current selection.
+      if (currentEvent && !isSeriesActuallyRecurring(currentEvent)) {
+        updateEventFields(currentSelectedEventId, {
+          title: nextTitle,
+          notes: notesRef.current,
+          urls: urlChipsRef.current.map(c => c.url),
+        })
+        return
+      }
+      handlePropertyChange('title', nextTitle)
     }
   }
 
@@ -415,6 +427,7 @@ const EventEditor: React.FC = () => {
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
     if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
       e.preventDefault()
+      e.stopPropagation()
       handlePropertyChange('title', title || 'New Event', {
         notes: notes,
         urls: urlChips.map(c => c.url)
@@ -446,6 +459,7 @@ const EventEditor: React.FC = () => {
     const currentEvent = currentSelectedEventId ? useEventsStore.getState().getEventById(currentSelectedEventId) : null
     if (e.key === 'Enter' && currentSelectedEventId && currentEvent) {
       e.preventDefault()
+      e.stopPropagation()
       if (urlInput.trim()) {
         addUrlChip(urlInput.trim())
         setUrlInput('')

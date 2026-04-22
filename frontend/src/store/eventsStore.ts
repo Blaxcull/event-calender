@@ -79,7 +79,7 @@ interface EventsState {
   scrollToTop: boolean
   saveTrigger: number
   hasEditsEventId: string | null
-  liveEventTimes: Record<string, { start_time: number; end_time: number }>
+  liveEventTimes: Record<string, { start_time: number; end_time: number; date?: string; end_date?: string }>
 
   // Recurring action dialog
   recurringDialogOpen: boolean
@@ -119,7 +119,7 @@ interface EventsState {
   closeRecurringDialog: () => void
   setHasEditsEventId: (id: string | null) => void
   previewEventTime: (id: string, start_time: number, end_time: number) => void
-  setLiveEventTime: (id: string, start_time: number, end_time: number) => void
+  setLiveEventTime: (id: string, start_time: number, end_time: number, date?: string, end_date?: string) => void
   clearLiveEventTime: (id?: string) => void
   splitRecurringEvent: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
   updateThisAndFollowing: (event: CalendarEvent, selectedDate: string, newStartTime?: number, newEndTime?: number, updates?: Partial<NewEvent>) => Promise<void>
@@ -836,18 +836,30 @@ export const useEventsStore = create<EventsState>()(
 
         const savedEvent = dbRowToEvent(rawSavedEvent)
 
+        // Re-read queued updates after insert so late edits that happened while the
+        // temp event was being saved are not lost.
+        const {
+          eventsCache: currentCache,
+          pendingUpdates: currentPendingUpdates,
+          selectedEventId: currentSelectedId,
+        } = get()
+        const latestQueuedUpdates = currentPendingUpdates.get(tempEventId) || []
+        let finalEvent = { ...updatedTempEvent, ...savedEvent, id: savedEvent.id, isTemp: false as const }
+        for (const update of latestQueuedUpdates) {
+          finalEvent = { ...finalEvent, ...update, updated_at: new Date().toISOString() }
+        }
+
         // Replace temp with real event
-        const { eventsCache: currentCache } = get()
         const newCache = { ...currentCache }
         if (newCache[dateKey]) {
           newCache[dateKey] = newCache[dateKey].map(e =>
-            e.id === tempEventId ? { ...updatedTempEvent, ...savedEvent, id: savedEvent.id, isTemp: false } : e
+            e.id === tempEventId ? finalEvent : e
           )
         }
 
-        const newPendingSyncs = new Set(pendingSyncs)
+        const newPendingSyncs = new Set(get().pendingSyncs)
         newPendingSyncs.delete(tempEventId)
-        const newPendingUpdates = new Map(pendingUpdates)
+        const newPendingUpdates = new Map(currentPendingUpdates)
         newPendingUpdates.delete(tempEventId)
 
         set({
@@ -856,7 +868,15 @@ export const useEventsStore = create<EventsState>()(
           recurringEventsCache: {},
           pendingSyncs: newPendingSyncs,
           pendingUpdates: newPendingUpdates,
+          selectedEventId: currentSelectedId === tempEventId ? savedEvent.id : currentSelectedId,
         })
+
+        if (latestQueuedUpdates.length > 0) {
+          const mergedUpdates = filterUpdatesForDb(Object.assign({}, ...latestQueuedUpdates))
+          if (Object.keys(mergedUpdates).length > 0) {
+            await supabase.from('events').update(mergedUpdates).eq('id', savedEvent.id)
+          }
+        }
       },
 
       // ---- Update ----
@@ -1178,11 +1198,11 @@ export const useEventsStore = create<EventsState>()(
           computedEventsCache: nextComputed,
         })
       },
-      setLiveEventTime: (id: string, start_time: number, end_time: number) =>
+      setLiveEventTime: (id: string, start_time: number, end_time: number, date?: string, end_date?: string) =>
         set((state) => ({
           liveEventTimes: {
             ...state.liveEventTimes,
-            [id]: { start_time, end_time },
+            [id]: { start_time, end_time, date, end_date },
           },
         })),
       clearLiveEventTime: (id?: string) =>
@@ -1450,9 +1470,17 @@ export const useEventsStore = create<EventsState>()(
 
           const { event } = found
 
-          // Close the sidebar as soon as local draft state has been flushed.
-          get().setSelectedEvent(null)
-          set({ saveTrigger: 0 })
+          // The editor can close as soon as local draft state has flushed.
+          // Persisting to Supabase continues in the background using the captured event id.
+          set((state) => {
+            const nextLive = { ...state.liveEventTimes }
+            delete nextLive[currentSelectedId]
+            return {
+              saveTrigger: 0,
+              selectedEventId: null,
+              liveEventTimes: nextLive,
+            }
+          })
 
           if (event.isTemp === true) {
             await get().saveTempEvent(currentSelectedId)

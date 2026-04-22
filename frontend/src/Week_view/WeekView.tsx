@@ -474,7 +474,13 @@ const WeekView = () => {
             ...prev,
             [pendingDrag.id]: initialPreview,
           }))
-          setLiveEventTime(pendingDrag.id, initialPreview.start_time, initialPreview.end_time)
+          setLiveEventTime(
+            pendingDrag.id,
+            initialPreview.start_time,
+            initialPreview.end_time,
+            initialPreview.date,
+            initialPreview.date
+          )
           if (selectedEventId === pendingDrag.id) {
             applyLivePreviewToStore(pendingDrag.id, initialPreview)
           }
@@ -501,7 +507,7 @@ const WeekView = () => {
           end_time: clampedStart + dragState.duration,
         }
         setPreviewById((prev) => ({ ...prev, [dragState.id]: next }))
-        setLiveEventTime(dragState.id, next.start_time, next.end_time)
+        setLiveEventTime(dragState.id, next.start_time, next.end_time, next.date, next.date)
         if (selectedEventId === dragState.id) {
           const selectedEvent = getEventById(dragState.id) as any
           if (!isRecurringEvent(selectedEvent)) {
@@ -524,7 +530,13 @@ const WeekView = () => {
           ...prev,
           [resizeState.id]: nextPreview,
         }))
-        setLiveEventTime(resizeState.id, resizeState.start, clampedEnd)
+        setLiveEventTime(
+          resizeState.id,
+          resizeState.start,
+          clampedEnd,
+          nextPreview.date,
+          nextPreview.end_date
+        )
       } else if (horizontalResizeState) {
         const target = findDayByClientX(e.clientX)
         if (!target) return
@@ -540,7 +552,13 @@ const WeekView = () => {
             end_date: clampedDay,
           } as any,
         }))
-        setLiveEventTime(horizontalResizeState.id, horizontalResizeState.start_time, horizontalResizeState.end_time)
+        setLiveEventTime(
+          horizontalResizeState.id,
+          horizontalResizeState.start_time,
+          horizontalResizeState.end_time,
+          horizontalResizeState.startDate,
+          clampedDay
+        )
         if (selectedEventId === horizontalResizeState.id) {
           const selectedEvent = getEventById(horizontalResizeState.id) as any
           if (!isRecurringEvent(selectedEvent)) {
@@ -637,6 +655,10 @@ const WeekView = () => {
             start_time: preview.start_time,
             end_time: preview.end_time,
           }
+
+      if (selectedEventId === activeId) {
+        setDate(new Date(`${commit.date}T12:00:00`))
+      }
 
       const sourceEvent = getEventById(activeId) as any
       const isRecurringSourceEvent = isRecurringEvent(sourceEvent)
@@ -1000,7 +1022,8 @@ const WeekView = () => {
                   })}
                 </div>
               </div>
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[530] h-px bg-[linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.3)_12%,rgba(0,0,0,0.3)_88%,transparent_100%)]" />
+  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[530] h-px bg-[linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.3)_12%,rgba(0,0,0,0.3)_88%,transparent_100%)]" />
+  <div className="h-4 shrink-0" />
             </div>
 
             <div className="flex relative">

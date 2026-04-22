@@ -28,6 +28,41 @@ const formatTimeValue = (minutes: number) => {
     .padStart(2, '0')}`
 }
 
+const parseTypedTimeValue = (rawValue: string) => {
+  const match = rawValue.match(/^(\d{1,2}):?(\d{0,2})$/)
+  if (!match) return null
+
+  let h = parseInt(match[1], 10)
+  if (Number.isNaN(h)) return null
+  if (h > 23) h = 23
+  if (h < 0) h = 0
+
+  const minutePart = match[2] || ""
+
+  if (minutePart.length === 0) {
+    return h * 60
+  }
+
+  if (minutePart.length === 1) {
+    const digit = minutePart
+    if (digit === "0") return h * 60
+    if (digit === "1") return h * 60 + 15
+    if (digit === "3") return h * 60 + 30
+    if (digit === "4") return h * 60 + 45
+    return null
+  }
+
+  if (minutePart.length === 2) {
+    let m = parseInt(minutePart, 10)
+    if (Number.isNaN(m)) return null
+    if (m > 59) m = 59
+    if (m < 0) m = 0
+    return h * 60 + m
+  }
+
+  return null
+}
+
 const getClosestTimeOption = (minutes: number) => {
   return TIME_OPTIONS.reduce((prev, curr) =>
     Math.abs(curr.value - minutes) < Math.abs(prev.value - minutes)
@@ -125,50 +160,7 @@ const TimePicker: React.FC<{
 
 
 
-const typedClosest = useMemo(() => {
-    const match = debouncedInput.match(/^(\d{1,2}):?(\d{0,2})$/)
-  if (!match) return null
-
-  let h = parseInt(match[1], 10)
-  if (isNaN(h)) return null
-
-  // 🔹 Clamp hour
-  if (h > 23) h = 23
-  if (h < 0) h = 0
-
-  const minutePart = match[2] || ""
-
-  // 🔹 No minutes typed
-  if (minutePart.length === 0) {
-    return h * 60
-  }
-
-  // 🔹 ONE digit minute snapping
-  if (minutePart.length === 1) {
-    const digit = minutePart
-
-    if (digit === "0") return h * 60 
-    if (digit === "1") return h * 60 + 15
-    if (digit === "3") return h * 60 + 30
-    if (digit === "4") return h * 60 + 45
-
-    return null
-  }
-
-  // 🔹 TWO digit minutes
-  if (minutePart.length === 2) {
-    let m = parseInt(minutePart, 10)
-    if (isNaN(m)) return null
-
-    // Clamp minute
-    if (m > 59) m = 59
-    if (m < 0) m = 0
-
-    return h * 60 + m
-  }
-
-  return null
-}, [debouncedInput])
+const typedClosest = useMemo(() => parseTypedTimeValue(debouncedInput), [debouncedInput])
 
 
 
@@ -221,8 +213,9 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 
   const handleInputBlur = () => {
       isInputFocused.current = false
+      const immediateTypedValue = parseTypedTimeValue(inputValue)
       let finalValue =
-  typedClosest !== null ? typedClosest : externalValueRef.current
+  immediateTypedValue !== null ? immediateTypedValue : externalValueRef.current
 
 if (minValue !== undefined && finalValue < minValue) {
   finalValue = minValue
@@ -236,8 +229,12 @@ if (minValue !== undefined && finalValue < minValue) {
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
-      const finalValue =
-        typedClosest !== null ? typedClosest : externalValueRef.current
+      let finalValue =
+        parseTypedTimeValue(inputValue) ?? externalValueRef.current
+
+      if (minValue !== undefined && finalValue < minValue) {
+        finalValue = minValue
+      }
 
       onChange(finalValue)
       setInputValue(formatTimeValue(finalValue))
@@ -343,8 +340,9 @@ const DatePickerButton: React.FC<{
   const [month, setMonth] = useState<Date | undefined>(() => selectedDate)
 
   useEffect(() => {
+    if (isOpen) return
     setOptimisticDate(propSelectedDate)
-  }, [propSelectedDate])
+  }, [isOpen, propSelectedDate])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -442,18 +440,38 @@ const DateTimeEditor: React.FC = () => {
 
   const [draftDate, setDraftDate] = useState("")
   const [draftEndDate, setDraftEndDate] = useState("")
+  const [draftStartTime, setDraftStartTime] = useState(0)
+  const [draftEndTime, setDraftEndTime] = useState(0)
+  const livePreview = selectedEvent ? liveEventTimes[selectedEvent.id] : undefined
 
   useEffect(() => {
     if (!selectedEvent) return
-    setDraftDate(selectedEvent.date)
-    setDraftEndDate(selectedEvent.end_date || selectedEvent.date)
-  }, [selectedEvent])
+    setDraftDate(livePreview?.date || selectedEvent.date)
+    setDraftEndDate(livePreview?.end_date || selectedEvent.end_date || selectedEvent.date)
+    setDraftStartTime(selectedEvent.start_time)
+    setDraftEndTime(selectedEvent.end_time)
+  }, [
+    livePreview?.date,
+    livePreview?.end_date,
+    selectedEvent?.id,
+    selectedEvent?.date,
+    selectedEvent?.end_date,
+    selectedEvent?.start_time,
+    selectedEvent?.end_time,
+  ])
+
+  useEffect(() => {
+    if (!selectedEvent || !livePreview) return
+    setDraftDate(livePreview.date || selectedEvent.date)
+    setDraftEndDate(livePreview.end_date || selectedEvent.end_date || selectedEvent.date)
+    setDraftStartTime(livePreview.start_time)
+    setDraftEndTime(livePreview.end_time)
+  }, [livePreview, selectedEvent])
 
   if (!selectedEvent) return null
 
-  const livePreview = liveEventTimes[selectedEvent.id]
-  const displayStartTime = livePreview?.start_time ?? selectedEvent.start_time
-  const displayEndTime = livePreview?.end_time ?? selectedEvent.end_time
+  const displayStartTime = livePreview?.start_time ?? draftStartTime
+  const displayEndTime = livePreview?.end_time ?? draftEndTime
 
   const isMultiDay = draftEndDate > draftDate
   const disableTime = !!selectedEvent.is_all_day
@@ -507,6 +525,7 @@ const DateTimeEditor: React.FC = () => {
             key={`start-${selectedEvent.id}`}
             value={displayStartTime}
             onChange={(mins) => {
+              setDraftStartTime(mins)
               handlePropertyChange('start_time', mins)
             }}
             disabled={disableTime}
@@ -516,6 +535,7 @@ const DateTimeEditor: React.FC = () => {
             key={`end-${selectedEvent.id}`}
             value={displayEndTime}
             onChange={(mins) => {
+              setDraftEndTime(mins)
               handlePropertyChange('end_time', mins)
             }}
             disabled={disableTime}
