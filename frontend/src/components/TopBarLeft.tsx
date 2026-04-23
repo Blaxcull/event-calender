@@ -13,7 +13,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
   const location = useLocation()
 
   const isGoalSelected = location.pathname === '/goalview'
-  const isCalendarSelected = location.pathname === '/calendar'
+  const isCalendarSelected = location.pathname === '/streakview'
   const isDayRoute = /^\/day\/\d+\/\d+\/\d+$/.test(location.pathname)
 
   const isAnySelected = isGoalSelected || isCalendarSelected
@@ -82,7 +82,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
 
         {/* Calendar */}
         <div
-          onClick={() => navigate('/calendar')}
+          onClick={() => navigate('/streakview')}
           className={`
             h-16 w-16 flex items-center justify-center
             cursor-pointer rounded-full
@@ -110,6 +110,7 @@ export function TopBarLeft({ onAddClick }: TopBarLeftProps) {
           rounded-full
           shadow-lg
           border-[1px]
+          bg-white
           text-slate-600
           transition-all duration-200 ease-out
           hover:text-slate-800

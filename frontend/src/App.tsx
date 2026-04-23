@@ -8,6 +8,7 @@ import { DayViewRoute, TodayRedirect, WeekViewRoute } from "./components/DayView
 import { Login } from "./pages/Login"
 import { Signup } from "./pages/Signup"
 import GoalView from "./Goal_view/GoalView"
+import StreakView from "./Streak_view/StreakView"
 import { startReminderService, stopReminderService } from "./services/reminderService"
 import { supabase } from "./lib/supabase"
 
@@ -15,6 +16,7 @@ function App() {
   const location = useLocation()
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup'
   const isGoalView = location.pathname === '/goalview'
+  const isStreakView = location.pathname === '/streakview'
   const [currentView, setCurrentView] = useState<string>('day')
   const [isAuthLoading, setIsAuthLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -56,21 +58,22 @@ function App() {
       {isAuthenticated ? <TimeUpdater /> : null}
       {!isAuthPage && isAuthenticated && <ViewSwitcher currentView={currentView as any} onViewChange={setCurrentView} />}
       {!isAuthPage && isAuthenticated && <TopBarLeft />}
-      <div className={`flex h-screen overflow-hidden relative ${isAuthPage ? '' : ''}`}>
+      <div className={`flex h-screen relative ${isAuthPage ? '' : ''}`}>
         {/* Main content - Routes */}
-        <div className={`flex-1 overflow-hidden ${isAuthPage ? 'w-full' : ''}`}>
+        <div className={`flex-1 ${isAuthPage ? 'w-full overflow-hidden' : isStreakView ? 'overflow-y-auto' : 'overflow-hidden'}`}>
           <Routes>
             <Route path="/" element={isAuthenticated ? <TodayRedirect /> : <Navigate to="/login" replace />} />
             <Route path="/day/:year/:month/:day" element={isAuthenticated ? <DayViewRoute /> : <Navigate to="/login" replace />} />
             <Route path="/week/:year/:month/:day" element={isAuthenticated ? <WeekViewRoute /> : <Navigate to="/login" replace />} />
             <Route path="/goalview" element={isAuthenticated ? <GoalView /> : <Navigate to="/login" replace />} />
+            <Route path="/streakview" element={isAuthenticated ? <StreakView /> : <Navigate to="/login" replace />} />
             <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
             <Route path="/signup" element={isAuthenticated ? <Navigate to="/" replace /> : <Signup />} />
           </Routes>
         </div>
         
         {/* Sidebar - Only show on non-auth pages */}
-        {!isAuthPage && !isGoalView && isAuthenticated && (
+        {!isAuthPage && !isGoalView && !isStreakView && isAuthenticated && (
           <div className="h-full flex flex-col overflow-hidden">
             <div className="flex-1 overflow-hidden">
                 <SideBar />
