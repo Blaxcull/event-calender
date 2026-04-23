@@ -448,11 +448,13 @@ const DateTimeEditor: React.FC = () => {
     if (!selectedEvent) return
     setDraftDate(livePreview?.date || selectedEvent.date)
     setDraftEndDate(livePreview?.end_date || selectedEvent.end_date || selectedEvent.date)
-    setDraftStartTime(selectedEvent.start_time)
-    setDraftEndTime(selectedEvent.end_time)
+    setDraftStartTime(livePreview?.start_time ?? selectedEvent.start_time)
+    setDraftEndTime(livePreview?.end_time ?? selectedEvent.end_time)
   }, [
     livePreview?.date,
     livePreview?.end_date,
+    livePreview?.start_time,
+    livePreview?.end_time,
     selectedEvent?.id,
     selectedEvent?.date,
     selectedEvent?.end_date,
@@ -460,20 +462,14 @@ const DateTimeEditor: React.FC = () => {
     selectedEvent?.end_time,
   ])
 
-  useEffect(() => {
-    if (!selectedEvent || !livePreview) return
-    setDraftDate(livePreview.date || selectedEvent.date)
-    setDraftEndDate(livePreview.end_date || selectedEvent.end_date || selectedEvent.date)
-    setDraftStartTime(livePreview.start_time)
-    setDraftEndTime(livePreview.end_time)
-  }, [livePreview, selectedEvent])
-
   if (!selectedEvent) return null
 
+  const displayDate = livePreview?.date ?? draftDate
+  const displayEndDate = livePreview?.end_date ?? draftEndDate
   const displayStartTime = livePreview?.start_time ?? draftStartTime
   const displayEndTime = livePreview?.end_time ?? draftEndTime
 
-  const isMultiDay = draftEndDate > draftDate
+  const isMultiDay = displayEndDate > displayDate
   const disableTime = !!selectedEvent.is_all_day
 
   return (
@@ -485,8 +481,8 @@ const DateTimeEditor: React.FC = () => {
             Date
           </span>
           <DatePickerButton
-            key={`date-${selectedEvent.id}-${draftDate}`}
-            value={draftDate}
+            key={`date-${selectedEvent.id}-${displayDate}`}
+            value={displayDate}
             onChange={(date) => {
               const newDate = formatDate(date)
               setDraftDate(newDate)
@@ -499,13 +495,23 @@ const DateTimeEditor: React.FC = () => {
           />
           <span className="text-neutral-600">-</span>
           <DatePickerButton
-            key={`enddate-${selectedEvent.id}-${draftEndDate}`}
-            value={draftEndDate}
+            key={`enddate-${selectedEvent.id}-${displayEndDate}`}
+            value={displayEndDate}
             onChange={(date) => {
               const newDate = formatDate(date)
+              if (newDate < displayDate) {
+                setDraftDate(newDate)
+                setDraftEndDate(newDate)
+                handlePropertyChange('date', newDate, {
+                  end_date: newDate,
+                  ...getSingleDayTimeFix(displayStartTime, displayEndTime),
+                })
+                return
+              }
+
               setDraftEndDate(newDate)
               const extraFields =
-                newDate === draftDate
+                newDate === displayDate
                   ? getSingleDayTimeFix(displayStartTime, displayEndTime)
                   : undefined
 

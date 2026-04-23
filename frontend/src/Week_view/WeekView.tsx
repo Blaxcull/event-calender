@@ -55,7 +55,6 @@ const WeekView = () => {
   const getEventsForDate = useEventsStore((state) => state.getEventsForDate)
   const addEventLocal = useEventsStore((state) => state.addEventLocal)
   const deleteEvent = useEventsStore((state) => state.deleteEvent)
-  const updateEventField = useEventsStore((state) => state.updateEventField)
   const updateEventFields = useEventsStore((state) => state.updateEventFields)
   const setSelectedEvent = useEventsStore((state) => state.setSelectedEvent)
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
@@ -481,7 +480,8 @@ const WeekView = () => {
             initialPreview.date,
             initialPreview.date
           )
-          if (selectedEventId === pendingDrag.id) {
+          const pendingEvent = getEventById(pendingDrag.id) as any
+          if (!isRecurringEvent(pendingEvent)) {
             applyLivePreviewToStore(pendingDrag.id, initialPreview)
           }
           setPendingDrag(null)
@@ -508,11 +508,9 @@ const WeekView = () => {
         }
         setPreviewById((prev) => ({ ...prev, [dragState.id]: next }))
         setLiveEventTime(dragState.id, next.start_time, next.end_time, next.date, next.date)
-        if (selectedEventId === dragState.id) {
-          const selectedEvent = getEventById(dragState.id) as any
-          if (!isRecurringEvent(selectedEvent)) {
-            applyLivePreviewToStore(dragState.id, next)
-          }
+        const movedEvent = getEventById(dragState.id) as any
+        if (!isRecurringEvent(movedEvent)) {
+          applyLivePreviewToStore(dragState.id, next)
         }
       } else if (resizeState) {
         const el = dayColumnRefs.current[resizeState.date]
@@ -537,6 +535,10 @@ const WeekView = () => {
           nextPreview.date,
           nextPreview.end_date
         )
+        const resizedEvent = getEventById(resizeState.id) as any
+        if (!isRecurringEvent(resizedEvent)) {
+          applyLivePreviewToStore(resizeState.id, nextPreview)
+        }
       } else if (horizontalResizeState) {
         const target = findDayByClientX(e.clientX)
         if (!target) return
@@ -559,16 +561,14 @@ const WeekView = () => {
           horizontalResizeState.startDate,
           clampedDay
         )
-        if (selectedEventId === horizontalResizeState.id) {
-          const selectedEvent = getEventById(horizontalResizeState.id) as any
-          if (!isRecurringEvent(selectedEvent)) {
-            applyLivePreviewToStore(horizontalResizeState.id, {
-              date: horizontalResizeState.startDate,
-              start_time: horizontalResizeState.start_time,
-              end_time: horizontalResizeState.end_time,
-              end_date: clampedDay,
-            })
-          }
+        const horizontallyResizedEvent = getEventById(horizontalResizeState.id) as any
+        if (!isRecurringEvent(horizontallyResizedEvent)) {
+          applyLivePreviewToStore(horizontalResizeState.id, {
+            date: horizontalResizeState.startDate,
+            start_time: horizontalResizeState.start_time,
+            end_time: horizontalResizeState.end_time,
+            end_date: clampedDay,
+          })
         }
       }
     }
@@ -639,16 +639,29 @@ const WeekView = () => {
       window.setTimeout(() => {
         suppressNextClickRef.current = false
       }, 0)
-      const clearInteractionState = () => {
+      const clearInteractionState = (options?: { deferPreviewClear?: boolean; keepLiveTime?: boolean }) => {
         setDragState(null)
         setResizeState(null)
         setHorizontalResizeState(null)
-        clearLiveEventTime(activeId)
-        setPreviewById((prev) => {
-          const next = { ...prev }
-          delete next[activeId]
-          return next
-        })
+        const clearPreviewAndLiveTime = () => {
+          if (!options?.keepLiveTime) {
+            clearLiveEventTime(activeId)
+          }
+          setPreviewById((prev) => {
+            const next = { ...prev }
+            delete next[activeId]
+            return next
+          })
+        }
+
+        if (options?.deferPreviewClear) {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(clearPreviewAndLiveTime)
+          })
+          return
+        }
+
+        clearPreviewAndLiveTime()
       }
 
       const preview = derivedPreview || (previewById[activeId] as any)
@@ -680,6 +693,7 @@ const WeekView = () => {
 
       if (selectedEventId === activeId) {
         setDate(new Date(`${commit.date}T12:00:00`))
+        setLiveEventTime(activeId, commit.start_time, commit.end_time, commit.date, commit.end_date)
         applyLivePreviewToStore(activeId, commit)
       }
 
@@ -745,13 +759,9 @@ const WeekView = () => {
         return
       }
 
-      if (resizeState) {
-        updateEventField(activeId, "end_time", commit.end_time)
-      } else {
-        updateEventFields(activeId, commit)
-      }
+      updateEventFields(activeId, commit)
       delete interactionOriginalRef.current[activeId]
-      clearInteractionState()
+      clearInteractionState({ deferPreviewClear: true, keepLiveTime: selectedEventId === activeId })
     }
 
     window.addEventListener("mousemove", onMouseMove)
@@ -760,7 +770,7 @@ const WeekView = () => {
       window.removeEventListener("mousemove", onMouseMove)
       window.removeEventListener("mouseup", onMouseUp)
     }
-  }, [pendingDrag, dragState, resizeState, horizontalResizeState, previewById, updateEventField, updateEventFields, weekDateKeys, setDate, selectedEventId, getEventById, setLiveEventTime, clearLiveEventTime, showRecurringDialog, closeRecurringDialog, splitRecurringEvent, updateAllInSeries, updateThisAndFollowing])
+  }, [pendingDrag, dragState, resizeState, horizontalResizeState, previewById, updateEventFields, weekDateKeys, setDate, selectedEventId, getEventById, setLiveEventTime, clearLiveEventTime, showRecurringDialog, closeRecurringDialog, splitRecurringEvent, updateAllInSeries, updateThisAndFollowing])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

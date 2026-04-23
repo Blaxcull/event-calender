@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { useTimeStore } from '@/store/timeStore'
 import { useEventsStore } from '@/store/eventsStore'
@@ -54,7 +54,7 @@ export function DayViewRoute() {
   const yearNum = parseInt(year || '', 10)
   const monthNum = parseInt(month || '', 10) - 1
   const dayNum = parseInt(day || '', 10)
-  const date = new Date(yearNum, monthNum, dayNum)
+  const date = useMemo(() => new Date(yearNum, monthNum, dayNum), [yearNum, monthNum, dayNum])
   
   const isValidDate = 
     !Number.isNaN(yearNum) &&
@@ -81,7 +81,7 @@ export function WeekViewRoute() {
   const yearNum = parseInt(year || '', 10)
   const monthNum = parseInt(month || '', 10) - 1
   const dayNum = parseInt(day || '', 10)
-  const date = new Date(yearNum, monthNum, dayNum)
+  const date = useMemo(() => new Date(yearNum, monthNum, dayNum), [yearNum, monthNum, dayNum])
   const isValidDate =
     !Number.isNaN(yearNum) &&
     !Number.isNaN(monthNum) &&

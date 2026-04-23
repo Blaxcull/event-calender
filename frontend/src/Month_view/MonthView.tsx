@@ -26,13 +26,15 @@ import {
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const MAX_VISIBLE_EVENTS = 4
 const MULTI_DAY_VISIBLE_LANES = 2
-const MULTI_DAY_ITEM_HEIGHT = 22
-const MULTI_DAY_LANE_PITCH = 24
-const DATE_ROW_HEIGHT = 36
-const MULTI_DAY_ROW_TOP_OFFSET = 4
-const MULTI_DAY_ROW_BOTTOM_GAP = 6
-const MONTH_EVENT_ROW_HEIGHT = 20
-const MONTH_EVENT_ROW_GAP = 3
+const MONTH_EVENT_CHIP_HEIGHT = 23
+const MULTI_DAY_ITEM_HEIGHT = MONTH_EVENT_CHIP_HEIGHT
+const MULTI_DAY_LANE_PITCH = MONTH_EVENT_CHIP_HEIGHT + 2
+const DATE_ROW_HEIGHT = 30
+const MULTI_DAY_ROW_TOP_OFFSET = 5
+const MULTI_DAY_ROW_BOTTOM_GAP = 2
+const MONTH_EVENT_ROW_HEIGHT = MONTH_EVENT_CHIP_HEIGHT
+const MONTH_EVENT_ROW_GAP = 1
+const NORMAL_EVENT_TOP_OFFSET = 6
 
 const formatClock = (totalMinutes: number) => {
   const hour = Math.floor(totalMinutes / 60) % 24
@@ -57,10 +59,10 @@ const withMiddayTime = (date: Date) =>
 
 // Shared gray palette across Day/Week/Month surfaces
 const getMonthCellTone = (inCurrentMonth: boolean, isSelected: boolean, isToday: boolean) => {
-  if (isSelected) return "bg-[#d9d9d5]"
-  if (!inCurrentMonth) return "bg-[#ddddda]"
-  if (isToday) return "bg-[#e2e2e1]"
-  return "bg-[#e2e2e1]"
+  if (isSelected) return "bg-[linear-gradient(135deg,#f2efe6_0%,#ddded4_100%)]"
+  if (!inCurrentMonth) return "bg-[#deddd8]/75"
+  if (isToday) return "bg-[linear-gradient(135deg,#f7f4ec_0%,#e9e8df_100%)]"
+  return "bg-[linear-gradient(135deg,#ebeae6_0%,#e2e2dd_100%)]"
 }
 
 const compareMonthEvents = (a: CalendarEvent, b: CalendarEvent) => {
@@ -597,9 +599,9 @@ const MonthView = () => {
 
   return (
     <div className="h-full w-full bg-[#f3f3f2] flex items-center justify-center overflow-hidden select-none">
-      <div className="h-[100%] w-[100%] rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden text-neutral-900 antialiased" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif' }}>
+      <div className="h-[100%] w-[100%] rounded-l-2xl bg-[radial-gradient(circle_at_18%_0%,#ffffff_0%,#ececeb_34%,#dfdfdc_100%)] shadow-xl flex flex-col overflow-hidden text-neutral-900 antialiased" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif' }}>
       {/* Title bar */}
-      <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0">
+      <div className="px-9 pt-32 pb-5 shrink-0">
         <h1 className="text-6xl pb-0 font-semibold text-neutral-800 tracking-tight">
           <span style={{ fontFamily: "SF Pro Display Bold" }} className="text-black">
             {format(displayDate, "MMMM")},
@@ -612,12 +614,15 @@ const MonthView = () => {
       </div>
 
       {/* Weekday header */}
-      <div className="grid grid-cols-7 border-b border-[#cfcfcb] bg-[#e2e2e1]">
+      <div className="grid grid-cols-7 overflow-hidden rounded-t-[28px] border border-black/80 bg-[linear-gradient(180deg,#252421_0%,#10100f_100%)] shadow-[0_14px_30px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.13),inset_0_-1px_0_rgba(255,255,255,0.06)]">
         {WEEKDAY_LABELS.map((label, index) => {
           const isWeekend = index === 0 || index === 6
           return (
-            <div key={label} className="flex items-center justify-center py-2.5 text-center">
-              <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${isWeekend ? "text-neutral-400" : "text-neutral-500"}`}>
+            <div
+              key={label}
+              className="flex items-center justify-center border-r border-white/10 py-3.5 text-center last:border-r-0"
+            >
+              <div className={`text-[13px] font-bold uppercase tracking-[0.18em] ${isWeekend ? "text-white/45" : "text-white/85"}`}>
                 {label}
               </div>
             </div>
@@ -626,14 +631,17 @@ const MonthView = () => {
       </div>
 
       {/* Calendar grid */}
-      <div className="flex flex-1 flex-col overflow-hidden border-t border-[#cfcfcb] bg-[#cfcfcb]" style={{ gap: 1 }}>
+      <div className="flex flex-1 flex-col overflow-hidden rounded-b-[28px] border-x border-b border-[#c9c6bd] bg-[#c9c6bd] shadow-[0_18px_40px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.35)]" style={{ gap: 1 }}>
         {visibleWeeks.map((week, weekIndex) => {
           const weekLayout = weekLayouts[weekIndex]
           const isLastWeek = weekIndex === visibleWeeks.length - 1
 
           return (
-            <div key={`month-week-row-${weekIndex}`} className="relative flex-1 min-h-0">
-              <div className="grid h-full grid-cols-7" style={{ gap: 1 }}>
+            <div
+              key={`month-week-row-${weekIndex}`}
+              className={`relative flex-1 min-h-0 ${isLastWeek ? "overflow-hidden rounded-b-[28px]" : ""}`}
+            >
+              <div className={`grid h-full grid-cols-7 ${isLastWeek ? "overflow-hidden rounded-b-[28px]" : ""}`} style={{ gap: 1 }}>
                 {week.map((cellDate, dayIndex) => {
                   const dateKey = formatDate(cellDate)
                   const inCurrentMonth = isSameMonth(cellDate, displayDate)
@@ -679,6 +687,11 @@ const MonthView = () => {
                   )
                   const visibleEvents = orderedDayEvents.slice(0, visibleEventLimit)
                   const hiddenCount = Math.max(0, hiddenMultiDayCountForDay + orderedDayEvents.length - visibleEvents.length)
+                  const hasOnlyNormalEvents =
+                    orderedDayEvents.length > 0 &&
+                    hiddenMultiDayCountForDay === 0 &&
+                    !hasMultiDayOverlapOnDay
+                  const normalEventTopOffset = hasOnlyNormalEvents ? NORMAL_EVENT_TOP_OFFSET : 0
 
                   return (
                     <div
@@ -707,13 +720,15 @@ const MonthView = () => {
                           openMonthDateKeepingSelection(cellDate)
                         }
                       }}
-                      className={`group relative flex min-h-0 flex-col px-2 pb-1.5 text-left outline-none transition-colors duration-150 ${getMonthCellTone(
+                      className={`group relative flex min-h-0 flex-col px-2.5 pb-[2px] text-left outline-none transition-[background,box-shadow,transform] duration-150 ${getMonthCellTone(
                         inCurrentMonth,
                         isSelected,
                         isTodayCell
-                      )} ${isSelected ? "" : "hover:bg-[#dcdcd9]"} ${
+                      )} ${isLastWeek && dayIndex === 0 ? "rounded-bl-[28px]" : ""} ${
+                        isLastWeek && dayIndex === 6 ? "rounded-br-[28px]" : ""
+                      } ${isSelected ? "shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]" : "hover:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08),inset_0_18px_40px_rgba(255,255,255,0.28)]"} ${
                         draggedEvent && dragOverDateKey === dateKey
-                          ? "ring-[1.5px] ring-blue-500/70 ring-inset bg-blue-50/40"
+                          ? "ring-[2px] ring-black/70 ring-inset bg-[#f7f4ec]"
                           : ""
                       }`}
                       style={{
@@ -722,18 +737,18 @@ const MonthView = () => {
                           ((weekLayout.multiDayHeightByDay?.[dayIndex] || 0) > 0
                             ? MULTI_DAY_ROW_TOP_OFFSET + (weekLayout.multiDayHeightByDay?.[dayIndex] || 0)
                             : 0) +
-                          (selectedSingleDayEventPinnedInTopRow ? MULTI_DAY_LANE_PITCH : 0),
+                          normalEventTopOffset,
                       }}
                     >
                       {/* Date header row */}
                       <div className="absolute left-2 right-2 top-1.5 flex items-center justify-between">
                         <div className="flex items-baseline gap-1.5">
                           {isSelected ? (
-                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#cfcfcb] bg-white px-1.5 text-[13px] font-semibold text-black shadow-sm">
+                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full border border-black bg-white px-1.5 text-[13px] font-bold text-black shadow-[0_8px_18px_rgba(0,0,0,0.16)]">
                               {cellDate.getDate()}
                             </div>
                           ) : isTodayCell ? (
-                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full bg-black px-1.5 text-[13px] font-semibold text-white shadow-sm">
+                            <div className="flex h-7 min-w-7 items-center justify-center rounded-full bg-black px-1.5 text-[13px] font-bold text-white shadow-[0_8px_18px_rgba(0,0,0,0.22)]">
                               {cellDate.getDate()}
                             </div>
                           ) : (
@@ -742,15 +757,15 @@ const MonthView = () => {
                                 inCurrentMonth
                                   ? isWeekend
                                     ? "text-neutral-500"
-                                    : "text-neutral-800"
-                                  : "text-neutral-500"
+                                    : "text-neutral-900"
+                                  : "text-neutral-400"
                               }`}
                             >
                               {cellDate.getDate()}
                             </span>
                           )}
                           {!inCurrentMonth ? (
-                            <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
                               {format(cellDate, "MMM")}
                             </span>
                           ) : null}
@@ -769,7 +784,7 @@ const MonthView = () => {
                         </button>
                       </div>
 
-                      {/* Pinned single-day selected event */}
+                      {/* Pinned selected single-day event. It overlays the multi-day lane without reserving extra vertical space. */}
                       {selectedSingleDayEventPinnedInTopRow ? (
                         <div
                           draggable
@@ -782,7 +797,7 @@ const MonthView = () => {
                             setDate(cellDate)
                             setSelectedEvent(selectedSingleDayEventPinnedInTopRow.id)
                           }}
-                          className="absolute left-2 right-2 z-10 flex h-[22px] cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border-2 border-white px-2 text-left text-[11px] font-medium"
+                          className="absolute left-2 right-2 z-20 flex h-[23px] cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border-2 border-white px-2 text-left text-[15px] font-semibold"
                           style={{
                             top: DATE_ROW_HEIGHT + MULTI_DAY_ROW_TOP_OFFSET,
                             backgroundColor: getEventVisualColors(
@@ -818,12 +833,22 @@ const MonthView = () => {
                         </div>
                       ) : null}
 
-                      {/* Single-day events */}
                       <div
-                        className="flex min-h-0 flex-1 flex-col gap-[3px] overflow-hidden"
+                        className="pointer-events-none absolute inset-x-2.5 bottom-[2px]"
                         data-month-event-list
                         data-date-key={dateKey}
-                      >
+                        style={{
+                          top:
+                            DATE_ROW_HEIGHT +
+                            ((weekLayout.multiDayHeightByDay?.[dayIndex] || 0) > 0
+                              ? MULTI_DAY_ROW_TOP_OFFSET + (weekLayout.multiDayHeightByDay?.[dayIndex] || 0)
+                              : 0) +
+                            normalEventTopOffset,
+                        }}
+                      />
+
+                      {/* Single-day events */}
+                      <div className="flex min-h-0 flex-col gap-px overflow-hidden">
                         {visibleEvents.map((event) => {
                           const resolvedColor =
                             event.goalColor || resolveGoalColorForEvent(goalsStore, event) || event.color
@@ -846,12 +871,12 @@ const MonthView = () => {
                                 setDate(cellDate)
                                 setSelectedEvent(event.id)
                               }}
-                              className={`flex h-[20px] w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-[5px] px-1.5 text-left text-[11px] transition-all ${
+                              className={`flex w-full cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1.5 text-left text-[15px] transition-all ${
                                 isEventSelected
-                                  ? "border-2 border-white shadow-md"
+                                  ? "h-[23px] border-2 border-white shadow-[0_8px_18px_rgba(0,0,0,0.16)]"
                                   : isFilledAllDayChip
-                                    ? "border border-white/70 shadow-sm"
-                                    : "hover:bg-neutral-100/80"
+                                    ? "h-[23px] border border-white/75 shadow-[0_3px_8px_rgba(0,0,0,0.08)]"
+                                    : "h-[23px] hover:bg-white/55"
                               }`}
                               style={
                                 isEventSelected
@@ -873,13 +898,13 @@ const MonthView = () => {
                             >
                               {!isEventSelected && !isFilledAllDayChip && (
                                 <span
-                                  className="h-[7px] w-[7px] shrink-0 rounded-full"
+                                  className="h-[7px] w-[7px] shrink-0 rounded-full shadow-[0_0_0_2px_rgba(255,255,255,0.75)]"
                                   style={{ backgroundColor: dotColor }}
                                 />
                               )}
                               {timedPieces ? (
                                 <span className="flex flex-1 items-baseline gap-1 truncate">
-                                  <span className={`tabular-nums ${isEventSelected ? "font-semibold" : "font-medium text-neutral-500"}`}>
+                                  <span className={`shrink-0 tabular-nums ${isEventSelected ? "font-semibold" : "font-medium text-neutral-500"}`}>
                                     {timedPieces.time}
                                   </span>
                                   <span className={`truncate ${isEventSelected ? "font-medium" : "font-medium text-neutral-900"}`}>
@@ -902,7 +927,7 @@ const MonthView = () => {
                               event.stopPropagation()
                               openDayView(cellDate)
                             }}
-                            className="self-start rounded-[5px] px-1.5 py-0.5 text-left text-[11px] font-semibold text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                            className="h-[23px] self-start rounded-full bg-white/45 px-2 text-left text-[15px] font-bold leading-[23px] text-neutral-500 shadow-sm transition-colors hover:bg-white hover:text-neutral-900"
                           >
                             {hiddenCount} more
                           </button>
@@ -939,7 +964,7 @@ const MonthView = () => {
                           setDate(clickedDate)
                           setSelectedEvent(item.event.id)
                         }}
-                        className="pointer-events-auto absolute flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-[11px] font-medium transition-all"
+                        className="pointer-events-auto absolute flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-[15px] font-semibold transition-all"
                         style={{
                           top: item.lane * MULTI_DAY_LANE_PITCH,
                           left,
@@ -948,8 +973,8 @@ const MonthView = () => {
                           backgroundColor,
                           color: textColor,
                           boxShadow: isEventSelected
-                            ? "0 5px 14px rgba(0,0,0,0.15), 0 0 0 2px #ffffff"
-                            : "0 1px 2px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(255,255,255,0.15)",
+                            ? "0 8px 20px rgba(0,0,0,0.18), 0 0 0 2px #ffffff"
+                            : "0 4px 10px rgba(0,0,0,0.11), inset 0 0 0 1px rgba(255,255,255,0.22)",
                         }}
                       >
                         <span className="truncate">
@@ -964,7 +989,7 @@ const MonthView = () => {
                   })}
 
                   {weekLayout.hiddenMultiDayCount > 0 ? (
-                    <div className="pointer-events-auto absolute right-2 top-0 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500 shadow-sm">
+                    <div className="pointer-events-auto absolute right-2 top-0 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-neutral-500 shadow-sm">
                       +{weekLayout.hiddenMultiDayCount} more
                     </div>
                   ) : null}
