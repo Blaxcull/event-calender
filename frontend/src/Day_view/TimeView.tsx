@@ -1,7 +1,7 @@
 import React, { useState, memo, useRef, useEffect, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
 import type { EventType, EventPositions } from '../lib/eventUtils'
-import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, SLOT_HEIGHT, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, applyPositionsToDOM, getEventVisualColors } from '../lib/eventUtils'
+import {unlockInteraction, resetInteractionLock, addEventOnClick, TOP_DEAD_ZONE, SLOT_HEIGHT, calculateEventDuration, STEP_HEIGHT, snap, yToTimeSnapped, storeEventToUIEvent, uiEventToStoreEvent, calculateEventPositions, getEventVisualColors } from '../lib/eventUtils'
 import { useTimeStore } from "@/store/timeStore"
 import { useEventsStore, formatDate } from "@/store/eventsStore"
 import { resolveGoalColorForEvent, resolveGoalIconForEvent, useGoalsStore } from "@/store/goalsStore"
@@ -11,6 +11,31 @@ import { getGoalIcon } from "@/Goal_view/goal"
 
 interface TimeViewProps {
   initialEvents?: EventType[]
+}
+
+const EVENT_TOP_GAP = 2
+const EVENT_SIDE_GAP = 2
+const EVENT_FULL_WIDTH_WITH_GAPS = `calc(100% - ${EVENT_SIDE_GAP * 2}px)`
+
+const insetEventLeft = (left: string) =>
+  left === "0" ? `${EVENT_SIDE_GAP}px` : `calc(${left} + ${EVENT_SIDE_GAP}px)`
+
+const insetEventWidth = (width: string) =>
+  width === "100%" ? EVENT_FULL_WIDTH_WITH_GAPS : `calc(${width} - ${EVENT_SIDE_GAP * 2}px)`
+
+const applyInsetPositionsToDOM = (positions: EventPositions) => {
+  requestAnimationFrame(() => {
+    for (const id in positions) {
+      const el = document.getElementById(id)
+      if (!el) continue
+
+      const { left, width, zIndex } = positions[id]
+      el.style.transition = "left 200ms ease, width 200ms ease"
+      el.style.left = insetEventLeft(left)
+      el.style.width = insetEventWidth(width)
+      el.style.zIndex = String(zIndex)
+    }
+  })
 }
 
 const CalendarEvent = memo(
@@ -71,10 +96,10 @@ const zIndex = isActive ? 'z-[9999]' : 'z-10'
 const shadow = isActive ? 'shadow-2xl' : ''
 
 const eventStyle: React.CSSProperties = {
-      top: event.slot + TOP_DEAD_ZONE,
-      height: event.height,
-      left: position.left,
-      width: position.width,
+      top: event.slot + TOP_DEAD_ZONE + EVENT_TOP_GAP,
+      height: Math.max(8, event.height - EVENT_TOP_GAP),
+      left: insetEventLeft(position.left),
+      width: insetEventWidth(position.width),
       zIndex: isDragging ? 10000 : isResizing ? 9999 : isSelected ? 1000 : position.zIndex,
       backgroundColor: isActive ? backgroundColor : mutedBackgroundColor,
       backgroundClip: "border-box",
@@ -381,7 +406,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     setLocalEvents(allEventsWithNew)
 
     const positions = calculateEventPositions(allEventsWithNew.filter(e => !(e as EventType).isAllDay), newUIEvent.id)
-    applyPositionsToDOM(positions)
+    applyInsetPositionsToDOM(positions)
     setEventPositions(positions)
 
     requestAnimationFrame(() => {
@@ -698,8 +723,8 @@ const TimeView: React.FC<TimeViewProps> = () => {
     const el = document.getElementById(event.id) as HTMLDivElement | null
     if (!el) return
     
-    el.style.left = "0px"
-    el.style.width = "calc(100%)"
+    el.style.left = `${EVENT_SIDE_GAP}px`
+    el.style.width = EVENT_FULL_WIDTH_WITH_GAPS
     el.style.zIndex = "9999"
     el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
     el.style.transition = "box-shadow 100ms ease, width 200ms ease, left 200ms ease"
@@ -729,8 +754,8 @@ const TimeView: React.FC<TimeViewProps> = () => {
       el.style.zIndex = "9999"
       el.style.boxShadow = "0 10px 25px rgba(0,0,0,0.5)"
       el.style.transition = "box-shadow 100ms ease, width 200ms ease, left 200ms ease"
-      el.style.left = "0"
-      el.style.width = "100%"
+      el.style.left = `${EVENT_SIDE_GAP}px`
+      el.style.width = EVENT_FULL_WIDTH_WITH_GAPS
     }
   }
 
@@ -778,7 +803,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
           // Update DOM directly for smooth animation
           const el = document.getElementById(draggingId) as HTMLDivElement | null
           if (el) {
-            el.style.top = `${snappedY + TOP_DEAD_ZONE}px`
+            el.style.top = `${snappedY + TOP_DEAD_ZONE + EVENT_TOP_GAP}px`
           }
           
           // Update local state for real-time overlap adjustments
@@ -819,7 +844,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
           // Update DOM directly for smooth animation
           const el = document.getElementById(resizingId) as HTMLDivElement | null
           if (el) {
-            el.style.height = `${newHeight}px`
+            el.style.height = `${Math.max(8, newHeight - EVENT_TOP_GAP)}px`
           }
           
           // Update local state for real-time overlap adjustments
@@ -923,8 +948,8 @@ const TimeView: React.FC<TimeViewProps> = () => {
       if (activeId) {
         const activeEl = document.getElementById(activeId) as HTMLDivElement | null
         if (activeEl) {
-          activeEl.style.left = "0"
-          activeEl.style.width = "100%"
+          activeEl.style.left = `${EVENT_SIDE_GAP}px`
+          activeEl.style.width = EVENT_FULL_WIDTH_WITH_GAPS
           activeEl.style.zIndex = "9999"
         }
       }
@@ -1019,10 +1044,10 @@ const TimeView: React.FC<TimeViewProps> = () => {
       // Update DOM immediately for instant visual restore
       const el = document.getElementById(eventId) as HTMLDivElement | null
       if (el) {
-        el.style.top = `${original.slot + TOP_DEAD_ZONE}px`
-        el.style.height = `${original.height}px`
-        el.style.left = "0"
-        el.style.width = "100%"
+        el.style.top = `${original.slot + TOP_DEAD_ZONE + EVENT_TOP_GAP}px`
+        el.style.height = `${Math.max(8, original.height - EVENT_TOP_GAP)}px`
+        el.style.left = `${EVENT_SIDE_GAP}px`
+        el.style.width = EVENT_FULL_WIDTH_WITH_GAPS
         el.style.boxShadow = "none"
         el.style.zIndex = "20"
         el.style.transition = ""

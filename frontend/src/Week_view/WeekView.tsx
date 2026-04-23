@@ -581,6 +581,28 @@ const WeekView = () => {
           ? Math.abs(e.clientX - pendingDrag.startX) + Math.abs(e.clientY - pendingDrag.startY)
           : 0
 
+      // Commit from the actual release coordinates. React state updates from
+      // mousemove can lag behind mouseup, which made dragged events snap back.
+      if (dragState) {
+        const target = dragState.lockToDate
+          ? (() => {
+              const el = dayColumnRefs.current[dragState.date]
+              return el ? { dayKey: dragState.date, el } : null
+            })()
+          : findDayByClientX(e.clientX)
+        if (target) {
+          const pointerMinutes = getMinutesFromClientY(e.clientY, target.el)
+          const start = pointerMinutes - dragState.offsetMinutes
+          const maxStart = Math.max(0, 1440 - dragState.duration)
+          const clampedStart = Math.max(0, Math.min(start, maxStart))
+          derivedPreview = {
+            date: target.dayKey,
+            start_time: clampedStart,
+            end_time: clampedStart + dragState.duration,
+          }
+        }
+      }
+
       // Fast-drag fallback: commit using mouse-up position even when no mousemove fired.
       if (!dragState && pendingDrag && pendingMoved >= 4) {
         const target = pendingDrag.lockToDate
@@ -658,6 +680,7 @@ const WeekView = () => {
 
       if (selectedEventId === activeId) {
         setDate(new Date(`${commit.date}T12:00:00`))
+        applyLivePreviewToStore(activeId, commit)
       }
 
       const sourceEvent = getEventById(activeId) as any
@@ -1022,10 +1045,10 @@ const WeekView = () => {
                   })}
                 </div>
               </div>
-  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[530] h-px bg-[linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.3)_12%,rgba(0,0,0,0.3)_88%,transparent_100%)]" />
-  <div className="h-4 shrink-0" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[530] h-px bg-[linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.3)_12%,rgba(0,0,0,0.3)_88%,transparent_100%)]" />
             </div>
 
+              <div className="h-4 shrink-0" />
             <div className="flex relative">
               <div className="w-[84px] shrink-0">
                 {hourSlots.map((hour) => (

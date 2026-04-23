@@ -485,7 +485,7 @@ const DateTimeEditor: React.FC = () => {
             Date
           </span>
           <DatePickerButton
-            key={`date-${selectedEvent.id}`}
+            key={`date-${selectedEvent.id}-${draftDate}`}
             value={draftDate}
             onChange={(date) => {
               const newDate = formatDate(date)
@@ -499,7 +499,7 @@ const DateTimeEditor: React.FC = () => {
           />
           <span className="text-neutral-600">-</span>
           <DatePickerButton
-            key={`enddate-${selectedEvent.id}`}
+            key={`enddate-${selectedEvent.id}-${draftEndDate}`}
             value={draftEndDate}
             onChange={(date) => {
               const newDate = formatDate(date)
@@ -522,7 +522,7 @@ const DateTimeEditor: React.FC = () => {
             Time
           </span>
           <TimePicker
-            key={`start-${selectedEvent.id}`}
+            key={`start-${selectedEvent.id}-${displayStartTime}`}
             value={displayStartTime}
             onChange={(mins) => {
               setDraftStartTime(mins)
@@ -532,7 +532,7 @@ const DateTimeEditor: React.FC = () => {
           />
           <span className="text-neutral-600">-</span>
           <TimePicker
-            key={`end-${selectedEvent.id}`}
+            key={`end-${selectedEvent.id}-${displayEndTime}`}
             value={displayEndTime}
             onChange={(mins) => {
               setDraftEndTime(mins)
