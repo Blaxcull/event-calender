@@ -883,7 +883,7 @@ const WeekView = () => {
                         className="group px-0 py-2 text-left transition-all duration-200 bg-transparent"
                       >
                         <div
-                          className={`rounded-3xl border px-4 py-3 transition-all duration-200 ${
+                          className={`overflow-hidden rounded-3xl border px-4 py-3 transition-all duration-200 ${
                             isSelected
                               ? "border-black bg-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.22)]"
                               : "border-[#cfcfcb] bg-[#e2e2e1] text-neutral-900"
@@ -894,22 +894,22 @@ const WeekView = () => {
                           }`}>
                             {format(day, "EEE")}
                           </div>
-                          <div className="mt-1 flex items-center justify-between">
-                            <span className={`text-[42px] font-semibold leading-none ${
+                          <div className="mt-1 flex items-center justify-between gap-2 overflow-hidden">
+                            <span className={`min-w-0 shrink truncate text-[42px] font-semibold leading-none ${
                               isSelected ? "text-white" : "text-neutral-900"
                             }`}>
                               {format(day, "d")}
                             </span>
-                            <div className="flex items-center gap-2">
+                            <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden">
                               {isToday ? (
-                                <span className={`inline-flex h-6 items-center rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                                <span className={`hidden h-6 max-w-full items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.18em] min-[1180px]:inline-flex ${
                                   isSelected ? "bg-white/20 text-white" : "bg-black text-white"
                                 }`}>
                                   Today
                                 </span>
                               ) : null}
                               {!isToday ? (
-                                <span className={`inline-flex h-6 items-center rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                                <span className={`hidden h-6 max-w-full items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.16em] min-[1180px]:inline-flex ${
                                   isSelected ? "bg-white/18 text-white/90" : "bg-[#d1d1cd] text-neutral-600"
                                 }`}>
                                   {format(day, "MMM")}
@@ -1286,14 +1286,6 @@ const WeekView = () => {
                               }}
                             >
                               <div className="absolute top-1 bottom-1 left-[3px] w-[6px] rounded" style={{ backgroundColor: selectedEventId === event.id ? "#ffffff" : accentColor }} />
-                              {isRecurringEvent ? (
-                                <svg className="absolute top-2 right-3 z-20 h-4 w-4 opacity-70" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M2 13.0399V11C2 7.68629 4.68629 5 8 5H21V5" />
-                                  <path d="M19 2L22 5L19 8" />
-                                  <path d="M22 9.98004V12.02C22 15.3337 19.3137 18.02 16 18.02H3V18.02" />
-                                  <path d="M5 21L2 18L5 15" />
-                                </svg>
-                              ) : null}
                               <div className={`absolute inset-x-0 z-10 pl-[18px] pr-3 ${durationMins <= 15 ? "inset-y-0" : "top-0"} ${durationMins > 15 && durationMins <= 30 ? "pt-0" : durationMins > 30 ? "pt-1" : ""}`} style={{ color: textColor }}>
                                 {durationMins <= 15 ? (
                                   <div className="relative h-full">

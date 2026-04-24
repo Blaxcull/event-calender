@@ -1,4 +1,5 @@
 import React from "react"
+import ReactDOM from "react-dom"
 import { X } from "lucide-react"
 
 interface DialogProps {
@@ -9,11 +10,12 @@ interface DialogProps {
 
 export function Dialog({ open, onOpenChange, children }: DialogProps) {
   if (!open) return null
+  if (typeof document === "undefined") return null
 
-  return (
+  return ReactDOM.createPortal(
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 5000 }}
+      style={{ zIndex: 30000 }}
     >
       <div 
         className="absolute inset-0"
@@ -24,10 +26,11 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
         }}
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative" style={{ zIndex: 5010 }}>
+      <div className="relative" style={{ zIndex: 30010 }}>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

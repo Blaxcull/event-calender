@@ -51,8 +51,8 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
   }
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50">
-      <div className="flex items-center p-2 bg-[#ececeb] border border-black/5 rounded-full shadow-sm">
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+      <div className="pointer-events-auto flex max-w-full items-center overflow-x-auto rounded-full border border-black/5 bg-[#ececeb] p-2 shadow-sm">
         {views.map((view, i) => {
           const isActive = activeView === view
           const nextView = views[i + 1]
@@ -63,7 +63,7 @@ export function ViewSwitcher({ currentView, onViewChange }: ViewSwitcherProps) {
               <Button
                 onClick={() => handleViewClick(view)}
                 className={cn(
-                  "capitalize text-xl font-semibold rounded-full w-[120px] py-6",
+                  "w-[120px] rounded-full py-6 text-xl font-semibold capitalize",
                   "transition-all duration-200 ease-out",
                   "bg-transparent text-neutral-600",
                   "hover:bg-[#e3e3e1] hover:scale-105 active:scale-95",

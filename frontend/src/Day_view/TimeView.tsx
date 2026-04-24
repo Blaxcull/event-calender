@@ -57,12 +57,12 @@ const CalendarEvent = memo(
     position?: { left: string; width: string; zIndex: number }
   }) => {
 const containerRef = useRef<HTMLDivElement>(null)
-const [showEndTime, setShowEndTime] = useState(true)
+const [containerWidth, setContainerWidth] = useState(0)
 
 useEffect(() => {
   if (!containerRef.current) return
   const checkWidth = () => {
-    setShowEndTime(containerRef.current!.offsetWidth > 180)
+    setContainerWidth(containerRef.current!.offsetWidth)
   }
   checkWidth()
   const observer = new ResizeObserver(checkWidth)
@@ -89,6 +89,14 @@ const labelStartTotalMins = (labelStartHour * 60) + labelStartMin
 const labelEndTotalMins = (labelEndHour * 60) + labelEndMin
 const eventDuration = ((labelEndTotalMins - labelStartTotalMins) + 1440) % 1440 || 1440
 const isVeryShortEvent = eventDuration <= 15
+const isNarrowEvent = containerWidth > 0 && containerWidth < 180
+const isVeryNarrowEvent = containerWidth > 0 && containerWidth < 140
+const useInlineCompactLayout = isVeryShortEvent || isVeryNarrowEvent
+const useSuperCompactLayout = !useInlineCompactLayout && (eventDuration <= 20 || isNarrowEvent)
+const useCompactLayout = !useInlineCompactLayout && !useSuperCompactLayout && (eventDuration <= 30 || containerWidth > 0 && containerWidth < 240)
+const showEndTime = containerWidth > 180
+const showGoalIcon = !!GoalIcon && containerWidth >= 170
+const showClockIcon = containerWidth >= 120
 
  const isActive = isDragging || isResizing || isSelected
 
@@ -143,37 +151,49 @@ return (
     <div className="absolute inset-y-0 left-[18px] right-2 flex min-w-0 items-center gap-2 -translate-y-[3px] text-base">
       <span className="min-w-0 truncate font-semibold leading-none">{event.title}</span>
       <div className="ml-auto flex shrink-0 items-center gap-1 leading-none">
-        <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+        {showClockIcon ? (
+          <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ) : null}
         <span className="text-xs font-medium opacity-80">{compactTimeLabel}</span>
       </div>
     </div>
 
-  ) : eventDuration <= 20 ? (
+  ) : useInlineCompactLayout ? (
+    <div className="absolute inset-y-0 left-[18px] right-2 flex min-w-0 items-center gap-2 -translate-y-[2px]">
+      <span className="min-w-0 truncate text-sm font-semibold leading-none">{event.title}</span>
+      <span className="ml-auto shrink-0 text-[11px] font-medium opacity-80">{compactTimeLabel}</span>
+    </div>
+
+  ) : useSuperCompactLayout ? (
     // 16-20 MIN (super compact)
     <div className=" text-base truncate flex pr-2 h-5 items-center justify-between">
       <span className="truncate font-semibold  ">{event.title}</span>
       <div className="flex items-center shrink-0 gap-1 ml-1">
-        <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+        {showClockIcon ? (
+          <svg className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ) : null}
         <span className="text-xs opacity-70">
           {compactTimeLabel}
         </span>
       </div>
     </div>
 
-  ) : eventDuration <= 30 ? (
+  ) : useCompactLayout ? (
     // 21-30 MIN (compact horizontal)
     <div className=" flex pt-1 items-center pr-2 truncate justify-between">
-      <span className="truncate font-semibold text-xl ">{event.title}</span>
+      <span className="truncate font-semibold text-base">{event.title}</span>
       <div className="flex items-center shrink-0 gap-1 ml-1">
-        <svg className="h-4 w-4 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span className="font-medium text-xl">
-          {compactTimeLabel}
+        {showClockIcon ? (
+          <svg className="h-4 w-4 shrink-0" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ) : null}
+        <span className="font-medium text-sm">
+          {showEndTime ? rangeTimeLabel : compactTimeLabel}
         </span>
       </div>
     </div>
@@ -182,14 +202,16 @@ return (
     // MORE THAN 30 MIN (normal layout)
     <>
       <div className="font-extrabold text-2xl pt-1 truncate flex items-center gap-2">
-        {GoalIcon ? <GoalIcon className="w-5 h-5 shrink-0" /> : null}
+        {showGoalIcon ? <GoalIcon className="w-5 h-5 shrink-0" /> : null}
         {event.title}
       </div>
       <div className="text-xl font-medium flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          {showClockIcon ? (
+            <svg className="w-5 h-5" style={{ color: accentColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ) : null}
           {showEndTime 
             ? rangeTimeLabel
             : compactTimeLabel}

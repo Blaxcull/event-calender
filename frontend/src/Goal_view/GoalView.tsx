@@ -544,12 +544,46 @@ const GoalView = () => {
   const columnContainerRefs = useRef<Map<ColumnType, HTMLDivElement>>(new Map());
   const columnItemRefs = useRef<Map<ColumnType, Map<string, HTMLElement>>>(new Map());
   const columnItemHeights = useRef<Map<ColumnType, number>>(new Map());
+  const goalColumnsScrollRef = useRef<HTMLDivElement | null>(null);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const hasAttemptedLegacyMigrationRef = useRef(false);
+  const [goalColumnsSliderValue, setGoalColumnsSliderValue] = useState(0);
+  const [showGoalColumnsSlider, setShowGoalColumnsSlider] = useState(false);
 
   useEffect(() => {
     void fetchAllGoals();
   }, [fetchAllGoals]);
+
+  const syncGoalColumnsSlider = useCallback(() => {
+    const container = goalColumnsScrollRef.current;
+    if (!container) return;
+
+    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    setShowGoalColumnsSlider(maxScrollLeft > 8);
+    setGoalColumnsSliderValue(maxScrollLeft === 0 ? 0 : (container.scrollLeft / maxScrollLeft) * 100);
+  }, []);
+
+  useEffect(() => {
+    const container = goalColumnsScrollRef.current;
+    if (!container) return;
+
+    syncGoalColumnsSlider();
+
+    const handleScroll = () => syncGoalColumnsSlider();
+    const handleResize = () => syncGoalColumnsSlider();
+    const resizeObserver = new ResizeObserver(() => syncGoalColumnsSlider());
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    resizeObserver.observe(container);
+    Array.from(container.children).forEach((child) => resizeObserver.observe(child));
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [syncGoalColumnsSlider, store, sidebarOpen]);
 
   const syncStoreToSupabase = useCallback(async (nextStore: TodoStore) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -917,6 +951,17 @@ const GoalView = () => {
     setYearDate(fn);
   };
 
+  const handleGoalColumnsSliderChange = (value: number) => {
+    const container = goalColumnsScrollRef.current;
+    if (!container) return;
+
+    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    container.scrollTo({
+      left: (value / 100) * maxScrollLeft,
+      behavior: "smooth",
+    });
+  };
+
   return (
     <div className="relative flex w-full min-h-screen bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-200 p-4 pt-[120px] gap-4">
       <Button
@@ -930,20 +975,40 @@ const GoalView = () => {
       </Button>
 
       <div className="flex w-full flex-col gap-4">
-        <div className="flex w-full flex-wrap gap-4">
-      <div data-column-type="week" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div
+          ref={goalColumnsScrollRef}
+          className="flex w-full snap-x snap-mandatory gap-4 overflow-x-auto pb-2 no-scrollbar"
+        >
+      <div data-column-type="week" className="h-[calc(100vh-144px)] min-h-[420px] w-[min(360px,calc(100vw-32px))] min-w-[min(360px,calc(100vw-32px))] snap-start flex-none flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
         <GoalColumn title={weekLabel} columnType="week" items={getItems("week")} direction={direction} onToggle={(id) => toggleItem("week", id)} onAdd={(text) => addItem("week", text)} onPrev={() => navigate(d => addWeeks(d, -1), -1)} onNext={() => navigate(d => addWeeks(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("week"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
-      <div data-column-type="month" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+      <div data-column-type="month" className="h-[calc(100vh-144px)] min-h-[420px] w-[min(360px,calc(100vw-32px))] min-w-[min(360px,calc(100vw-32px))] snap-start flex-none flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
         <GoalColumn title={monthLabel} columnType="month" items={getItems("month")} direction={direction} onToggle={(id) => toggleItem("month", id)} onAdd={(text) => addItem("month", text)} onPrev={() => navigate(d => addMonths(d, -1), -1)} onNext={() => navigate(d => addMonths(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("month"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
-      <div data-column-type="year" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+      <div data-column-type="year" className="h-[calc(100vh-144px)] min-h-[420px] w-[min(360px,calc(100vw-32px))] min-w-[min(360px,calc(100vw-32px))] snap-start flex-none flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
         <GoalColumn title={yearLabel} columnType="year" items={getItems("year")} direction={direction} onToggle={(id) => toggleItem("year", id)} onAdd={(text) => addItem("year", text)} onPrev={() => navigateYear(d => addYears(d, -1), -1)} onNext={() => navigateYear(d => addYears(d, 1), 1)} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("year"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
-      <div data-column-type="life" className="h-[calc(100vh-144px)] min-h-[420px] min-w-0 flex-[1_1_360px] flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
+      <div data-column-type="life" className="h-[calc(100vh-144px)] min-h-[420px] w-[min(360px,calc(100vw-32px))] min-w-[min(360px,calc(100vw-32px))] snap-start flex-none flex flex-col rounded-2xl border border-black/5 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] overflow-hidden">
         <GoalColumn title="Life" columnType="life" items={getItems("life")} direction={direction} onToggle={(id) => toggleItem("life", id)} onAdd={(text) => addItem("life", text)} onPrev={() => {}} onNext={() => {}} onToday={goToToday} dragState={dragState} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} columnContainerRefs={columnContainerRefs} columnItemRefs={columnItemRefs} columnItemHeights={columnItemHeights} showNav={false} onGoalClick={(item) => { setSidebarItemId(item.id); setSidebarPrefillName(item.text); setSidebarColumnType("life"); setSidebarItemData({ notes: item.notes, color: item.color, icon: item.icon, targetValue: item.targetValue, targetPeriod: item.targetPeriod, status: item.status }); setSidebarOpen(true); }} />
       </div>
         </div>
+        {showGoalColumnsSlider ? (
+          <div className="flex items-center gap-3 rounded-full border border-black/5 bg-white/70 px-4 py-3 shadow-sm backdrop-blur-sm">
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Slide
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={0.1}
+              value={goalColumnsSliderValue}
+              onChange={(event) => handleGoalColumnsSliderChange(Number(event.target.value))}
+              className="h-2 w-full cursor-pointer accent-neutral-700"
+              aria-label="Scroll goal columns"
+            />
+          </div>
+        ) : null}
       </div>
       <GoalSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} prefillName={sidebarPrefillName} prefillNotes={sidebarItemData.notes} prefillColor={sidebarItemData.color} prefillIcon={sidebarItemData.icon} prefillTargetValue={sidebarItemData.targetValue} prefillTargetPeriod={sidebarItemData.targetPeriod} prefillStatus={sidebarItemData.status} onSave={handleSidebarSave} onClearPrefill={() => { setSidebarItemId(""); setSidebarPrefillName(""); setSidebarColumnType(null); setSidebarItemData({}); }} />
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
