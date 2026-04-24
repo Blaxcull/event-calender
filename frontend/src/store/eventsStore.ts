@@ -10,6 +10,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { supabase } from '@/lib/supabase'
+import { getGoalBucketKey, useGoalsStore, type GoalColumnType } from '@/store/goalsStore'
 
 import type {
   Event,
@@ -225,6 +226,43 @@ function eventMatchesGoalSyncRange(event: Event, bucketKey: string): boolean {
   const range = getBucketDateRange(bucketKey)
   if (!range) return true
   return event.date >= range.start && event.date <= range.end
+}
+
+const EVENT_GOAL_TYPE_TO_COLUMN: Record<string, GoalColumnType | null> = {
+  Weekly: 'week',
+  Monthly: 'month',
+  Yearly: 'year',
+  Lifetime: 'life',
+  None: null,
+}
+
+function normalizeGoalMetadataForDateChange(
+  currentEvent: Pick<Event, 'date' | 'goalType' | 'goal' | 'goalColor' | 'goalIcon'>,
+  updates: Partial<NewEvent>
+): Partial<NewEvent> {
+  const nextDate = updates.date
+  if (!nextDate || nextDate === currentEvent.date) return updates
+
+  const nextGoalType = updates.goalType ?? currentEvent.goalType
+  const nextGoal = updates.goal ?? currentEvent.goal
+
+  if (!nextGoalType || !nextGoal || nextGoal === 'None') return updates
+
+  const columnType = EVENT_GOAL_TYPE_TO_COLUMN[nextGoalType] ?? null
+  if (!columnType || columnType === 'life') return updates
+
+  const nextDateObj = new Date(`${nextDate}T00:00:00`)
+  const bucketKey = getGoalBucketKey(columnType, nextDateObj)
+  const goalsInBucket = useGoalsStore.getState().store[bucketKey] ?? []
+  const hasMatchingGoal = goalsInBucket.some((item) => item.text === nextGoal)
+
+  if (hasMatchingGoal) return updates
+
+  return {
+    ...updates,
+    goalColor: '',
+    goalIcon: '',
+  }
 }
 
 /** Find a master recurring event by ID across all cache dates */
@@ -888,15 +926,16 @@ export const useEventsStore = create<EventsState>()(
         if (!found) return null
 
         const { event: currentEvent, dateKey: oldDate } = found
+        const normalizedUpdates = normalizeGoalMetadataForDateChange(currentEvent, updates)
         const newCache = { ...eventsCache }
 
         const updatedEvent = {
           ...currentEvent,
-          ...updates,
+          ...normalizedUpdates,
           updated_at: new Date().toISOString(),
         }
 
-        const newDate = updates.date || oldDate
+        const newDate = normalizedUpdates.date || oldDate
 
         // Remove any stale copies of this event from every cached date bucket first.
         for (const cacheDateKey of Object.keys(newCache)) {
@@ -919,7 +958,7 @@ export const useEventsStore = create<EventsState>()(
         if (updatedEvent.isTemp === true || pendingSyncs.has(id)) {
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
-          newPendingUpdates.set(id, [...existing, updates])
+          newPendingUpdates.set(id, [...existing, normalizedUpdates])
 
           if (updatedEvent.isTemp === true && !pendingSyncs.has(id)) {
             const newPendingSyncs = new Set(pendingSyncs)
@@ -936,7 +975,7 @@ export const useEventsStore = create<EventsState>()(
         // Background DB update
         setTimeout(async () => {
           try {
-            const filteredUpdates = filterUpdatesForDb(updates)
+            const filteredUpdates = filterUpdatesForDb(normalizedUpdates)
             await supabase.from('events').update(filteredUpdates).eq('id', id)
           } catch { /* background update failed silently */ }
         }, 0)
@@ -1239,6 +1278,7 @@ export const useEventsStore = create<EventsState>()(
         if (!found) return
 
         const { event: currentEvent, dateKey } = found
+        const normalizedUpdates = normalizeGoalMetadataForDateChange(currentEvent, { [field]: value })
         if (currentEvent[field as keyof Event] === value) return
 
         const duration = getClockwiseDurationMinutes(currentEvent.start_time, currentEvent.end_time)
@@ -1248,7 +1288,7 @@ export const useEventsStore = create<EventsState>()(
 
         const updatedEvent = {
           ...currentEvent,
-          [field]: value,
+          ...normalizedUpdates,
           ...(field === 'start_time' && typeof value === 'number' && { end_time: endTimeValue }),
           updated_at: new Date().toISOString(),
         }
@@ -1273,7 +1313,7 @@ export const useEventsStore = create<EventsState>()(
         if (currentEvent.isTemp === true || pendingSyncs.has(id)) {
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
-          newPendingUpdates.set(id, [...existing, { [field]: value }])
+          newPendingUpdates.set(id, [...existing, normalizedUpdates])
 
           if (currentEvent.isTemp === true && !pendingSyncs.has(id)) {
             const newPendingSyncs = new Set(pendingSyncs)
@@ -1290,7 +1330,7 @@ export const useEventsStore = create<EventsState>()(
         // Background DB update
         setTimeout(async () => {
           try {
-            const updates: Record<string, any> = { [field]: value }
+            const updates: Record<string, any> = { ...normalizedUpdates }
             if (field === 'start_time') updates.end_time = endTimeValue
             await supabase.from('events').update(updates).eq('id', id)
           } catch { /* background field update failed silently */ }
@@ -1322,9 +1362,10 @@ export const useEventsStore = create<EventsState>()(
         if (!found) return
 
         const { event: currentEvent, dateKey } = found
+        const normalizedUpdates = normalizeGoalMetadataForDateChange(currentEvent, updates)
         const nextEvent: Event = {
           ...currentEvent,
-          ...updates,
+          ...normalizedUpdates,
           updated_at: new Date().toISOString(),
         }
 
@@ -1350,7 +1391,7 @@ export const useEventsStore = create<EventsState>()(
         if (currentEvent.isTemp === true || pendingSyncs.has(id)) {
           const newPendingUpdates = new Map(pendingUpdates)
           const existing = newPendingUpdates.get(id) || []
-          newPendingUpdates.set(id, [...existing, updates])
+          newPendingUpdates.set(id, [...existing, normalizedUpdates])
 
           if (currentEvent.isTemp === true && !pendingSyncs.has(id)) {
             const newPendingSyncs = new Set(pendingSyncs)
@@ -1366,7 +1407,7 @@ export const useEventsStore = create<EventsState>()(
 
         setTimeout(async () => {
           try {
-            await supabase.from('events').update(filterUpdatesForDb(updates)).eq('id', id)
+            await supabase.from('events').update(filterUpdatesForDb(normalizedUpdates)).eq('id', id)
           } catch { /* background field update failed silently */ }
         }, 0)
       },
@@ -1573,7 +1614,7 @@ export const useEventsStore = create<EventsState>()(
         if (masterForTitle) originalTitle = masterForTitle.title
 
         const isFirstOccurrence = selectedDate === (event.series_start_date || event.date)
-        const mergedStandaloneFields: Partial<NewEvent> = {
+        const mergedStandaloneFields = normalizeGoalMetadataForDateChange(masterEvent ?? event, {
           title: updates?.title ?? (event.title && event.title !== 'New Event' ? event.title : originalTitle),
           description: updates?.description ?? event.description ?? masterEvent?.description,
           notes: updates?.notes ?? event.notes ?? masterEvent?.notes,
@@ -1590,7 +1631,7 @@ export const useEventsStore = create<EventsState>()(
           goalColor: updates?.goalColor ?? masterEvent?.goalColor ?? event.goalColor,
           goalIcon: updates?.goalIcon ?? masterEvent?.goalIcon ?? event.goalIcon,
           repeat: 'None',
-        }
+        })
 
         // Optimistic update
         if (isFirstOccurrence) {
@@ -1932,7 +1973,7 @@ export const useEventsStore = create<EventsState>()(
 
         // Create new series in cache optimistically
         const tempSeriesId = `temp-series-${Date.now()}-${Math.random().toString(36).slice(2)}`
-        const mergedSeriesFields: Partial<NewEvent> = {
+        const mergedSeriesFields = normalizeGoalMetadataForDateChange(masterEvent ?? event, {
           title: updates?.title ?? event.title,
           description: updates?.description ?? masterEvent?.description ?? event.description,
           notes: updates?.notes ?? masterEvent?.notes ?? event.notes,
@@ -1951,7 +1992,7 @@ export const useEventsStore = create<EventsState>()(
           repeat: originalRepeat,
           series_start_date: selectedDate,
           series_end_date: nextSeriesEndDate,
-        }
+        })
         const tempSeriesCached: Event = {
           id: tempSeriesId,
           user_id: 'temp-user',

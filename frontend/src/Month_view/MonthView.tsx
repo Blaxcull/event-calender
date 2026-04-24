@@ -502,8 +502,8 @@ const MonthView = () => {
     resetDragState()
     if (!eventToMove || draggedEvent.sourceDateKey === targetDateKey) return
     setDate(withMiddayTime(cellDate))
+    setSelectedEvent(null)
     await moveEventToDate(eventToMove, targetDateKey)
-    setSelectedEvent(eventToMove.id)
   }
 
   useEffect(() => {
