@@ -1,176 +1,172 @@
-# Event Calendar with Supabase Backend
+<p align="center">
+  <img src="https://em-content.zobj.net/source/apple/391/spiral-calendar_1f5d3-fe0f.png" width="120" alt="Event Calendar icon" />
+</p>
 
-A full-stack event calendar application with a React/TypeScript frontend and Supabase PostgreSQL backend.
+<h1 align="center">Event Calendar</h1>
+
+<p align="center">
+  <strong>A polished scheduling workspace for events, recurring plans, and goals.</strong>
+</p>
+
+<p align="center">
+  Built for fast-moving teams and personal productivity workflows that need a cleaner calendar experience.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/React-19-111827?style=flat&logo=react" alt="React 19" />
+  <img src="https://img.shields.io/badge/TypeScript-5.9-2563eb?style=flat&logo=typescript&logoColor=white" alt="TypeScript 5.9" />
+  <img src="https://img.shields.io/badge/Vite-7-7c3aed?style=flat&logo=vite&logoColor=white" alt="Vite 7" />
+  <img src="https://img.shields.io/badge/TailwindCSS-v4-0f172a?style=flat&logo=tailwindcss" alt="Tailwind CSS v4" />
+  <img src="https://img.shields.io/badge/Supabase-Auth%20%26%20Data-0f172a?style=flat&logo=supabase" alt="Supabase" />
+</p>
+
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="#features">Features</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#scripts">Scripts</a> •
+  <a href="#project-structure">Project Structure</a>
+</p>
+
+---
+
+## Overview
+
+Event Calendar is a modern React application for planning day-to-day work across multiple calendar views while keeping goals and reminders in sync. It combines a responsive scheduling UI with recurring event handling, optimistic local-first state management, and Supabase-backed authentication.
+
+This repository is structured as a frontend-focused product app, suitable for personal planning tools, internal productivity software, or startup-style scheduling workflows.
+
+## Why This Repo
+
+- Clean multi-view calendar experience instead of a basic CRUD dashboard
+- Goal-aware planning that stays aligned with date ranges and event changes
+- Recurring event support without forcing users into brittle manual duplication
+- Production-friendly frontend stack with typed state, routing, auth, and tests
 
 ## Features
 
-- **Day View Calendar**: Visual hour-by-hour event scheduling
-- **Event Management**: Create, drag, resize, and delete events
-- **Supabase Integration**: PostgreSQL database with Row Level Security
-- **Authentication**: Email/password + Google OAuth login
-- **Real-time Updates**: Events sync automatically across sessions
-- **Responsive UI**: Modern design with Tailwind CSS
+- Day, week, month, and year calendar views
+- Goal planning with date-aware buckets and sidebar editing flows
+- Recurring events with generated instances and exception handling
+- Search and quick event management from the sidebar
+- Supabase authentication for login and signup flows
+- Reminder service for upcoming scheduled events
+- Zustand-powered local state with cached event windows
+- Responsive UI built with Tailwind CSS and Radix primitives
 
-## Project Structure
+## Product Highlights
 
-```
-event-calender/
-├── frontend/                 # React/TypeScript frontend
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   ├── hooks/          # Custom React hooks
-│   │   ├── lib/            # Utilities and helpers
-│   │   ├── store/          # Zustand state management
-│   │   └── context/        # React context providers
-│   └── .env.local          # Environment variables (create from .env.local.example)
-├── backend/
-│   └── supabase/
-│       └── schema.sql      # Database schema for Supabase
-└── SUPABASE_SETUP.md       # Complete setup instructions
-```
+| Area | What it covers |
+| --- | --- |
+| Calendar Views | Day, week, month, and year navigation tied directly to route state |
+| Event Editing | Sidebar-based event creation and update flows with recurrence handling |
+| Goals | Goal buckets that adapt to weekly, monthly, yearly, and lifetime scopes |
+| Reminders | Client-side early reminder checks for upcoming timed events |
+| Auth | Supabase-powered login and signup flows |
+| State | Zustand store with cached event windows and optimistic updates |
 
-## Quick Start
+## Tech Stack
 
-### 1. Set Up Supabase
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS v4
+- Zustand
+- React Router
+- Supabase
+- Vitest + Testing Library
 
-1. **Create Supabase Account**: Go to [supabase.com](https://supabase.com) and sign up
-2. **Create New Project**: 
-   - Name: `event-calendar`
-   - Database Password: Generate and save
-   - Region: Choose closest to you
-3. **Get API Keys**: From Settings → API, copy:
-   - `Project URL` (e.g., `https://xxxx.supabase.co`)
-   - `anon/public key`
+## Getting Started
 
-### 2. Configure Environment
+### 1. Install dependencies
 
 ```bash
-cd frontend
-cp .env.local.example .env.local
-```
-
-Edit `.env.local` with your Supabase credentials:
-```env
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-public-key-here
-```
-
-### 3. Set Up Database
-
-1. Go to Supabase Dashboard → SQL Editor
-2. Copy and paste the SQL from `backend/supabase/schema.sql`
-3. Run the query to create tables and security policies
-
-### 4. Configure Authentication
-
-1. Go to Authentication → Providers
-2. Enable Email/Password
-3. (Optional) Add Google OAuth:
-   - Create OAuth credentials in Google Cloud Console
-   - Add Client ID and Secret to Supabase
-
-### 5. Run the Application
-
-```bash
-cd frontend
 npm install
+```
+
+### 2. Configure environment variables
+
+Copy the example file and add your Supabase values:
+
+```bash
+cp .env.example .env
+```
+
+Required variables:
+
+```env
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
+
+### 3. Start the development server
+
+```bash
 npm run dev
 ```
 
-Visit `http://localhost:5173` to use the calendar.
+The app will start on the default Vite development server.
 
-## Database Schema
+## Scripts
 
-```sql
-events (
-  id UUID PRIMARY KEY,
-  user_id UUID REFERENCES auth.users,
-  title TEXT NOT NULL,
-  date DATE NOT NULL,          -- Calendar date (YYYY-MM-DD)
-  start_time INTEGER NOT NULL, -- Minutes since midnight (0-1439)
-  end_time INTEGER NOT NULL,   -- Minutes since midnight
-  created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ
-)
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the local Vite development server |
+| `npm run build` | Type-check and create a production build |
+| `npm run preview` | Preview the production build locally |
+| `npm run lint` | Run ESLint across the repository |
+| `npm run test` | Start Vitest in watch mode |
+| `npm run test:run` | Run the test suite once |
+| `npm run test:ui` | Open the Vitest UI |
+
+## Project Structure
+
+```text
+src/
+  App.tsx
+  Day_view/
+  Week_view/
+  Month_view/
+  Year_view/
+  Goal_view/
+  SideBar/
+  components/
+  hooks/
+  lib/
+  pages/
+  services/
+  store/
+public/
+  fonts/
 ```
 
-## API Integration
+## Architecture Notes
 
-The frontend uses Supabase client directly:
+- `src/store/eventsStore.ts` is the core calendar state layer and handles event caching, optimistic CRUD flows, and recurring instance generation.
+- `src/lib/supabase.ts` defines the Supabase client used by the auth and data flows.
+- `src/services/reminderService.ts` manages client-side reminder checks for scheduled events.
+- Route-driven views in `src/components/DayViewRoute.tsx` keep the selected date and visible calendar scope aligned with the URL.
 
-- **Authentication**: `@supabase/supabase-js` auth methods
-- **Events CRUD**: Direct Supabase table operations with RLS
-- **Real-time**: Built-in Supabase real-time subscriptions
+## Quality
 
-## Development
+The repo includes ESLint, Vitest, Testing Library, `jsdom`, and `happy-dom`. Existing tests cover core calendar rendering behavior, with room to expand coverage around recurrence logic, store behavior, and authenticated flows.
 
-### Frontend Commands
+## Environment and Security
 
-```bash
-cd frontend
-npm run dev      # Start development server
-npm run build    # Build for production
-npm run lint     # Run ESLint
-npm run test     # Run tests
-```
+- Do not commit `.env` files or Supabase credentials
+- Keep production configuration in deployment settings
+- Use `.env.example` as the source of truth for required variables
 
-### Backend Management
+## Status
 
-- **Database Changes**: Update `backend/supabase/schema.sql`
-- **Migrations**: Apply via Supabase SQL Editor
-- **Row Level Security**: Policies defined in schema
+This repo is now trimmed for normal frontend development:
 
-## Security Features
+- local secrets are ignored
+- generated dependencies and build artifacts are ignored
+- unused starter assets have been removed
+- the README is rewritten to present the project like a product repository
 
-- **Row Level Security**: Users can only access their own events
-- **JWT Authentication**: Secure token-based auth
-- **Input Validation**: Client and server-side validation
-- **Password Hashing**: bcrypt via Supabase Auth
+## License
 
-## Deployment
-
-### Frontend (Vercel/Netlify)
-
-1. Build: `npm run build`
-2. Deploy `dist/` folder
-3. Set environment variables in hosting platform
-
-### Supabase
-
-- Database hosted on Supabase
-- Automatic backups and scaling
-- Free tier includes 500MB database
-
-## Troubleshooting
-
-### Common Issues
-
-1. **CORS Errors**: Add `http://localhost:5173` to Supabase redirect URLs
-2. **RLS Policy Errors**: Verify user is authenticated and policies exist
-3. **Database Connection**: Check Supabase project URL and anon key
-4. **Authentication**: Verify redirect URLs in Supabase settings
-
-### Debugging
-
-1. Check browser console for errors
-2. Verify `.env.local` variables are set
-3. Test Supabase connection with `testConnection()` in `supabase.ts`
-4. Check Supabase logs in dashboard
-
-## Next Steps
-
-Potential enhancements:
-
-1. **Week/Month Views**: Expand calendar functionality
-2. **Event Categories**: Color coding and filtering
-3. **Recurring Events**: Weekly/monthly repeating events
-4. **Notifications**: Email/SMS reminders
-5. **Calendar Sharing**: Share calendars with other users
-6. **Import/Export**: ICS file support
-
-## Support
-
-- [Supabase Documentation](https://supabase.com/docs)
-- [React Documentation](https://react.dev)
-- [TypeScript Documentation](https://www.typescriptlang.org/docs/)
-- [Create GitHub Issue](https://github.com/your-repo/issues)
+This project is private by default unless you choose to add a license.
