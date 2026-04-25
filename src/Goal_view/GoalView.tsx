@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { startOfWeek, endOfWeek, addWeeks, addMonths, addYears, format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import GoalSidebar from "./GoalSidebar";
-import { getGoalIcon } from "./goal";
+import { getGoalIcon, type Goal } from "./goal";
 import { supabase } from "@/lib/supabase";
 import { useGoalsStore, type GoalColumnType } from "@/store/goalsStore";
 import { useEventsStore } from "@/store/eventsStore";

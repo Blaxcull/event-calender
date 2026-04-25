@@ -47,12 +47,14 @@ import {
   findEventInCache,
   findMasterEvent,
   getClockwiseDurationMinutes,
+  getBucketDateRange,
   getEventsForDateSnapshot,
   getEventsForDatesSnapshot,
   getGoalTypeLabel,
   isVirtualEventId,
   normalizeGoalMetadataForDateChange,
   scheduleIdleStoreWrite,
+  VIRTUAL_ID_PATTERN,
 } from './eventsStore.helpers'
 
 // Re-export types and functions so existing imports from '@/store/eventsStore' still work

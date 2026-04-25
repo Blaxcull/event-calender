@@ -9,7 +9,7 @@ import type {
   NewEvent,
 } from './types'
 
-const VIRTUAL_ID_PATTERN = /-(\d{4}-\d{2}-\d{2})$/
+export const VIRTUAL_ID_PATTERN = /-(\d{4}-\d{2}-\d{2})$/
 
 export function isVirtualEventId(id: string): boolean {
   return VIRTUAL_ID_PATTERN.test(id)
@@ -63,7 +63,7 @@ export function getGoalTypeLabel(columnType: 'week' | 'month' | 'year' | 'life')
   }
 }
 
-function getBucketDateRange(bucketKey: string): { start: string; end: string } | null {
+export function getBucketDateRange(bucketKey: string): { start: string; end: string } | null {
   if (bucketKey === 'life') return null
 
   if (bucketKey.startsWith('week-')) {
