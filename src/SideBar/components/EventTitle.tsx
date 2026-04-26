@@ -187,13 +187,13 @@ const EventTitle: React.FC = () => {
                   onClick={() => handleEventClick(event.id)}
                   className="group cursor-pointer rounded-[28px] border border-neutral-200/70 bg-[#f7f5f1] px-4 py-3.5 transition-all duration-200 hover:border-neutral-300 hover:bg-[#fbfaf7] hover:shadow-[0_10px_24px_rgba(0,0,0,0.04)]"
                 >
-                  <div className="grid grid-cols-[84px_minmax(0,1fr)] items-start gap-4">
-                    <div className="flex flex-col items-start justify-start rounded-[20px] bg-white/90 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] ring-1 ring-black/[0.04]">
-                      <div className="text-[14px] font-semibold text-neutral-900 leading-none">
+                  <div className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-4">
+                    <div className="flex min-w-0 flex-col items-start justify-start rounded-[20px] bg-white/90 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] ring-1 ring-black/[0.04]">
+                      <div className="whitespace-nowrap text-[14px] font-semibold leading-none text-neutral-900">
                         {startLabel}
                       </div>
                       {endLabel && (
-                        <div className="mt-1.5 text-[10px] uppercase tracking-[0.16em] text-neutral-400">
+                        <div className="mt-1.5 whitespace-nowrap text-[10px] uppercase tracking-[0.16em] text-neutral-400">
                           {endLabel}
                         </div>
                       )}

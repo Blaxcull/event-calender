@@ -46,6 +46,7 @@ const WeekView = () => {
   const stickyHeaderRef = useRef<HTMLDivElement>(null)
   const suppressNextClickRef = useRef(false)
   const dayColumnRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const timedEventRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const [previewById, setPreviewById] = useState<Record<string, { date: string; start_time: number; end_time: number }>>({})
   const [dragState, setDragState] = useState<{ id: string; duration: number; offsetMinutes: number; date: string; lockToDate: boolean } | null>(null)
   const [pendingDrag, setPendingDrag] = useState<{ id: string; duration: number; offsetMinutes: number; startX: number; startY: number; date: string; start: number; lockToDate: boolean } | null>(null)
@@ -322,6 +323,44 @@ const WeekView = () => {
     scrollRef.current.scrollTo({ top: Math.max(0, scrollPosition), behavior: "auto" })
     setScrollToEventId(null)
   }, [scrollToEventId, getEventById, setScrollToEventId, showAllTopEvents, topRowLayout.laneByEventId])
+
+  useEffect(() => {
+    if (!selectedEventId || !scrollRef.current || !stickyHeaderRef.current) return
+
+    const selectedEvent = getEventById(selectedEventId) as any
+    if (!selectedEvent || isTopBarEventType(selectedEvent)) return
+
+    const selectedDayKey = selectedDate ? formatDate(selectedDate) : null
+    const preferredRefKey = selectedDayKey ? `${selectedEventId}:${selectedDayKey}` : null
+    const eventElement =
+      (preferredRefKey ? timedEventRefs.current[preferredRefKey] : null) ||
+      Object.entries(timedEventRefs.current).find(([key, value]) => key.startsWith(`${selectedEventId}:`) && value)?.[1]
+
+    if (!eventElement) return
+
+    const frame = window.requestAnimationFrame(() => {
+      const scrollContainer = scrollRef.current
+      const stickyHeader = stickyHeaderRef.current
+      if (!scrollContainer || !stickyHeader) return
+
+      const eventRect = eventElement.getBoundingClientRect()
+      const scrollRect = scrollContainer.getBoundingClientRect()
+      const stickyRect = stickyHeader.getBoundingClientRect()
+      const visibleTop = stickyRect.bottom + 12
+      const visibleBottom = scrollRect.bottom - 12
+
+      if (eventRect.top < visibleTop) {
+        scrollContainer.scrollBy({ top: eventRect.top - visibleTop, behavior: "smooth" })
+        return
+      }
+
+      if (eventRect.bottom > visibleBottom) {
+        scrollContainer.scrollBy({ top: eventRect.bottom - visibleBottom, behavior: "smooth" })
+      }
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectedEventId, selectedDate, getEventById, topRowLayout.rowHeight])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1190,6 +1229,9 @@ const WeekView = () => {
                             <button
                               key={event.id}
                               type="button"
+                              ref={(el) => {
+                                timedEventRefs.current[`${event.id}:${dayKey}`] = el
+                              }}
                               data-week-event="true"
                               onClick={(eventClick) => {
                                 eventClick.stopPropagation()
