@@ -1,119 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Disable dialog transitions for instant close */
-[data-state="open"] > div {
-  animation: none !important;
-  transition: none !important;
-}
-
-[data-state="closed"] > div {
-  animation: none !important;
-  transition: none !important;
-}
-
-/* Override Radix Dialog animations */
-[data-radix-portal] {
-  animation: none !important;
-}
-
-/* Force instant transitions */
-[role="dialog"],
-[role="dialog"] * {
-  animation-duration: 0ms !important;
-  transition-duration: 0ms !important;
-  animation-delay: 0ms !important;
-  transition-delay: 0ms !important;
-}
-
-/* Hide scrollbar for Chrome, Safari and Opera */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-/* Hide scrollbar for IE, Edge and Firefox */
-.no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;     /* Firefox */
-}
-
-
 @custom-variant dark (&:is(.dark *));
 
-@theme {
-  --font-space-mono: "SpaceMono", monospace;
-  --font-sf-pro: "SF Pro Display Regular", -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-@font-face {
-  font-family: "SpaceMono";
-  src: url("/fonts/SpaceMono-Regular.ttf");
-}
-
-@font-face {
-  font-family: "SF";
-  src: url("/fonts/SF.ttf");
-}
-
-@font-face {
-  font-family: "SF Pro Display Regular";
-  src: url("/fonts/SFPRODISPLAYREGULAR.OTF");
-  font-weight: 400;
-}
-
-@font-face {
-  font-family: "SF Pro Display Medium";
-  src: url("/fonts/SFPRODISPLAYMEDIUM.OTF");
-  font-weight: 500;
-}
-
-@font-face {
-  font-family: "SF Pro Display Bold";
-  src: url("/fonts/SFPRODISPLAYBOLD.OTF");
-  font-weight: 700;
-}
-
-@font-face {
-  font-family: "SF Pro Display Black Italic";
-  src: url("/fonts/SFPRODISPLAYBLACKITALIC.OTF");
-  font-weight: 900;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "SF Pro Display Heavy Italic";
-  src: url("/fonts/SFPRODISPLAYHEAVYITALIC.OTF");
-  font-weight: 800;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "SF Pro Display Light Italic";
-  src: url("/fonts/SFPRODISPLAYLIGHTITALIC.OTF");
-  font-weight: 300;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "SF Pro Display Semibold Italic";
-  src: url("/fonts/SFPRODISPLAYSEMIBOLDITALIC.OTF");
-  font-weight: 600;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "SF Pro Display Thin Italic";
-  src: url("/fonts/SFPRODISPLAYTHINITALIC.OTF");
-  font-weight: 100;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "SF Pro Display Ultralight Italic";
-  src: url("/fonts/SFPRODISPLAYULTRALIGHTITALIC.OTF");
-  font-weight: 200;
-  font-style: italic;
-}
+/*
+ * Design system definition.
+ */
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -138,9 +30,11 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -154,108 +48,156 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-hairline: var(--hairline);
+  
+  --font-space-mono: "SpaceMono", monospace;
+  --font-sf-pro: "SF Pro Display Regular", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.75rem;
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.13 0 0);
+  --surface: oklch(0.985 0 0);
+  --surface-foreground: oklch(0.13 0 0);
+  --hairline: oklch(0.92 0 0);
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.04);
+  --shadow-card: 0 1px 0 oklch(0 0 0 / 0.04), 0 12px 40px oklch(0 0 0 / 0.08);
+  --gradient-spotlight: radial-gradient(60% 60% at 50% 0%, oklch(0.97 0 0) 0%, oklch(1 0 0) 60%);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
   --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.551 0.027 264.364);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
   --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-.font-sf {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: var(--color-border);
   }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   body {
-    @apply bg-background text-foreground;
-    font-family: "SF", -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
   }
 }
 
-/* add in global CSS */
-.event-start {
-  clip-path: polygon(0 0, 99% 0, 100% 50%, 99% 100%, 0 100%);
-    border-radius: 20px 0 0 20px; /* only left rounded */
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
 }
 
-.event-end {
-  clip-path: polygon(1% 0, 100% 0, 100% 100%, 1% 100%, 0 50%);
-    border-radius: 0 20px 20px 0; /* only right rounded */
+@font-face {
+  font-family: "SF";
+  src: url("/fonts/SF.ttf");
 }
 
-.event-middle {
-
-  clip-path: polygon(1% 0, 99% 0, 100% 50%, 99% 100%, 1% 100%, 0 50%);
-    border-radius: 0 8px 8px 0; /* only right rounded */
+@font-face {
+  font-family: "SF Pro Display";
+  src: url("/fonts/SFPRODISPLAYREGULAR.OTF") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
-.event-same-day {
-  border-radius: 20px;
+@font-face {
+  font-family: "SF Pro Display";
+  src: url("/fonts/SFPRODISPLAYMEDIUM.OTF") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Display";
+  src: url("/fonts/SFPRODISPLAYBOLD.OTF") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SpaceMono";
+  src: url("/fonts/SpaceMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }

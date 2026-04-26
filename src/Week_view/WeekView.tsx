@@ -824,10 +824,10 @@ const WeekView = () => {
       <div className="h-[100%] w-[100%] rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden">
         <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0">
           <h1 className="text-6xl pb-0 font-semibold text-neutral-800 tracking-tight">
-            <span style={{ fontFamily: "SF Pro Display Bold" }} className="text-black">
+            <span className="text-black">
               {format(weekStart, "d MMM")} - {format(addDays(weekStart, 6), "d MMM")},
             </span>
-            <span style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }} className="text-neutral-400">
+            <span className="text-neutral-400 font-normal">
               {" "}
               {format(addDays(weekStart, 6), "yyyy")}
             </span>

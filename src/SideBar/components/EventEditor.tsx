@@ -7,6 +7,27 @@ interface URLChip {
   url: string
   id: string
 }
+
+interface EventIdentitySnapshot {
+  id: string
+  date?: string
+  end_date?: string
+  start_time?: number
+  end_time?: number
+}
+
+const matchesEventIdentity = (
+  previousEvent: EventIdentitySnapshot | null,
+  nextEvent: CalendarEvent | null
+) => (
+  !!previousEvent &&
+  !!nextEvent &&
+  previousEvent.date === nextEvent.date &&
+  (previousEvent.end_date || previousEvent.date) === (nextEvent.end_date || nextEvent.date) &&
+  previousEvent.start_time === nextEvent.start_time &&
+  previousEvent.end_time === nextEvent.end_time
+)
+
 const EventEditor: React.FC = () => {
   const selectedEventId = useEventsStore((state) => state.selectedEventId)
   const updateEventField = useEventsStore((state) => state.updateEventField)
@@ -29,6 +50,7 @@ const EventEditor: React.FC = () => {
   const urlSectionRef = useRef<HTMLDivElement>(null)
   const savedEventIdRef = useRef<string | null>(null)
   const lastProcessedSaveTriggerRef = useRef<number>(0)
+  const previousEventSnapshotRef = useRef<EventIdentitySnapshot | null>(null)
 
   const getEventById = useEventsStore((state) => state.getEventById)
   
@@ -38,18 +60,38 @@ const EventEditor: React.FC = () => {
   // Load event data when selected event changes
   const prevEventIdRef = useRef<string | null>(null)
   useEffect(() => {
-    const currentId = selectedEvent?.id
+    const currentId = selectedEvent?.id ?? null
     const prevId = prevEventIdRef.current
     
     // Only run if the ID actually changed
     if (currentId !== prevId) {
       if (selectedEvent) {
+        const shouldPreserveLocalEdits =
+          !!prevId &&
+          savedEventIdRef.current === prevId &&
+          matchesEventIdentity(previousEventSnapshotRef.current, selectedEvent)
+
+        if (shouldPreserveLocalEdits) {
+          savedEventIdRef.current = currentId
+          setHasEditsEventId(currentId)
+        } else {
         setTitle(selectedEvent.title === 'New Event' ? '' : selectedEvent.title)
         setNotes(selectedEvent.notes || '')
         const urls = selectedEvent.urls || []
         setUrlChips(urls.map((url: string, index: number) => ({ url, id: `${index}-${url}` })))
         setHasEdits(false)
         setHasEditsEventId(null)
+        }
+
+        previousEventSnapshotRef.current = {
+          id: selectedEvent.id,
+          date: selectedEvent.date,
+          end_date: selectedEvent.end_date,
+          start_time: selectedEvent.start_time,
+          end_time: selectedEvent.end_time,
+        }
+      } else {
+        previousEventSnapshotRef.current = null
       }
       prevEventIdRef.current = currentId ?? null
     }

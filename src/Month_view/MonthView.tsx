@@ -146,6 +146,23 @@ const MonthView = () => {
     return selectedEvent
   }, [pinnedDraftEventId, selectedEvent])
 
+  const discardUntouchedTempSelection = () => {
+    const { selectedEventId: currentSelectedEventId, getEventById: getLatestEventById } = useEventsStore.getState()
+    if (!currentSelectedEventId) return
+
+    const currentSelectedEvent = getLatestEventById(currentSelectedEventId)
+    const isUntouchedTemp =
+      currentSelectedEvent &&
+      currentSelectedEvent.isTemp === true &&
+      currentSelectedEvent.created_at === currentSelectedEvent.updated_at &&
+      (currentSelectedEvent.title === "New Event" || !currentSelectedEvent.title?.trim())
+
+    if (!isUntouchedTemp) return
+
+    void deleteEvent(currentSelectedEventId)
+    setSelectedEvent(null)
+  }
+
   const weekLayouts = useMemo(() => {
     return visibleWeeks.map((week) => {
       const weekDateKeys = week.map((date) => formatDate(date))
@@ -330,17 +347,20 @@ const MonthView = () => {
   }, [monthEventsByDateKey, pinnedDraftEvent, pinnedDraftEventId, pinnedSelectedEvent, visibleWeeks])
 
   const openMonthDate = (date: Date) => {
+    discardUntouchedTempSelection()
     setDate(withMiddayTime(date))
     setSelectedEvent(null)
     navigate(`/month/${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`)
   }
 
   const openMonthDateKeepingSelection = (date: Date) => {
+    discardUntouchedTempSelection()
     setDate(withMiddayTime(date))
     navigate(`/month/${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`)
   }
 
   const openDayView = (date: Date) => {
+    discardUntouchedTempSelection()
     setDate(withMiddayTime(date))
     navigate(`/day/${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`)
   }
@@ -532,10 +552,10 @@ const MonthView = () => {
       {/* Title bar */}
       <div className="px-9 pt-32 pb-5 shrink-0">
         <h1 className="text-6xl pb-0 font-semibold text-neutral-800 tracking-tight">
-          <span style={{ fontFamily: "SF Pro Display Bold" }} className="text-black">
+          <span className="text-black">
             {format(displayDate, "MMMM")},
           </span>
-          <span style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }} className="text-neutral-400">
+          <span className="text-neutral-400 font-normal">
             {" "}
             {format(displayDate, "yyyy")}
           </span>

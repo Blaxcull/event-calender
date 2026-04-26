@@ -23,6 +23,17 @@ export default function SidebarHeader({
   onToday,
   onNext,
 }: SidebarHeaderProps) {
+  const containerPadding = compact ? 'px-5 pt-24 pb-7' : 'px-30 pt-24 pb-9'
+  const layoutClass = compact
+    ? 'flex items-start gap-4'
+    : 'flex items-start gap-3'
+  const calendarShellClass = compact
+    ? 'flex items-start justify-start pt-2'
+    : 'w-[135px] flex items-start justify-center pt-6'
+  const controlsShellClass = compact
+    ? 'flex flex-1 items-start justify-start pt-2'
+    : 'flex flex-1 justify-start pt-8 pl-35'
+
   return (
     <>
       <Button
@@ -39,9 +50,9 @@ hover:scale-110 hover:shadow-xl"
         <img src={SearchIcon} alt="Search" className="h-8 w-8 opacity-60" />
       </Button>
 
-      <CardContent className={`pb-9 pt-24 shrink-0 ${compact ? 'px-12' : 'px-30'}`}>
-        <div className="flex items-start gap-3">
-          <div className="w-[135px] flex items-start justify-center pt-6">
+      <CardContent className={`shrink-0 ${containerPadding}`}>
+        <div className={layoutClass}>
+          <div className={calendarShellClass}>
             <div className="origin-top">
               <Calendar
                 mode="single"
@@ -52,7 +63,7 @@ hover:scale-110 hover:shadow-xl"
             </div>
           </div>
 
-          <div className={`flex flex-1 justify-start pt-8 ${compact ? 'pl-8' : 'pl-35'}`}>
+          <div className={controlsShellClass}>
             <div className="flex items-center gap-3">
               <Button
                 variant="secondary"

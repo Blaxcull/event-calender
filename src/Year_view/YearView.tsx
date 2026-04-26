@@ -65,7 +65,7 @@ const YearView = () => {
       <div className="h-full w-full rounded-l-2xl bg-[#ececeb] shadow-xl flex flex-col overflow-hidden">
         <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0 bg-[#ececeb]">
           <h1 className="text-6xl font-semibold tracking-tight text-neutral-800">
-            <span style={{ fontFamily: "SF Pro Display Bold" }}>{displayYear}</span>
+            <span>{displayYear}</span>
           </h1>
         </div>
 

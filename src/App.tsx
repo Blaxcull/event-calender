@@ -11,6 +11,8 @@ function App() {
   const location = useLocation()
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup'
   const isGoalView = location.pathname === '/goalview'
+  const isHomePage = location.pathname === '/'
+  const isShellHiddenPage = isAuthPage || isHomePage
   const {
     currentView,
     setCurrentView,
@@ -27,7 +29,7 @@ function App() {
     openCompactSidebar,
     setIsSearchOpen,
     setIsSidebarHoverVisible,
-  } = useAppShell(isAuthPage, isGoalView)
+  } = useAppShell(isShellHiddenPage, isGoalView)
 
   if (isAuthLoading) {
     return <div className="h-screen w-screen bg-[#f3f3f2]" />
@@ -36,10 +38,10 @@ function App() {
   return (
     <>
       {isAuthenticated ? <TimeUpdater /> : null}
-      {!isAuthPage && isAuthenticated && <ViewSwitcher currentView={currentView as any} onViewChange={setCurrentView} />}
-      {!isAuthPage && isAuthenticated && <TopBarLeft />}
-      <div className={`flex h-screen overflow-hidden relative ${isAuthPage ? '' : ''}`}>
-        <div className={`flex-1 overflow-hidden ${isAuthPage ? 'w-full' : ''}`}>
+      {!isShellHiddenPage && isAuthenticated && <ViewSwitcher currentView={currentView as any} onViewChange={setCurrentView} />}
+      {!isShellHiddenPage && isAuthenticated && <TopBarLeft />}
+      <div className={`flex h-screen overflow-hidden relative ${isShellHiddenPage ? '' : ''}`}>
+        <div className={`flex-1 ${isShellHiddenPage ? 'w-full overflow-y-auto no-scrollbar' : 'overflow-hidden'}`}>
           <AppRoutes isAuthenticated={isAuthenticated} />
         </div>
 

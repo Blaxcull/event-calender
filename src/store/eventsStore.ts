@@ -64,6 +64,9 @@ export { getEventsForDateSnapshot, getEventsForDatesSnapshot } from './eventsSto
 
 // How many days before/after center date to fetch
 const CACHE_WINDOW_DAYS = 17
+const PERSIST_PAST_DAYS = 30
+const PERSIST_FUTURE_DAYS = 90
+const PERSIST_TTL_MS = 24 * 60 * 60 * 1000
 
 // ---- Store Interface ----
 
@@ -78,6 +81,7 @@ interface EventsState {
   cacheStartDate: string | null
   cacheEndDate: string | null
   cachedUserId: string | null
+  lastPersistedAt: number | null
 
   // Loading / error
   isLoading: boolean
@@ -143,6 +147,56 @@ interface EventsState {
 
 // ---- Helpers ----
 
+const buildPersistWindow = () => {
+  const now = new Date()
+  return {
+    minDate: formatDate(addDays(now, -PERSIST_PAST_DAYS)),
+    maxDate: formatDate(addDays(now, PERSIST_FUTURE_DAYS)),
+  }
+}
+
+const prunePersistedEventsCache = (eventsCache: EventsCache) => {
+  const { minDate, maxDate } = buildPersistWindow()
+
+  return Object.fromEntries(
+    Object.entries(eventsCache)
+      .filter(([dateKey]) => dateKey >= minDate && dateKey <= maxDate)
+      .map(([dateKey, events]) => [dateKey, events.filter((event) => event.isTemp !== true)])
+      .filter(([, events]) => events.length > 0)
+  )
+}
+
+const prunePersistedExceptionsCache = (
+  eventExceptionsCache: Record<string, EventException[]>,
+  eventsCache: EventsCache
+) => {
+  const retainedMasterIds = new Set<string>()
+
+  Object.values(eventsCache).forEach((events) => {
+    events.forEach((event) => {
+      if (event.repeat && event.repeat !== 'None') {
+        retainedMasterIds.add(event.id)
+      }
+      if (isVirtualEventId(event.id)) {
+        retainedMasterIds.add(extractMasterId(event.id))
+      }
+    })
+  })
+
+  return Object.fromEntries(
+    Object.entries(eventExceptionsCache).filter(([masterId]) => retainedMasterIds.has(masterId))
+  )
+}
+
+const eventsLikelyMatch = (a: Event, b: Event) => (
+  a.date === b.date &&
+  (a.end_date || a.date) === (b.end_date || b.date) &&
+  a.start_time === b.start_time &&
+  a.end_time === b.end_time &&
+  (a.title || '') === (b.title || '') &&
+  (a.repeat || 'None') === (b.repeat || 'None')
+)
+
 // ---- Store ----
 
 export const useEventsStore = create<EventsState>()(
@@ -155,6 +209,7 @@ export const useEventsStore = create<EventsState>()(
       cacheStartDate: null,
       cacheEndDate: null,
       cachedUserId: null,
+      lastPersistedAt: null,
       isLoading: false,
       error: null,
       pendingSyncs: new Set<string>(),
@@ -191,11 +246,12 @@ export const useEventsStore = create<EventsState>()(
           set({
             eventsCache: {},
             computedEventsCache: {},
-            cacheStartDate: null,
-            cacheEndDate: null,
-            cachedUserId: user.id,
-          })
-        }
+          cacheStartDate: null,
+          cacheEndDate: null,
+          cachedUserId: user.id,
+          lastPersistedAt: null,
+        })
+      }
 
         try {
           const { data, error } = await supabase
@@ -211,47 +267,52 @@ export const useEventsStore = create<EventsState>()(
             return
           }
 
-          // Merge fetched data with existing cache
-          const { eventsCache: oldCache, pendingSyncs, pendingDeletes } = get()
-          const newCache: EventsCache = { ...oldCache }
+          const fetchedEvents = (data || []).map((row: Record<string, any>) => dbRowToEvent(row))
+          const buildMergedCache = (
+            baseCache: EventsCache,
+            syncs: Set<string>,
+            deletes: Set<string>
+          ): EventsCache => {
+            const mergedCache: EventsCache = { ...baseCache }
 
-          // Filter out any events marked as deleted in local cache
-          for (const dateKey of Object.keys(newCache)) {
-            newCache[dateKey] = newCache[dateKey].filter(e => !(e as any).deleted)
-          }
-
-          // Also filter events that are pending delete
-          if (pendingDeletes && pendingDeletes.size > 0) {
-            for (const dateKey of Object.keys(newCache)) {
-              newCache[dateKey] = newCache[dateKey].filter(e => !pendingDeletes.has(e.id))
+            for (const dateKey of Object.keys(mergedCache)) {
+              mergedCache[dateKey] = mergedCache[dateKey].filter(
+                (event) => !(event as any).deleted && !deletes.has(event.id)
+              )
             }
-          }
 
-          data?.forEach((row: Record<string, any>) => {
-            const event = dbRowToEvent(row)
-            // Skip if this event is pending delete
-            if (pendingDeletes && pendingDeletes.has(event.id)) {
-              return
-            }
-            if (!newCache[event.date]) newCache[event.date] = []
-            newCache[event.date] = newCache[event.date].filter(e => e.id !== event.id)
-            newCache[event.date].push(event)
-            newCache[event.date].sort((a, b) => a.start_time - b.start_time)
-          })
+            fetchedEvents.forEach((event) => {
+              if (deletes.has(event.id)) return
+              if (!mergedCache[event.date]) mergedCache[event.date] = []
+              mergedCache[event.date] = mergedCache[event.date].filter((e) => e.id !== event.id)
+              mergedCache[event.date].push(event)
+              mergedCache[event.date].sort((a, b) => a.start_time - b.start_time)
+            })
 
-          // Preserve temp events still syncing
-          for (const date of Object.keys(oldCache)) {
-            const tempEvents = oldCache[date].filter(e => pendingSyncs.has(e.id) && (!pendingDeletes || !pendingDeletes.has(e.id)))
-            if (tempEvents.length > 0) {
-              if (!newCache[date]) newCache[date] = []
+            for (const date of Object.keys(baseCache)) {
+              const tempEvents = baseCache[date].filter(
+                (event) => syncs.has(event.id) && !deletes.has(event.id)
+              )
+              if (tempEvents.length === 0) continue
+              if (!mergedCache[date]) mergedCache[date] = []
               for (const tempEvent of tempEvents) {
-                if (!newCache[date].some(e => e.id === tempEvent.id)) {
-                  newCache[date].push(tempEvent)
+                if (!mergedCache[date].some((event) => event.id === tempEvent.id || eventsLikelyMatch(event, tempEvent))) {
+                  mergedCache[date].push(tempEvent)
                 }
               }
-              newCache[date].sort((a, b) => a.start_time - b.start_time)
+              mergedCache[date].sort((a, b) => a.start_time - b.start_time)
             }
+
+            return mergedCache
           }
+
+          // Merge fetched data with the latest cache state, not the pre-request snapshot.
+          const {
+            eventsCache: latestCache,
+            pendingSyncs,
+            pendingDeletes,
+          } = get()
+          const newCache = buildMergedCache(latestCache, pendingSyncs, pendingDeletes)
 
           // Fetch exceptions for all recurring masters currently present in cache.
           // This covers masters that started outside the current fetch window but
@@ -301,8 +362,19 @@ export const useEventsStore = create<EventsState>()(
             }
           }
 
+          const {
+            eventsCache: latestCacheAtCommit,
+            pendingSyncs: pendingSyncsAtCommit,
+            pendingDeletes: pendingDeletesAtCommit,
+          } = get()
+          const finalCache = buildMergedCache(
+            latestCacheAtCommit,
+            pendingSyncsAtCommit,
+            pendingDeletesAtCommit
+          )
+
           set({
-            eventsCache: newCache,
+            eventsCache: finalCache,
             computedEventsCache: {},
             cacheStartDate: startStr,
             cacheEndDate: endStr,
@@ -479,12 +551,20 @@ export const useEventsStore = create<EventsState>()(
               }
             }
 
-            if (newCache[dateKey]) {
-              newCache[dateKey] = newCache[dateKey].map(e =>
-                e.id === tempId ? finalEvent : e
+            for (const cacheDateKey of Object.keys(newCache)) {
+              const filtered = newCache[cacheDateKey].filter(
+                (e) => e.id !== tempId && e.id !== savedEvent.id
               )
-              newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
+              if (filtered.length === 0) {
+                delete newCache[cacheDateKey]
+              } else {
+                newCache[cacheDateKey] = filtered
+              }
             }
+
+            if (!newCache[dateKey]) newCache[dateKey] = []
+            newCache[dateKey] = [...newCache[dateKey], finalEvent]
+            newCache[dateKey].sort((a, b) => a.start_time - b.start_time)
 
             const newSelectedId = currentSelectedId === tempId ? finalEvent.id : currentSelectedId
             const { computedEventsCache: currentComputedCache } = get()
@@ -520,6 +600,13 @@ export const useEventsStore = create<EventsState>()(
         const tempId = event.id || `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
         const now = new Date().toISOString()
 
+        let seriesEndDate: string | undefined
+        if (event.repeat && event.repeat !== 'None' && event.date) {
+          const startDate = new Date(event.date + 'T00:00:00')
+          startDate.setFullYear(startDate.getFullYear() + 10)
+          seriesEndDate = startDate.toISOString().split('T')[0]
+        }
+
         const tempEvent: Event = {
           id: tempId,
           user_id: 'temp-user',
@@ -535,15 +622,19 @@ export const useEventsStore = create<EventsState>()(
           is_all_day: event.is_all_day,
           location: event.location,
           repeat: event.repeat,
+          series_start_date: event.repeat && event.repeat !== 'None' ? event.date : undefined,
+          series_end_date: seriesEndDate,
           created_at: now,
           updated_at: now,
           isTemp: true,
         }
 
-        const { eventsCache, computedEventsCache } = get()
+        const { eventsCache, computedEventsCache, pendingSyncs } = get()
         const dateKey = event.date
         const newComputedCache = { ...computedEventsCache }
         delete newComputedCache[dateKey]
+        const newPendingSyncs = new Set(pendingSyncs)
+        newPendingSyncs.add(tempId)
 
         set({
           eventsCache: {
@@ -551,12 +642,23 @@ export const useEventsStore = create<EventsState>()(
             [dateKey]: [...(eventsCache[dateKey] || []), tempEvent].sort((a, b) => a.start_time - b.start_time),
           },
           computedEventsCache: newComputedCache,
+          pendingSyncs: newPendingSyncs,
         })
+
+        // Start the DB save immediately so route/view fetches do not wipe the temp event.
+        void get().saveTempEvent(tempId)
 
         return tempEvent
       },
 
       saveTempEvent: async (tempEventId: string) => {
+        const clearCancelledTemp = () => {
+          const currentPendingDeletes = new Set(get().pendingDeletes)
+          if (!currentPendingDeletes.has(tempEventId)) return
+          currentPendingDeletes.delete(tempEventId)
+          set({ pendingDeletes: currentPendingDeletes })
+        }
+
         const { eventsCache, pendingSyncs, pendingUpdates } = get()
         let tempEvent: Event | null = null
         let dateKey: string | null = null
@@ -567,6 +669,10 @@ export const useEventsStore = create<EventsState>()(
         }
 
         if (!tempEvent || !dateKey) return
+        if (get().pendingDeletes.has(tempEventId)) {
+          clearCancelledTemp()
+          return
+        }
 
         // Apply queued updates before saving
         const queuedUpdates = pendingUpdates.get(tempEventId) || []
@@ -577,6 +683,10 @@ export const useEventsStore = create<EventsState>()(
 
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
+        if (get().pendingDeletes.has(tempEventId)) {
+          clearCancelledTemp()
+          return
+        }
 
         const eventForDb = buildEventForDb(updatedTempEvent, user.id)
         const { data: rawSavedEvent, error } = await supabase
@@ -586,6 +696,11 @@ export const useEventsStore = create<EventsState>()(
           .single()
 
         if (error || !rawSavedEvent) return
+        if (get().pendingDeletes.has(tempEventId)) {
+          await supabase.from('events').delete().eq('id', rawSavedEvent.id)
+          clearCancelledTemp()
+          return
+        }
 
         const savedEvent = dbRowToEvent(rawSavedEvent)
 
@@ -604,11 +719,20 @@ export const useEventsStore = create<EventsState>()(
 
         // Replace temp with real event
         const newCache = { ...currentCache }
-        if (newCache[dateKey]) {
-          newCache[dateKey] = newCache[dateKey].map(e =>
-            e.id === tempEventId ? finalEvent : e
+        for (const cacheDateKey of Object.keys(newCache)) {
+          const filtered = newCache[cacheDateKey].filter(
+            (e) => e.id !== tempEventId && e.id !== savedEvent.id
           )
+          if (filtered.length === 0) {
+            delete newCache[cacheDateKey]
+          } else {
+            newCache[cacheDateKey] = filtered
+          }
         }
+
+        if (!newCache[dateKey]) newCache[dateKey] = []
+        newCache[dateKey] = [...newCache[dateKey], finalEvent]
+          .sort((a, b) => a.start_time - b.start_time)
 
         const newPendingSyncs = new Set(get().pendingSyncs)
         newPendingSyncs.delete(tempEventId)
@@ -731,7 +855,7 @@ export const useEventsStore = create<EventsState>()(
       // ---- Delete ----
 
       deleteEvent: async (id: string) => {
-        const { eventsCache, computedEventsCache } = get()
+        const { eventsCache, computedEventsCache, pendingDeletes, pendingSyncs, pendingUpdates } = get()
         const newCache = { ...eventsCache }
         const newComputedCache = { ...computedEventsCache }
 
@@ -768,11 +892,27 @@ export const useEventsStore = create<EventsState>()(
           set({ eventsCache: newCache, computedEventsCache: newComputedCache, recurringEventsCache: {}, eventExceptionsCache: {} })
         }
 
+        const newPendingDeletes = new Set(pendingDeletes)
+        newPendingDeletes.add(id)
+        const newPendingSyncs = new Set(pendingSyncs)
+        newPendingSyncs.delete(id)
+        const newPendingUpdates = new Map(pendingUpdates)
+        newPendingUpdates.delete(id)
+
+        set({
+          pendingDeletes: newPendingDeletes,
+          pendingSyncs: newPendingSyncs,
+          pendingUpdates: newPendingUpdates,
+        })
+
         if (isTempEvent) return true
 
         setTimeout(async () => {
           try {
             await supabase.from('events').delete().eq('id', id)
+            const currentPendingDeletes = new Set(get().pendingDeletes)
+            currentPendingDeletes.delete(id)
+            set({ pendingDeletes: currentPendingDeletes })
           } catch { /* background delete failed silently */ }
         }, 0)
 
@@ -1963,6 +2103,7 @@ export const useEventsStore = create<EventsState>()(
           cacheStartDate: null,
           cacheEndDate: null,
           cachedUserId: null,
+          lastPersistedAt: null,
           pendingDeletes: new Set(),
           liveEventTimes: {},
         })
@@ -1970,17 +2111,24 @@ export const useEventsStore = create<EventsState>()(
     }),
     {
       name: 'events-storage',
-      partialize: (state) => ({
-        eventsCache: Object.fromEntries(
-          Object.entries(state.eventsCache)
-            .map(([dateKey, events]) => [dateKey, events.filter((event) => event.isTemp !== true)])
-            .filter(([, events]) => events.length > 0)
-        ),
-        eventExceptionsCache: state.eventExceptionsCache,
-        cacheStartDate: state.cacheStartDate,
-        cacheEndDate: state.cacheEndDate,
-        cachedUserId: state.cachedUserId,
-      }),
+      partialize: (state) => {
+        const prunedEventsCache = prunePersistedEventsCache(state.eventsCache)
+
+        return {
+          eventsCache: prunedEventsCache,
+          eventExceptionsCache: prunePersistedExceptionsCache(state.eventExceptionsCache, prunedEventsCache),
+          cacheStartDate: state.cacheStartDate,
+          cacheEndDate: state.cacheEndDate,
+          cachedUserId: state.cachedUserId,
+          lastPersistedAt: Date.now(),
+        }
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state?.lastPersistedAt) return
+        if (Date.now() - state.lastPersistedAt <= PERSIST_TTL_MS) return
+
+        state.clearCache()
+      },
     }
   )
 )

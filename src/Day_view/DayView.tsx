@@ -147,16 +147,10 @@ const DayView = () => {
         {/* HEADER */}
         <div className="px-9 pt-32 pb-3 border-b border-white/20 shrink-0">
           <h1 className="text-6xl pb-7 font-semibold text-neutral-800 tracking-tight">
-          <span
-  style={{ fontFamily: "SF Pro Display Bold" }}
-  className="text-black"
->
+            <span className="text-black">
               {displayDate?.monthName} {displayDate?.day},
             </span>
-            <span
-
-  style={{ fontFamily: "SF Pro Display Regular", fontWeight: 400 }}
-            className="text-neutral-400"> {displayDate?.year}</span>
+            <span className="text-neutral-400 font-normal"> {displayDate?.year}</span>
           </h1>
           <p className="mt-2 text-3xl text-neutral-700">{displayDate?.dayName}</p>
         </div>

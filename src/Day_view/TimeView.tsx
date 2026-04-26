@@ -47,6 +47,11 @@ const TimeView: React.FC<TimeViewProps> = () => {
   useEffect(() => {
     localEventsRef.current = localEvents
   }, [localEvents])
+
+  const replaceLocalEvents = React.useCallback((nextEvents: EventType[]) => {
+    localEventsRef.current = nextEvents
+    setLocalEvents(nextEvents)
+  }, [])
   
   // Sync local events from store when not dragging/resizing
   useEffect(() => {
@@ -57,7 +62,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     }
     
     if (!selectedDate) {
-      setLocalEvents([])
+      replaceLocalEvents([])
       clearLiveEventTime()
       livePreviewRef.current = null
       return
@@ -141,7 +146,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
       }
     })
     
-    setLocalEvents(uiEvents)
+    replaceLocalEvents(uiEvents)
     
     // Pre-calculate event positions synchronously so events render at correct positions
     const positions = calculateEventPositions(uiEvents.filter(e => !e.isAllDay), selectedEventId)
@@ -154,7 +159,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
         idMapping.current.delete(tempId)
       }
     }
-  }, [selectedDate, eventsCache, computedEventsCache, getEventsForDate, goalsStore])
+  }, [selectedDate, eventsCache, computedEventsCache, getEventsForDate, goalsStore, replaceLocalEvents])
   
   // UI state
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -205,7 +210,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
     pendingEventIds.current.add(newUIEvent.id)
 
     const allEventsWithNew = [...localEventsRef.current, newUIEvent]
-    setLocalEvents(allEventsWithNew)
+    replaceLocalEvents(allEventsWithNew)
 
     const positions = calculateEventPositions(allEventsWithNew.filter(e => !(e as EventType).isAllDay), newUIEvent.id)
     applyInsetPositionsToDOM(positions)
@@ -630,6 +635,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
                 ? { ...ev, slot: snappedY, startHour: start.hour, startMin: start.min, endHour: end.hour, endMin: end.min }
                 : ev
             )
+            localEventsRef.current = updatedEvents
             setEventPositions(calculateEventPositions(updatedEvents.filter(e => !e.isAllDay), draggingId))
             return updatedEvents
           })
@@ -684,6 +690,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
                 ? { ...ev, height: newHeight, endHour: end.hour, endMin: end.min }
                 : ev
             )
+            localEventsRef.current = updatedEvents
             setEventPositions(calculateEventPositions(updatedEvents.filter(e => !e.isAllDay), resizingId))
             return updatedEvents
           })
@@ -715,6 +722,7 @@ const TimeView: React.FC<TimeViewProps> = () => {
 
     setLocalEvents(prev => {
       const next = prev.filter(e => e.id !== eventId)
+      localEventsRef.current = next
       setEventPositions(calculateEventPositions(next.filter(e => !e.isAllDay), null))
       return next
     })
@@ -939,7 +947,11 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   )
                   // Remove the dragged virtual event from local state since it's been replaced
                   if (draggedEvent.isRecurringInstance) {
-                    setLocalEvents(prev => prev.filter(e => e.id !== draggedEvent.id))
+                    setLocalEvents(prev => {
+                      const next = prev.filter(e => e.id !== draggedEvent.id)
+                      localEventsRef.current = next
+                      return next
+                    })
                   }
                   originalEventRef.current = null
                   setSelectedEvent(null)
@@ -1070,7 +1082,11 @@ const TimeView: React.FC<TimeViewProps> = () => {
                   )
                   // Remove the resized virtual event from local state since it's been replaced
                   if (resizedEvent.isRecurringInstance) {
-                    setLocalEvents(prev => prev.filter(e => e.id !== resizedEvent.id))
+                    setLocalEvents(prev => {
+                      const next = prev.filter(e => e.id !== resizedEvent.id)
+                      localEventsRef.current = next
+                      return next
+                    })
                   }
                   originalEventRef.current = null
                   setSelectedEvent(null)

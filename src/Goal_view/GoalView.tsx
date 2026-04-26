@@ -875,7 +875,7 @@ const GoalView = () => {
               />
             </div>
           </div>
-          <div className="max-h-[420px] overflow-y-auto px-3 py-3">
+          <div className="max-h-[420px] overflow-y-auto no-scrollbar px-3 py-3">
             {filteredGoals.length > 0 ? (
               <div className="space-y-2">
                 {filteredGoals.map((goal) => (
