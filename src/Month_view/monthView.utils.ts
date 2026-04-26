@@ -22,7 +22,7 @@ export const formatClock = (totalMinutes: number) => {
 }
 
 export const getEventLabel = (event: CalendarEvent) => {
-  if (isTimedMultiDayEvent(event)) return `${formatClock(event.start_time)} ${event.title}`
+  if (isTimedMultiDayEvent(event)) return `${formatClock(event.start_time)}, ${event.title}`
   if (isAllDayEvent(event)) return event.title
   return `${formatClock(event.start_time)} ${event.title}`
 }

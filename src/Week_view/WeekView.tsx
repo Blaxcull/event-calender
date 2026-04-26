@@ -928,9 +928,13 @@ const WeekView = () => {
                           {visibleTopEvents.map((event) => {
                             const startKey = event.date
                             const endKey = event.end_date || event.date
+                            const visibleStartKey = startKey < weekDateKeys[0] ? weekDateKeys[0] : startKey
+                            const visibleEndKey = endKey > weekDateKeys[weekDateKeys.length - 1]
+                              ? weekDateKeys[weekDateKeys.length - 1]
+                              : endKey
                             const continuesFromPreviousWeek = startKey < weekDateKeys[0]
                             const continuesIntoNextWeek = endKey > weekDateKeys[weekDateKeys.length - 1]
-                            const spanDays = Math.max(1, Math.min(7 - dayIndex, daySpan(startKey, endKey) + 1))
+                            const spanDays = Math.max(1, daySpan(visibleStartKey, visibleEndKey) + 1)
                             const lane = topRowLayout.laneByEventId[event.id] ?? 0
                             const isActive = selectedEventId === event.id
                             const { backgroundColor, mutedBackgroundColor, textColor, accentColor } = getEventVisualColors((event as any).goalColor || (event as any).color)
@@ -945,7 +949,7 @@ const WeekView = () => {
                                 onClick={(eventClick) => {
                                   eventClick.stopPropagation()
                                   setSelectedEvent(event.id)
-                                  setDate(getDateFromSpanningClick(eventClick, event.date, spanDays))
+                                  setDate(getDateFromSpanningClick(eventClick, visibleStartKey, spanDays))
                                 }}
                                 className={`truncate py-1 text-[13px] font-semibold absolute left-0 cursor-pointer transition-[width,transform,box-shadow] duration-200 ease-out ${
                                   isActive ? "z-[9999] border-2 border-white shadow-2xl rounded-xl" : "z-[60] shadow-sm border border-[#cfcfcb]"
@@ -996,7 +1000,10 @@ const WeekView = () => {
                                       {formatTimedSpanLabel(event.start_time, event.end_time)}
                                     </span>
                                   ) : null}
-                                  <span className="truncate">{event.title},</span>
+                                  <span className="truncate">
+                                    {event.title}
+                                    {endKey > event.date ? "," : ""}
+                                  </span>
                                   {endKey > event.date ? (
                                     <span className="shrink-0 opacity-70"> {topRowDateRange}</span>
                                   ) : null}
@@ -1008,13 +1015,13 @@ const WeekView = () => {
                             <button
                               key={`top-hit-${event.id}-${dayKey}`}
                               type="button"
-                              aria-label={`Edit ${event.title}`}
+                              aria-label={`Open ${event.title} on ${dayKey}`}
                               onClick={(eventClick) => {
                                 eventClick.stopPropagation()
                                 setSelectedEvent(event.id)
-                                setDate(new Date(`${dayKey}T00:00:00`))
+                                setDate(new Date(`${dayKey}T12:00:00`))
                               }}
-                              className="absolute left-0 z-[70] h-[20px] w-full cursor-pointer rounded bg-transparent p-0 border-0"
+                              className="absolute -left-1 -right-1 z-[120] h-[23px] cursor-pointer rounded bg-transparent p-0 border-0"
                               style={{ top: `${lane * TOP_ROW_LANE_PITCH + TOP_ROW_ITEM_OFFSET}px` }}
                             />
                           ))}

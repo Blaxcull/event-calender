@@ -118,10 +118,10 @@ export function getEventVisualColors(color?: string) {
 
   if (!parsed) {
     return {
-      backgroundColor: "#f792bb",
-      mutedBackgroundColor: "hsl(334 83% 77% / 0.5)",
-      textColor: "#be185d",
-      accentColor: "#ec4899",
+      backgroundColor: "#000000",
+      mutedBackgroundColor: "rgba(0, 0, 0, 0.7)",
+      textColor: "#ffffff",
+      accentColor: "#ffffff",
     }
   }
 

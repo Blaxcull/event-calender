@@ -1,4 +1,4 @@
-# Gemini Mandates: Ortem
+# Gemini Mandates: Waydots
 
 This document serves as the foundational guide for Gemini CLI's operations within this repository. These mandates take precedence over general defaults.
 

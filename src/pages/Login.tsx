@@ -37,8 +37,8 @@ function LoginContent() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-background">
       <Link to="/" className="mb-8 flex items-center gap-3">
-        <img src="/applogo.png" alt="Ortem Logo" className="h-10 w-auto object-contain shadow-sm" />
-        <span className="text-2xl font-bold tracking-tighter uppercase">Ortem</span>
+        <img src="/applogo.png" alt="Waydots Logo" className="h-10 w-auto object-contain shadow-sm" />
+        <span className="text-2xl font-bold tracking-tighter uppercase">Waydots</span>
       </Link>
       <Card className="w-full max-w-sm">
         <CardHeader>

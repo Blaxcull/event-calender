@@ -175,21 +175,9 @@ const DayView = () => {
               const endDate = event.end_date || event.date
               const isMultiDay = isMultiDayEvent(event)
               const isTimedMultiDay = isTimedMultiDayEvent(event)
-let shapeClass = ''
-
-if (isMultiDay && selectedDate) {
-  const currentDate = selectedDateKey
-
-  if (currentDate === event.date) {
-    shapeClass = 'event-start'
-  } else if (currentDate === endDate) {
-    shapeClass = 'event-end'
-  } else {
-    shapeClass = 'event-middle'
-  }
-} else {
-  shapeClass = 'event-same-day'
-              }
+              const currentDate = selectedDateKey
+              const continuesFromPreviousDay = !!(isMultiDay && currentDate && currentDate > event.date)
+              const continuesIntoNextDay = !!(isMultiDay && currentDate && currentDate < endDate)
 
               const showArrow = allDayEvents.length > 2 && index === visibleEvents.length - 1
               const isSelected = selectedEventId === event.id
@@ -219,11 +207,29 @@ if (isMultiDay && selectedDate) {
                     onClick={() => handleAllDayEventClick(event.id)}
                     className={`relative flex-1 px-3 py-2 text-s font-medium cursor-pointer truncate flex items-center gap-2 box-border transition-shadow duration-200 ${
                       isSelected ? 'z-[9999] border-2 border-white shadow-2xl rounded-xl' : 'border border-[#cfcfcb]'
-                    } ${isSelected ? '' : shapeClass}`}
+                    } ${
+                      isSelected
+                        ? ''
+                        : continuesFromPreviousDay && continuesIntoNextDay
+                          ? 'rounded-none'
+                          : continuesFromPreviousDay
+                            ? 'rounded-r-xl rounded-l-none'
+                            : continuesIntoNextDay
+                              ? 'rounded-l-xl rounded-r-none'
+                              : 'rounded-xl'
+                    }`}
                     style={{
                       backgroundColor: isSelected ? backgroundColor : mutedBackgroundColor,
                       color: textColor,
-                      clipPath: isSelected ? 'none' : undefined,
+                      clipPath: isSelected
+                        ? 'none'
+                        : continuesFromPreviousDay && continuesIntoNextDay
+                          ? 'polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%)'
+                          : continuesFromPreviousDay
+                            ? 'polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%)'
+                            : continuesIntoNextDay
+                              ? 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)'
+                              : undefined,
                       borderRadius: isSelected ? '20px' : undefined,
                     }}
                   >

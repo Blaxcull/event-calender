@@ -805,7 +805,7 @@ const MonthView = () => {
                           const isEventSelected = selectedEventId === event.id
                           const isAllDay = isAllDayEvent(event)
                           const isTimedMultiDay = isTimedMultiDayEvent(event)
-                          const isFilledAllDayChip = isAllDay && !isTimedMultiDay
+                          const isFilledAllDayChip = isAllDay || isTimedMultiDay
                           const timedPieces = !isAllDay && !isTimedMultiDay ? getTimedEventPieces(event) : null
                           const dotColor = accentColor || backgroundColor
 
@@ -896,7 +896,7 @@ const MonthView = () => {
                   {weekLayout.multiDayItems.map((item) => {
                     const resolvedColor =
                       item.event.goalColor || resolveGoalColorForEvent(goalsStore, item.event) || item.event.color
-                    const { backgroundColor, textColor } = getEventVisualColors(resolvedColor)
+                    const { backgroundColor, mutedBackgroundColor, textColor } = getEventVisualColors(resolvedColor)
                     const isEventSelected = selectedEventId === item.event.id
                     const left = `calc(${(item.startIdx / 7) * 100}% + 6px)`
                     const width = `calc(${(item.spanDays / 7) * 100}% - 12px)`
@@ -919,7 +919,7 @@ const MonthView = () => {
                           left,
                           width,
                           height: MULTI_DAY_ITEM_HEIGHT,
-                          backgroundColor,
+                          backgroundColor: isEventSelected ? backgroundColor : mutedBackgroundColor,
                           color: textColor,
                           boxShadow: isEventSelected
                             ? "0 8px 20px rgba(0,0,0,0.18), 0 0 0 2px #ffffff"
@@ -930,7 +930,7 @@ const MonthView = () => {
                           {item.isPinnedPriority
                             ? getEventLabel(item.event)
                             : isTimedMultiDayEvent(item.event)
-                            ? `${formatClock(item.event.start_time)} ${item.event.title}`
+                            ? getEventLabel(item.event)
                             : item.event.title}
                         </span>
                       </div>
